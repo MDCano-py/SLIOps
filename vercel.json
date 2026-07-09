@@ -1,0 +1,27 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/maintainx?path=/photo-cleanup",
+      "schedule": "0 4 * * *"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/auth/:subpath",
+      "destination": "/api/maintainx?path=/auth/:subpath"
+    },
+    {
+      "source": "/sso/:orgSlug/login",
+      "destination": "/api/maintainx?path=/sso/:orgSlug/login"
+    },
+    {
+      "source": "/sso/:orgSlug/acs",
+      "destination": "/api/maintainx?path=/sso/:orgSlug/acs"
+    },
+    {
+      "source": "/sso/:orgSlug/metadata",
+      "destination": "/api/maintainx?path=/sso/:orgSlug/metadata"
+    }
+  ]
+}

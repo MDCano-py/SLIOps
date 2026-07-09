@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Streamline · Action Required</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="hub.css" />
+  <style>
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--hub-bg, #f5f7f8);
+      margin: 0;
+      min-height: 100vh;
+      color: var(--hub-text, #122023);
+    }
+    .action-wrap { max-width: 640px; margin: 40px auto; padding: 0 20px 48px; }
+    .action-brand { font-weight: 700; color: var(--hub-teal, #0f766e); margin-bottom: 20px; font-size: 0.9rem; }
+    .action-mode-banner {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 14px 16px; border-radius: 8px; margin-bottom: 16px;
+      border: 1px solid var(--hub-border, #d9e2e3);
+    }
+    .action-mode-banner.fill { background: #ecfdf5; border-color: #a7f3d0; }
+    .action-mode-banner.review { background: #eff6ff; border-color: #bfdbfe; }
+    .action-mode-banner.sign { background: #fffbeb; border-color: #fde68a; }
+    .action-mode-banner strong { display: block; font-size: 0.95rem; margin-bottom: 4px; }
+    .action-mode-banner p { margin: 0; font-size: 0.82rem; color: var(--hub-muted, #5a6b6d); line-height: 1.45; }
+    .action-doc-summary {
+      background: var(--hub-surface-2, #f8fafb);
+      border: 1px solid var(--hub-border);
+      border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; font-size: 0.85rem;
+    }
+    .action-doc-summary h3 { margin: 0 0 6px; font-size: 0.9rem; }
+    .action-section { margin-bottom: 18px; }
+    .action-section-title { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--hub-muted); margin: 0 0 8px; }
+    textarea.action-comment { min-height: 88px; resize: vertical; width: 100%; padding: 10px; border: 1px solid var(--hub-border); border-radius: 6px; font-family: inherit; box-sizing: border-box; }
+    .sig-pad { border: 1px dashed var(--hub-border); border-radius: 8px; padding: 12px; background: #fff; margin-top: 8px; }
+    #sigCanvas { width: 100%; height: 140px; touch-action: none; cursor: crosshair; display: block; }
+    .action-btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hub-border); }
+    .action-btns .hub-btn-reject { color: var(--red-ink, #b42318); border-color: #fecaca; }
+    #actionFillHost .hub-dynamic-form { border: none; padding: 0; }
+    #actionFillHost .hub-form-footer { margin-top: 12px; padding-top: 0; border: none; }
+    .action-name-row input { width: 100%; padding: 8px 10px; border: 1px solid var(--hub-border); border-radius: 6px; font-family: inherit; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div class="action-wrap">
+    <div class="action-brand">Streamline Operations · Secure action</div>
+    <div id="actionRoot" class="hub-panel"><div class="hub-loading">Loading…</div></div>
+  </div>
+  <script src="config.js"></script>
+  <script src="hub-form-renderer.js"></script>
+  <script>
+    window.APP_BASE_PATH = window.APP_BASE_PATH || '';
+    function appPath(p) {
+      const base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
+      const path = p.startsWith('/') ? p : `/${p}`;
+      return base + path;
+    }
+    const params = new URLSearchParams(location.search);
+    const token = params.get('t');
+    const apiBase = appPath('/api/maintainx?path=');
+    let actionMeta = null;
+    let sigData = null;
+
+    async function apiFetch(subpath, init) {
+      return fetch(apiBase + encodeURIComponent(subpath), { credentials: 'include', ...init });
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function modeBanner(mode) {
+      const copy = {
+        fill: {
+          cls: 'fill',
+          title: 'Fill — complete assigned fields',
+          text: 'Update the form below, then submit to continue the workflow.',
+        },
+        review: {
+          cls: 'review',
+          title: 'Review — approve or reject',
+          text: 'Read the document summary, add comments if needed, then approve or reject.',
+        },
+        sign: {
+          cls: 'sign',
+          title: 'Sign — electronic signature',
+          text: 'Draw your signature below or use the typed acknowledgement checkbox.',
+        },
+        complete: {
+          cls: 'fill',
+          title: 'Complete this step',
+          text: 'Confirm your response to continue.',
+        },
+      };
+      const c = copy[mode] || copy.complete;
+      return `<div class="action-mode-banner ${c.cls}"><div><strong>${esc(c.title)}</strong><p>${esc(c.text)}</p></div></div>`;
+    }
+
+    function docSummary(req, webDoc) {
+      const title = req?.title || webDoc?.title || 'Document';
+      const type = webDoc?.document_type_key || req?.request_type || '';
+      return `<div class="action-doc-summary"><h3>${esc(title)}</h3>${type ? `<p style="margin:0;color:var(--hub-muted);font-size:0.78rem">Type: ${esc(type)}</p>` : ''}${req?.client_notes ? `<p style="margin:8px 0 0">${esc(req.client_notes)}</p>` : ''}</div>`;
+    }
+
+    function initSigPad() {
+      const canvas = document.getElementById('sigCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(rect.width * 2, 400);
+      canvas.height = Math.max(rect.height * 2, 280);
+      ctx.scale(2, 2);
+      ctx.strokeStyle = '#0f766e';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      let drawing = false;
+      function pos(e) {
+        const r = canvas.getBoundingClientRect();
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+        const y = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+        return { x, y };
+      }
+      function start(e) { drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+      function move(e) { if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+      function end() { drawing = false; sigData = canvas.toDataURL('image/png'); }
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', move);
+      canvas.addEventListener('mouseup', end);
+      canvas.addEventListener('touchstart', start, { passive: false });
+      canvas.addEventListener('touchmove', move, { passive: false });
+      canvas.addEventListener('touchend', end);
+    }
+
+    function renderFillForm(formDefinition, webDoc) {
+      const host = document.getElementById('actionFillHost');
+      if (!host || !window.HubFormRenderer) return;
+      const initial = webDoc?.content_json && typeof webDoc.content_json === 'object'
+        ? webDoc.content_json
+        : {};
+      window.HubFormRenderer.render(host, formDefinition, {
+        initialValues: initial,
+        submitLabel: 'Save & complete',
+        hideCancel: true,
+        onSubmit: (data) => submitAction('fill', { content_json: data }),
+      });
+    }
+
+    async function load() {
+      const root = document.getElementById('actionRoot');
+      if (!token) {
+        root.innerHTML = '<div class="hub-empty">Missing action token.</div>';
+        return;
+      }
+      try {
+        const res = await apiFetch('/hub/action/' + encodeURIComponent(token));
+        const data = await res.json();
+        if (!res.ok) {
+          root.innerHTML = `<div class="hub-empty">${esc(data.error || 'This link is no longer valid.')}</div>`;
+          return;
+        }
+        actionMeta = data;
+        const step = data.step || {};
+        const req = data.request || {};
+        const webDoc = data.web_document;
+        const actionType = step.action_type || data.action_type || 'complete';
+        const isReview = actionType === 'review' || actionType === 'approve';
+        const isFill = actionType === 'fill';
+        const needsSig = step.requires_signature || actionType === 'sign';
+        const modeKey = isFill ? 'fill' : isReview ? 'review' : needsSig ? 'sign' : 'complete';
+
+        root.innerHTML = `
+          <div class="hub-panel-head"><h2>${esc(step.step_title || 'Action required')}</h2></div>
+          <div class="hub-panel-body pad">
+            ${modeBanner(modeKey)}
+            ${step.instructions ? `<p class="hub-sub" style="margin-bottom:14px">${esc(step.instructions)}</p>` : ''}
+            ${!isFill ? docSummary(req, webDoc) : ''}
+            <div class="action-section action-name-row">
+              <p class="action-section-title">Your name</p>
+              <input type="text" id="actionName" placeholder="Full name" autocomplete="name" />
+            </div>
+            ${isFill ? '<div id="actionFillHost"></div>' : ''}
+            ${
+              isReview || needsSig
+                ? `<div class="action-section">
+              <p class="action-section-title">Comments ${step.requires_comment ? '(required)' : '(optional)'}</p>
+              <textarea id="actionComment" class="action-comment" placeholder="Add notes for the record…"></textarea>
+            </div>`
+                : ''
+            }
+            ${
+              needsSig
+                ? `<div class="action-section">
+              <p class="action-section-title">Signature</p>
+              <div class="sig-pad"><canvas id="sigCanvas" aria-label="Draw signature"></canvas></div>
+              <label style="display:flex;gap:8px;margin-top:10px;font-size:0.82rem;align-items:flex-start">
+                <input type="checkbox" id="typedSigAck" style="margin-top:3px" />
+                <span>I agree that checking this box constitutes my electronic signature when I cannot draw above.</span>
+              </label>
+            </div>`
+                : ''
+            }
+            <div class="action-btns">
+              ${isReview ? `<button type="button" class="hub-btn hub-btn-primary" id="actionApprove">Approve</button><button type="button" class="hub-btn hub-btn-ghost hub-btn-reject" id="actionReject">Reject</button>` : ''}
+              ${!isReview && !isFill ? `<button type="button" class="hub-btn hub-btn-primary" id="actionSubmit">${needsSig ? 'Sign & submit' : 'Complete'}</button>` : ''}
+            </div>
+          </div>`;
+
+        if (isFill && data.form_definition) {
+          renderFillForm(data.form_definition, webDoc);
+        } else if (isFill) {
+          document.getElementById('actionFillHost').innerHTML =
+            '<div class="hub-empty">Form could not be loaded. Contact your administrator.</div>';
+        }
+        if (needsSig) initSigPad();
+        document.getElementById('actionApprove')?.addEventListener('click', () => submitAction('approve'));
+        document.getElementById('actionReject')?.addEventListener('click', () => submitAction('reject'));
+        document.getElementById('actionSubmit')?.addEventListener('click', () =>
+          submitAction(needsSig ? 'sign' : 'complete')
+        );
+      } catch (e) {
+        root.innerHTML = `<div class="hub-empty">Could not load: ${esc(e.message)}</div>`;
+      }
+    }
+
+    async function submitAction(mode, extra = {}) {
+      const comment = document.getElementById('actionComment')?.value || '';
+      const name = document.getElementById('actionName')?.value?.trim() || '';
+      const step = actionMeta?.step || {};
+      if (step.requires_comment && !comment.trim()) {
+        alert('Please add a comment.');
+        return;
+      }
+      if (mode === 'sign') {
+        const ack = document.getElementById('typedSigAck');
+        if (!sigData && !ack?.checked) {
+          alert('Please draw your signature or check the acknowledgement box.');
+          return;
+        }
+      }
+      const body = { comment, name, notes: comment, ...extra };
+      if (sigData) {
+        body.document = {
+          document_type: 'signature',
+          file_name: 'signature.png',
+          file_url: sigData,
+          storage_provider: 'local',
+        };
+      }
+      const res = await apiFetch('/hub/action/' + encodeURIComponent(token) + '/' + mode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        document.getElementById('actionRoot').innerHTML =
+          '<div class="hub-panel-body pad"><div class="hub-empty" style="padding:32px 0">Thank you — your response has been recorded.</div></div>';
+      } else {
+        alert(data.error || 'Could not submit');
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>
