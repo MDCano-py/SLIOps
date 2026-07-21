@@ -187,7 +187,7 @@ npm run db:migrate
 npm run db:validate
 ```
 
-Migrations are **forward-only** and idempotent (`schema_migrations` tracks applied files `001`–`006` including vendor master and outbox).
+Migrations are **forward-only** and idempotent (`schema_migrations` tracks applied files including `012_staging_test_users.sql`).
 
 ---
 
@@ -197,7 +197,8 @@ Migrations are **forward-only** and idempotent (`schema_migrations` tracks appli
 curl -s http://127.0.0.1:3010/health | jq .
 ```
 
-Expect `"ok": true`, `"store_mode": "postgres"` (or `hub_store_mode: postgres`), `"store_ok": true`, `"node_env": "staging"`.
+Expect `"ok": true`, `"hub_store_mode": "postgres"`, `"store_ok": true`, `"node_env": "staging"`.
+`"staging_test_login_enabled"` is `true` or `false` only — never includes the secret.
 
 Via nginx (from the server):
 
@@ -210,6 +211,50 @@ Or:
 ```bash
 HEALTH_URL=http://127.0.0.1:3010/health npm run health
 ```
+
+---
+
+## 7a. Staging test login (WOS-85 — before Entra)
+Use this **only** for role/RBAC workflow testing while Entra is not configured. It does **not** replace SSO and does **not** re-enable `/api/auth/dev-login`.
+
+1. In `.env.staging`:
+
+```bash
+STAGING_TEST_LOGIN_ENABLED=1
+STAGING_TEST_LOGIN_SECRET=<generate-with-openssl-or-node-≥32-chars>
+# ALLOW_DEV_LOGIN=0
+# DEMO_BYPASS=0
+# SSO_ENFORCEMENT=on
+```
+
+2. Migrate + seed (idempotent):
+
+```bash
+npm run db:migrate
+npm run db:seed-staging-test-users
+pm2 restart ops-hub-staging ops-hub-staging-worker
+```
+
+3. Open:
+
+`https://automation.streamlinescada.com/ops-hub-staging/api/auth/staging-test-login`
+
+Seeded emails (domain `staging-test.streamlinecorp.com`):
+
+| Key | Email | Role |
+|-----|-------|------|
+| hub_admin | hub-admin@… | hub_admin |
+| operations_manager | ops-manager@… | operations |
+| hr_manager | hr-manager@… | hr |
+| accounting | accounting@… | ap |
+| field_supervisor | field-supervisor@… | field_supervisor |
+| field_technician | field-technician@… | field_technician |
+| client_representative | client-rep@… | client |
+| external_vendor | external-vendor@… | vendor |
+
+When Entra is configured, use the normal SSO login; leave test-login as an explicit separate URL (or set `STAGING_TEST_LOGIN_ENABLED=0`).
+
+Production always returns 404 for this feature even if the env vars are set.
 
 ---
 

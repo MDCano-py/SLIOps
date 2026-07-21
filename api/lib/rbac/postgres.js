@@ -15,6 +15,11 @@ const SEED_ROLES = [
   { key: 'ap', name: 'Accounts Payable', description: 'AP review and approval steps', system_role: true },
   { key: 'legal', name: 'Legal', description: 'Legal review and sign-off steps', system_role: true },
   { key: 'hub_admin', name: 'Hub Admin', description: 'Hub administrator with elevated access', system_role: true },
+  { key: 'hr', name: 'HR Manager', description: 'Human resources review and people workflows', system_role: true },
+  { key: 'field_supervisor', name: 'Field Supervisor', description: 'Field crew supervision and field approvals', system_role: true },
+  { key: 'field_technician', name: 'Field Technician', description: 'Field execution and form completion', system_role: true },
+  { key: 'client', name: 'Client Representative', description: 'External client visibility into assigned work', system_role: true },
+  { key: 'vendor', name: 'External Vendor', description: 'External vendor portal access', system_role: true },
 ];
 
 let pool = null;

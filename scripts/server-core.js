@@ -179,6 +179,13 @@ function createServer(options = {}) {
       sso_enforcement: ssoOff ? 'off' : 'on',
       demo_bypass: demoBypass,
       entra_configured: !!(process.env.ENTRA_TENANT_ID && process.env.ENTRA_CLIENT_ID),
+      staging_test_login_enabled: (() => {
+        try {
+          return require(path.join(ROOT, 'api', 'lib', 'staging-test-login')).isStagingTestLoginEnabled();
+        } catch {
+          return false;
+        }
+      })(),
       warnings: [
         ...(process.env.NODE_ENV === 'staging' && !postgresOnly && shouldUseLocalStore()
           ? ['HUB_USE_LOCAL_STORE is enabled on staging — use Upstash for multi-tester approval']
@@ -445,6 +452,12 @@ function createServer(options = {}) {
               console.error(`\n[server] ${cfgErr.message}`);
               process.exit(1);
             }
+          }
+          try {
+            require(path.join(ROOT, 'api', 'lib', 'staging-test-login')).assertStagingTestLoginStartup();
+          } catch (stlErr) {
+            console.error(`\n[server] ${stlErr.message}`);
+            process.exit(1);
           }
         }
 

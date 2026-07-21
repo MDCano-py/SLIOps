@@ -823,7 +823,7 @@ function isBootstrapAdmin(email) {
 }
 
 // Read a user's permissions. Bootstrap admins always get all permissions
-// regardless of what's in KV.
+// regardless of what's in KV. Staging test users fall back to PostgreSQL.
 async function getUserPermissions(email) {
   if (!email) return null;
   const normalized = email.toLowerCase();
@@ -838,8 +838,31 @@ async function getUserPermissions(email) {
     };
   }
   const raw = await redis.get(`user:${normalized}`);
-  if (!raw) return null;
-  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (raw) {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  }
+  // WOS-85 — PostgreSQL SoR for seeded staging test users when KV is empty.
+  try {
+    const stagingUsers = require('./lib/staging-test-users');
+    if (stagingUsers.isAllowlistedEmail(normalized)) {
+      const pgUser = await stagingUsers.loadActiveTestUserByEmail(normalized);
+      if (pgUser) {
+        return {
+          email: pgUser.email,
+          permissions: pgUser.permissions,
+          displayName: pgUser.displayName,
+          role: pgUser.primaryRole,
+          staging_test_user: true,
+          firstSeen: null,
+          lastSeen: null,
+          addedBy: 'staging-test-pg',
+        };
+      }
+    }
+  } catch {
+    /* PG optional for non-staging */
+  }
+  return null;
 }
 
 // Write a user's permissions. `actor` is the email of who's making the change
@@ -1841,6 +1864,29 @@ async function handleAuth(path, req, res) {
         renderError,
         portalBase: PORTAL_BASE,
         ensureUserProvisioned,
+      });
+    }
+
+    // ---- /auth/staging-test-login ---- (WOS-85: staging + shared secret only)
+    if (path === '/auth/staging-test-login') {
+      const stagingTestLogin = require('./lib/staging-test-login');
+      return stagingTestLogin.handleStagingTestLogin(req, res, {
+        portalBase: PORTAL_BASE,
+        syncUserRecord: async (user) => {
+          // Keep portal permission gates in sync with PostgreSQL SoR.
+          await setUserPermissions(user.email, user.permissions, 'system:staging-test-login', false);
+          const key = `user:${user.email.toLowerCase()}`;
+          const raw = await redis.get(key);
+          const rec = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : {};
+          rec.email = user.email;
+          rec.displayName = user.displayName;
+          rec.firstName = null;
+          rec.lastName = null;
+          rec.permissions = user.permissions;
+          rec.role = user.primaryRole;
+          rec.staging_test_user = true;
+          await redis.set(key, JSON.stringify(rec));
+        },
       });
     }
 
