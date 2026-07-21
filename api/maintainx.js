@@ -359,7 +359,7 @@ async function sendEmail({ to, subject, html, text }) {
 // Email templates — kept simple. Real HTML rendering with logos/styling
 // can come later; for now plain readable HTML works.
 function emailVendorCreated(record) {
-  const portalUrl = process.env.PORTAL_BASE_URL || 'https://partsrequestportal.vercel.app';
+  const portalUrl = process.env.PORTAL_BASE_URL || '';
   const physical = record.physicalAddress || {};
   const billing  = record.billingAddress || {};
   const ap       = record.apContact || {};
@@ -404,7 +404,7 @@ function emailVendorCreated(record) {
 // Email when a vendor is reassigned (e.g., Administration → AP, AP → Legal).
 // `who` is the role being notified ('ap', 'dylan', 'rebekah').
 function emailVendorAssigned(record, who, byActor, note) {
-  const portalUrl = process.env.PORTAL_BASE_URL || 'https://partsrequestportal.vercel.app';
+  const portalUrl = process.env.PORTAL_BASE_URL || '';
   const roleLabel = { ap: 'Accounts Payable', dylan: 'Legal / Executive', rebekah: 'Administration' }[who] || who;
   const html = `
     <h2>Vendor Request Assigned to You</h2>
@@ -1958,24 +1958,42 @@ async function handleAuth(path, req, res) {
     }
 
     // ---- /auth/logout ----
+    // WOS-86 — always clear the signed session cookie server-side, then redirect.
     if (path === '/auth/logout') {
-      if (useEntra) {
-        return entra.handleLogout(req, res, { portalBase: PORTAL_BASE });
-      }
       if (req.method !== 'GET' && req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
+      const { performLogout, setNoStore: noStore } = require('./lib/logout');
+      noStore(res);
+
+      let entraLogoutUrl = null;
+      if (useEntra) {
+        const tenantId = process.env.ENTRA_TENANT_ID;
+        const landing = require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE);
+        const postLogout = encodeURIComponent(landing);
+        if (tenantId) {
+          entraLogoutUrl =
+            `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout` +
+            `?post_logout_redirect_uri=${postLogout}`;
+        }
+      }
+
       const sess = auth.getSession(req);
-      auth.clearSession(res);
-      if (sess?.email && process.env.SAML_LOGOUT_URL) {
+      if (!useEntra && sess?.email && process.env.SAML_LOGOUT_URL) {
         const idpLogoutUrl = await loadSamlModule().getLogoutUrl(sess.email);
         if (idpLogoutUrl) {
+          auth.clearSession(res);
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
           res.setHeader('Location', idpLogoutUrl);
           return res.status(302).end();
         }
       }
-      res.setHeader('Location', PORTAL_BASE);
-      return res.status(302).end();
+
+      return performLogout(req, res, {
+        portalBase: PORTAL_BASE,
+        useEntra: !!entraLogoutUrl,
+        entraLogoutUrl,
+      });
     }
 
     return res.status(404).json({ error: `Unknown auth route: ${path}` });
@@ -2189,43 +2207,12 @@ module.exports = async function handler(req, res) {
   }
 
   // ---- CORS ----
-  // Allowlist comes from the ALLOWED_ORIGIN env var as a comma-separated list,
-  // e.g. "https://partsrequestportal.vercel.app,https://staging.example.com".
-  // We also automatically allow Vercel preview URLs for the project so
-  // preview deploys aren't broken by tighter CORS — they match the pattern
-  // https://parts-request-portal-*.vercel.app (the standard Vercel preview
-  // hostname for this project). If no allowlist is configured, we fall back
-  // to localhost for dev, but reject everything else.
-  //
-  // Note that CORS is enforced by the browser, not the server — but we still
-  // want to refuse to do work for requests from unallowed origins (especially
-  // state-changing methods) so we don't leak data to a script running on a
-  // different site. Server-to-server callers (no Origin header) are allowed
-  // through, since they're not subject to CORS in the first place.
+  // Allowlist: ALLOWED_ORIGIN (comma-separated exact origins) plus the origin
+  // derived from PORTAL_BASE_URL. Never use wildcard origins with credentials.
+  // Staging example: ALLOWED_ORIGIN=https://automation.streamlinescada.com
+  // (scheme+host only — no path). Localhost/preview auto-allow is local/dev only.
+  const { isOriginAllowed } = require('./lib/cors-origins');
   const requestOrigin = req.headers.origin || '';
-  const isOriginAllowed = (origin) => {
-    if (!origin) return true; // server-to-server / curl / healthchecks
-    const allowed = (process.env.ALLOWED_ORIGIN || '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-    if (allowed.includes(origin)) return true;
-    // WOS-80 — auto-allow Vercel preview + localhost ONLY outside
-    // staging/production. In deployed environments only explicit
-    // ALLOWED_ORIGIN entries are honored, so a localhost/preview origin
-    // cannot be used against staging/prod.
-    const corsEnv = (process.env.NODE_ENV || '').toLowerCase();
-    const corsDeployed = corsEnv === 'staging' || corsEnv === 'production';
-    if (!corsDeployed) {
-      // Permit Vercel preview deploys for this project so PR previews work
-      // without manual env-var updates.
-      if (/^https:\/\/parts-request-portal[a-z0-9-]*\.vercel\.app$/i.test(origin)) return true;
-      // Local dev convenience
-      if (/^https?:\/\/localhost(:\d+)?$/i.test(origin)) return true;
-      if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(origin)) return true;
-    }
-    return false;
-  };
   const originAllowed = isOriginAllowed(requestOrigin);
 
   // Echo the actual requesting origin back when allowed (instead of '*'), so
@@ -2453,11 +2440,33 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    let roleKeys = [];
+    try {
+      const rbacPg = require('./lib/rbac/postgres');
+      if (rbacPg.isAvailable && rbacPg.isAvailable()) {
+        roleKeys = await rbacPg.getUserRoleKeys(cookieEmail);
+      }
+    } catch {
+      roleKeys = [];
+    }
+    const primaryRole =
+      userRecord.role ||
+      (roleKeys.includes('hub_admin') ? 'hub_admin' : roleKeys[0]) ||
+      (Array.isArray(userRecord.permissions) && userRecord.permissions.includes('hub_admin')
+        ? 'hub_admin'
+        : null) ||
+      (Array.isArray(userRecord.permissions) && userRecord.permissions.includes('admin')
+        ? 'admin'
+        : null);
+
     return res.status(200).json({
       email: cookieEmail,
       name: userRecord.displayName || null,
+      displayName: userRecord.displayName || null,
       firstName: userRecord.firstName || null,
       lastName: userRecord.lastName || null,
+      role: primaryRole,
+      role_keys: roleKeys,
       permissions: userRecord.permissions || [],
       bootstrap: !!userRecord.bootstrap,
       authenticated: true,
@@ -3498,6 +3507,9 @@ module.exports = async function handler(req, res) {
       maintainx: {
         status: process.env.MAINTAINX_API_KEY ? 'configured' : 'not_configured',
         label: 'MaintainX API',
+        message: process.env.MAINTAINX_API_KEY
+          ? 'MaintainX API key is configured on the server.'
+          : 'Set MAINTAINX_API_KEY in the server environment and restart to enable MaintainX sync.',
       },
       data_store: {
         status: dataStoreStatus,

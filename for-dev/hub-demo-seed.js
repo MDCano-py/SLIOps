@@ -209,10 +209,24 @@ const SCENARIOS = [
   },
 ];
 
+/**
+ * WOS-86 — Demo seed/clear is allowed in local development always, and in
+ * staging only when STAGING_DEMO_DATA_ENABLED=1. Never in production.
+ * Callers must still require hub_admin/admin.
+ */
 function isDevDemoAllowed(_isAdmin) {
   const env = (process.env.NODE_ENV || 'development').toLowerCase();
-  // Demo seed/clear API routes are local development only — never staging or production.
-  return env !== 'production' && env !== 'staging';
+  if (env === 'production') return false;
+  if (env === 'staging') {
+    return ['1', 'true', 'yes'].includes(
+      String(process.env.STAGING_DEMO_DATA_ENABLED || '').toLowerCase()
+    );
+  }
+  return true;
+}
+
+function isDemoAdmin(isAdmin) {
+  return !!isAdmin;
 }
 
 function daysAgo(n) {
@@ -884,6 +898,7 @@ async function clearDemoData() {
 
 module.exports = {
   isDevDemoAllowed,
+  isDemoAdmin,
   seedDemoData,
   seedAllDemoData,
   clearDemoData,

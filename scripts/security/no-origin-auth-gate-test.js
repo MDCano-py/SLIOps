@@ -48,9 +48,14 @@ async function main() {
     mx.includes('const isServerToServer = !req.headers.origin && !gateDeployed;')
   );
 
-  // CORS localhost/preview gating
-  assert('CORS computes deployed flag', mx.includes('const corsDeployed = corsEnv'));
-  assert('CORS localhost/preview gated to non-deployed', /if \(!corsDeployed\)\s*\{[\s\S]{0,400}localhost/.test(mx));
+  // CORS localhost/preview gating (WOS-86 — shared cors-origins helper)
+  const corsSrc = read('api/lib/cors-origins.js');
+  assert('CORS computes deployed flag', corsSrc.includes('isDeployedCorsEnv') || corsSrc.includes("env === 'staging'"));
+  assert(
+    'CORS localhost/preview gated to non-deployed',
+    /isDeployedCorsEnv[\s\S]*localhost|if \(!isDeployedCorsEnv\(\)\)[\s\S]*localhost/.test(corsSrc)
+  );
+  assert('maintainx uses shared cors-origins', mx.includes("require('./lib/cors-origins')"));
 
   // CSRF Referer defense-in-depth
   assert('CSRF Referer check for state-changing methods', mx.includes('Cross-site request blocked'));

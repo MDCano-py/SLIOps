@@ -77,9 +77,9 @@
   //     https://sliops.com/?_noauth=1 for break-glass.
   //   - Doesn't run on the auth callback URLs themselves.
   //
-  // Kill switch (server-side): set env var SSO_ENFORCEMENT=off in Vercel
-  // and redeploy. /me will then always return authenticated:true, so the
-  // gate becomes dormant without any code change. Faster than reverting.
+  // Kill switch (server-side): set env var SSO_ENFORCEMENT=off on the host
+  // environment and restart the app. /me will then always return
+  // authenticated:true, so the gate becomes dormant without any code change.
   (function authGate() {
     function isLocalOrDevPortal() {
       if (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) return true;
@@ -8907,7 +8907,20 @@
                 <span class="hub-notif-badge" id="hubNotifBadge" hidden></span>
               </button>
               <div class="hub-notif-panel" id="hubNotifPanel" hidden></div>
-              <div class="hub-user-chip" id="hubTopbarUser"><span class="hub-avatar" id="hubTopbarAvatar">—</span><span id="hubTopbarName">Loading…</span></div>
+              <div class="hub-user-menu" id="hubUserMenu">
+                <button type="button" class="hub-user-chip" id="hubTopbarUser" aria-haspopup="menu" aria-expanded="false" aria-controls="hubAccountMenu">
+                  <span class="hub-avatar" id="hubTopbarAvatar">—</span>
+                  <span class="hub-user-chip-text">
+                    <span id="hubTopbarName">Loading…</span>
+                    <span class="hub-user-chip-role" id="hubTopbarRole" hidden></span>
+                  </span>
+                  <svg class="hub-user-chip-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="hub-account-menu" id="hubAccountMenu" role="menu" hidden>
+                  <div class="hub-account-menu-meta" id="hubAccountMenuMeta"></div>
+                  <button type="button" class="hub-account-menu-item" id="hubAccountSignOut" role="menuitem">Sign out</button>
+                </div>
+              </div>
             </div>
           </header>
           <div class="hub-main-row">
@@ -8922,10 +8935,10 @@
                   <button type="button" class="hub-btn hub-btn-primary" data-hub-tab="hub-new-request">+ New Request</button>
                 </div>
                 <div id="hubDevToolsPanel" class="hub-dev-tools" hidden aria-live="polite">
-                  <p class="hub-dev-warning"><strong>Test data only.</strong> Demo records use <code>demo: true</code>. Clear before production testing.</p>
+                  <p class="hub-dev-warning"><strong>Staging test data.</strong> Seeded hub records are tagged <code>demo: true</code> for safe cleanup. This control never runs in production. Clear demo data before leadership demos if you need a clean queue.</p>
                   <div class="hub-dev-actions">
-                    <button type="button" class="hub-btn hub-btn-secondary" id="hubSeedDemoBtn">Seed demo data</button>
-                    <button type="button" class="hub-btn hub-btn-ghost" id="hubClearDemoBtn">Clear demo data</button>
+                    <button type="button" class="hub-btn hub-btn-secondary" id="hubSeedDemoBtn">Seed staging test data</button>
+                    <button type="button" class="hub-btn hub-btn-ghost" id="hubClearDemoBtn">Clear staging test data</button>
                   </div>
                   <p id="hubDevToolsStatus" class="hub-dev-status" hidden></p>
                 </div>
@@ -12980,17 +12993,24 @@ function goBack() {
   // =====================================================================
   // CONFIGURATION
   // =====================================================================
-  // The portal calls the MaintainX API through a Vercel serverless proxy.
-  // The bearer token lives in the proxy's env vars, never in the browser.
-  //
-  // Set MAINTAINX_PROXY_URL to your deployed proxy endpoint, ending in
-  // "?path=" — e.g. "https://your-project.vercel.app/api/maintainx?path="
+  // The portal calls MaintainX through the same-origin API proxy
+  // (/api/maintainx). The MaintainX API key lives only in server env
+  // (MAINTAINX_API_KEY) — never in the browser.
   // =====================================================================
   const CONFIG = {
     MAINTAINX_PROXY_URL: appPath('/api/maintainx?path='),
     PARTS_TEAM_ID: 192741,        // WTX - Inventory
     PARTS_CATEGORY: 'Field Inventory',
     TITLE_PREFIX: 'Parts Request'
+  };
+
+  // WOS-86 — single shared sign-out entry point (server-side session clear).
+  window.portalSignOut = function portalSignOut(opts) {
+    const skipConfirm = opts && opts.skipConfirm === true;
+    if (!skipConfirm) {
+      if (!window.confirm('Are you sure you want to sign out?')) return;
+    }
+    window.location.href = appPath('/api/auth/logout');
   };
 
   // ---------------------------------------------------------------------
@@ -13008,8 +13028,8 @@ function goBack() {
   document.getElementById('reqId').textContent = currentId;
 
   // ---------------------------------------------------------------------
-  // Proxy helpers — calls the Vercel serverless function which adds the
-  // bearer token and forwards to MaintainX.
+  // Proxy helpers — same-origin /api/maintainx adds the MaintainX bearer
+  // token server-side and forwards to MaintainX.
   // ---------------------------------------------------------------------
   function proxyUrl(path) {
     return `${CONFIG.MAINTAINX_PROXY_URL}${encodeURIComponent(path)}`;
@@ -21319,22 +21339,21 @@ function goBack() {
   }
   window.applyPortalNavPermissions = applyPortalNavPermissions;
 
-  // Show the topbar user menu with the signed-in email and wire the
-  // sign-out button. Idempotent — safe to call multiple times.
+  // Show the topbar user menu with the signed-in identity and wire sign-out.
+  // Idempotent — safe to call multiple times.
   function showUserMenu(meData) {
     const menu = document.getElementById('userMenu');
     const emailEl = document.getElementById('userMenuEmail');
     const logoutBtn = document.getElementById('userMenuLogoutBtn');
     if (!menu || !emailEl || !logoutBtn) return;
-    emailEl.textContent = meData.email;
-    emailEl.title = meData.email;
+    const label = meData.displayName || meData.name || meData.email || '';
+    emailEl.textContent = label;
+    emailEl.title = meData.email || label;
     menu.style.display = '';
     if (!logoutBtn._wired) {
       logoutBtn.addEventListener('click', () => {
-        // Hard-redirect through the proxy logout endpoint. The proxy
-        // clears our session cookie and (if configured) hands us off
-        // to Microsoft for global sign-out, then redirects back to /.
-        window.location.href = appPath('/api/auth/logout');
+        if (typeof window.portalSignOut === 'function') window.portalSignOut();
+        else window.location.href = appPath('/api/auth/logout');
       });
       logoutBtn._wired = true;
     }
@@ -22547,8 +22566,8 @@ function goBack() {
     if (newSignOut) {
       newSignOut.addEventListener('click', (e) => {
         e.preventDefault();
-        clearMgmtToken();
-        mgmtShowGate('Signed out.');
+        if (typeof window.portalSignOut === 'function') window.portalSignOut();
+        else window.location.href = appPath('/api/auth/logout');
       });
     }
 
@@ -24603,8 +24622,7 @@ function goBack() {
 
       ${isBootstrap ? `
         <div class="perms-readonly-banner">
-          <strong>Bootstrap admin.</strong> This user is configured in the BOOTSTRAP_ADMIN_EMAILS env var
-          and always has full permissions. To change this, edit the env var in Vercel and redeploy.
+          <strong>Bootstrap admin.</strong> This account is configured through the BOOTSTRAP_ADMIN_EMAILS server environment variable. Update the deployment environment and restart the application to make changes.
         </div>
       ` : `
         ${noPermsBanner}

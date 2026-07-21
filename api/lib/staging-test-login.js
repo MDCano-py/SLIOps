@@ -112,31 +112,8 @@ function resetRateLimitForTests() {
 
 function isOriginAllowed(origin) {
   if (!origin) return false;
-  const allowed = (process.env.ALLOWED_ORIGIN || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (allowed.includes(origin)) return true;
-
-  // Staging portal URL origin
-  const portal = process.env.PORTAL_BASE_URL || '';
-  if (portal) {
-    try {
-      if (new URL(portal).origin === origin) return true;
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Same-host requests against the app (e.g. https://automation... )
-  try {
-    const u = new URL(origin);
-    if (u.hostname === 'automation.streamlinescada.com') return true;
-    if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') return true;
-  } catch {
-    return false;
-  }
-  return false;
+  const { isOriginAllowed: corsAllowed } = require('./cors-origins');
+  return corsAllowed(origin);
 }
 
 /**

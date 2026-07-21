@@ -257,17 +257,18 @@ async function handleLogout(req, res, { portalBase }) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-
-  auth.clearSession(res);
-
+  const { performLogout, resolvePostLogoutUrl } = require('./logout');
+  const landing = resolvePostLogoutUrl(portalBase);
   const tenantId = process.env.ENTRA_TENANT_ID;
-  const postLogout = encodeURIComponent(portalBase || '/');
-  const logoutUrl =
-    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout` +
-    `?post_logout_redirect_uri=${postLogout}`;
-
-  res.setHeader('Location', logoutUrl);
-  return res.status(302).end();
+  const entraLogoutUrl = tenantId
+    ? `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout` +
+      `?post_logout_redirect_uri=${encodeURIComponent(landing)}`
+    : null;
+  return performLogout(req, res, {
+    portalBase,
+    useEntra: !!entraLogoutUrl,
+    entraLogoutUrl,
+  });
 }
 
 async function handleDevLogin(req, res, { renderError, portalBase, ensureUserProvisioned }) {

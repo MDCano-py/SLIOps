@@ -65,6 +65,7 @@
     "security:staging-hardening-test": "node scripts/security/staging-hardening-test.js",
     "security:postgres-only-staging-health-test": "node scripts/security/postgres-only-staging-health-test.js",
     "security:staging-test-login-test": "node scripts/security/staging-test-login-test.js",
+    "security:staging-readiness-test": "node scripts/security/staging-readiness-test.js",
     "security:rbac-authz-test": "node scripts/security/rbac-authz-test.js",
     "security:legacy-route-rbac-test": "node scripts/security/legacy-route-rbac-test.js",
     "security:no-origin-auth-gate-test": "node scripts/security/no-origin-auth-gate-test.js",

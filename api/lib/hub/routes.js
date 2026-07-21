@@ -444,9 +444,9 @@ async function handleHubRoute(path, req, res, ctx) {
   // Auth required below
   if (!actorEmail) return json(res, 401, { error: 'Unauthorized access' });
 
-  // ----- Dev demo data (non-production or hub_admin) -----
-  function devDemoAllowed() {
-    return demoSeed.isDevDemoAllowed(isAdmin);
+  // ----- Staging/local demo data (never production; admin-only) -----
+  function demoEndpointsAllowed() {
+    return demoSeed.isDevDemoAllowed(isAdmin) && !!isAdmin;
   }
 
   if (path === '/hub/dev/status' && method === 'GET') {
@@ -454,9 +454,16 @@ async function handleHubRoute(path, req, res, ctx) {
     const { getLegacyKvStatus, getStoreMode } = require('../../../for-dev/redis-client');
     const hubMode = getHubStoreMode();
     const legacy = getLegacyKvStatus();
+    const envAllowed = demoSeed.isDevDemoAllowed(isAdmin);
     return json(res, 200, {
-      allowed: devDemoAllowed(),
+      allowed: envAllowed && !!isAdmin,
+      env_allowed: envAllowed,
+      requires_admin: true,
       is_production: process.env.NODE_ENV === 'production',
+      is_staging: process.env.NODE_ENV === 'staging',
+      staging_demo_data_enabled: ['1', 'true', 'yes'].includes(
+        String(process.env.STAGING_DEMO_DATA_ENABLED || '').toLowerCase()
+      ),
       store_mode: hubMode === 'postgres' ? 'postgres' : getStoreMode(),
       hub_store_mode: hubMode,
       legacy_kv: legacy.legacy_kv,
@@ -464,32 +471,56 @@ async function handleHubRoute(path, req, res, ctx) {
   }
 
   if (path === '/hub/dev/seed-demo-data' && method === 'POST') {
-    if (!devDemoAllowed()) {
+    if (process.env.NODE_ENV === 'production' || !demoSeed.isDevDemoAllowed(isAdmin)) {
       return json(res, 403, {
-        error: 'Demo seed is only available in local development (NODE_ENV=development)',
+        error: 'Staging test data is not available in this environment.',
+      });
+    }
+    if (!isAdmin) {
+      return json(res, 403, {
+        error: 'Only Hub Admin or Admin can seed staging test data.',
       });
     }
     try {
       const result = await demoSeed.seedAllDemoData(actorEmail);
-      return json(res, 200, result);
+      return json(res, 200, {
+        ...result,
+        message:
+          result.message ||
+          `Seeded staging test data: ${result.seeded ?? result.created_count ?? 0} demo request(s). Only records tagged demo:true were created.`,
+      });
     } catch (err) {
       console.error('[hub] seed-demo-data failed', err);
-      return json(res, 500, { error: 'Failed to seed demo data', detail: err.message });
+      return json(res, 500, {
+        error: 'Could not seed staging test data. Check server logs and database connectivity.',
+      });
     }
   }
 
   if (path === '/hub/dev/clear-demo-data' && method === 'POST') {
-    if (!devDemoAllowed()) {
+    if (process.env.NODE_ENV === 'production' || !demoSeed.isDevDemoAllowed(isAdmin)) {
       return json(res, 403, {
-        error: 'Demo clear is only available in local development (NODE_ENV=development)',
+        error: 'Staging test data is not available in this environment.',
+      });
+    }
+    if (!isAdmin) {
+      return json(res, 403, {
+        error: 'Only Hub Admin or Admin can clear staging test data.',
       });
     }
     try {
       const result = await demoSeed.clearDemoData();
-      return json(res, 200, result);
+      return json(res, 200, {
+        ...result,
+        message:
+          result.message ||
+          'Cleared tagged demo records only. Test users, templates, and real requests were not deleted.',
+      });
     } catch (err) {
       console.error('[hub] clear-demo-data failed', err);
-      return json(res, 500, { error: 'Failed to clear demo data', detail: err.message });
+      return json(res, 500, {
+        error: 'Could not clear staging test data. Check server logs and try again.',
+      });
     }
   }
 
@@ -895,6 +926,9 @@ async function handleHubRoute(path, req, res, ctx) {
       maintainx: {
         status: process.env.MAINTAINX_API_KEY ? 'configured' : 'not_configured',
         label: 'MaintainX API',
+        message: process.env.MAINTAINX_API_KEY
+          ? 'MaintainX API key is configured on the server.'
+          : 'Set MAINTAINX_API_KEY in the server environment and restart to enable MaintainX sync.',
       },
       data_store: {
         status: process.env.UPSTASH_REDIS_REST_URL || process.env.HUB_USE_LOCAL_STORE ? 'configured' : 'not_configured',

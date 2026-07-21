@@ -321,6 +321,15 @@
         if (global.RbacClient) global.RbacClient.enablePortalNoAuthMode();
       }
       global._hubUserEmail = data.email || global._hubUserEmail;
+      global._hubUserDisplayName = data.displayName || data.name || '';
+      global._hubUserRole = data.role || (Array.isArray(data.role_keys) ? data.role_keys[0] : '') || '';
+      if (
+        Array.isArray(data.permissions) &&
+        (data.permissions.includes('hub_admin') || data.permissions.includes('admin')) &&
+        !global._hubUserRole
+      ) {
+        global._hubUserRole = data.permissions.includes('hub_admin') ? 'hub_admin' : 'admin';
+      }
     } catch {
       hubPermissions = [];
     }
@@ -854,15 +863,115 @@
     return parsed;
   }
 
+  function formatRoleLabel(role) {
+    if (!role) return '';
+    const map = {
+      hub_admin: 'Hub Admin',
+      admin: 'Admin',
+      operations: 'Operations Manager',
+      hr: 'HR Manager',
+      ap: 'Accounting',
+      field_supervisor: 'Field Supervisor',
+      field_technician: 'Field Technician',
+      client: 'Client Representative',
+      vendor: 'External Vendor',
+      manager: 'Manager',
+      legal: 'Legal',
+      requester: 'Requester',
+      employee: 'Employee',
+    };
+    const key = String(role).toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_');
+    if (map[key]) return map[key];
+    return String(role)
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .replace(/\bHub Admin\b/i, 'Hub Admin');
+  }
+
   function updateTopbarUser() {
     const email = global._hubUserEmail || '';
+    const displayName = global._hubUserDisplayName || '';
+    const roleRaw = global._hubUserRole || '';
     const nameEl = document.getElementById('hubTopbarName');
+    const roleEl = document.getElementById('hubTopbarRole');
     const avEl = document.getElementById('hubTopbarAvatar');
-    const display = email ? email.split('@')[0].replace(/[._]/g, ' ') : 'User';
-    const pretty = display.replace(/\b\w/g, (c) => c.toUpperCase());
+    const metaEl = document.getElementById('hubAccountMenuMeta');
+    const fromEmail = email ? email.split('@')[0].replace(/[._]/g, ' ') : 'User';
+    const pretty = (displayName || fromEmail).replace(/\b\w/g, (c) => c.toUpperCase())
+      .replace(/\bHub-Admin\b/gi, 'Hub Admin')
+      .replace(/\bHub Admin\b/gi, 'Hub Admin');
+    const roleLabel = formatRoleLabel(roleRaw);
     if (nameEl) nameEl.textContent = pretty;
+    if (roleEl) {
+      if (roleLabel) {
+        roleEl.hidden = false;
+        roleEl.textContent = roleLabel;
+      } else {
+        roleEl.hidden = true;
+        roleEl.textContent = '';
+      }
+    }
     if (avEl) avEl.textContent = initials(email || pretty);
+    if (metaEl) {
+      metaEl.textContent = [pretty, roleLabel, email].filter(Boolean).join(' · ');
+    }
+    wireAccountMenu();
     syncThemeToggleIcon();
+  }
+
+  function wireAccountMenu() {
+    const chip = document.getElementById('hubTopbarUser');
+    const menu = document.getElementById('hubAccountMenu');
+    const signOutBtn = document.getElementById('hubAccountSignOut');
+    if (!chip || !menu || chip.dataset.accountWired) return;
+    chip.dataset.accountWired = '1';
+
+    function closeMenu() {
+      menu.hidden = true;
+      chip.setAttribute('aria-expanded', 'false');
+    }
+    function openMenu() {
+      menu.hidden = false;
+      chip.setAttribute('aria-expanded', 'true');
+      signOutBtn?.focus();
+    }
+    function toggleMenu() {
+      if (menu.hidden) openMenu();
+      else closeMenu();
+    }
+
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMenu();
+    });
+    chip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        openMenu();
+      }
+    });
+    signOutBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeMenu();
+      if (typeof global.portalSignOut === 'function') global.portalSignOut();
+      else if (typeof window.portalSignOut === 'function') window.portalSignOut();
+      else {
+        const base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
+        if (!window.confirm('Are you sure you want to sign out?')) return;
+        window.location.href = `${base}/api/auth/logout`;
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (!menu.hidden && !document.getElementById('hubUserMenu')?.contains(e.target)) {
+        closeMenu();
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !menu.hidden) {
+        closeMenu();
+        chip.focus();
+      }
+    });
   }
 
   function syncThemeToggleIcon() {
@@ -1892,8 +2001,14 @@
     if (!panel) return;
 
     await loadPermissionsFromMe();
-    const allowed = hasPerm('hub_admin');
-    const demoAllowed = allowed && global._portalSettings?.demoSeedEnabled !== false;
+    let demoAllowed = false;
+    try {
+      const statusRes = await hubFetch('/hub/dev/status');
+      const status = await statusRes.json().catch(() => ({}));
+      demoAllowed = !!status.allowed;
+    } catch {
+      demoAllowed = false;
+    }
 
     if (!demoAllowed) {
       panel.hidden = true;
@@ -1912,21 +2027,21 @@
     if (!seedBtn?.dataset.wired) {
       seedBtn.dataset.wired = '1';
       seedBtn.addEventListener('click', async () => {
-        if (!confirm('Load ~75 realistic demo requests? Existing non-demo data is not modified.')) return;
+        if (!confirm('Load staging test requests? Only demo-tagged records are created; real data is not modified.')) return;
         seedBtn.disabled = true;
-        setStatus('Seeding demo data…');
+        setStatus('Seeding staging test data…');
         try {
           const res = await hubFetch('/hub/dev/seed-demo-data', { method: 'POST' });
           const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || 'Seed failed');
-          setStatus(data.message || `Seeded ${data.seeded} requests (${data.created_count ?? 0} created, ${data.updated_count ?? 0} updated).`);
+          if (!res.ok) throw new Error(data.error || 'Could not seed staging test data.');
+          setStatus(data.message || `Seeded ${data.seeded ?? data.created_count ?? 0} demo request(s).`);
           initDashboard();
           initHubReports();
           if (document.getElementById('hubPageRequests')?.classList.contains('is-active')) {
             initRequestsList();
           }
         } catch (err) {
-          setStatus(err.message, true);
+          setStatus(err.message || 'Seed failed.', true);
         } finally {
           seedBtn.disabled = false;
         }
@@ -1936,20 +2051,20 @@
     if (!clearBtn?.dataset.wired) {
       clearBtn.dataset.wired = '1';
       clearBtn.addEventListener('click', async () => {
-        if (!confirm('Remove all demo-tagged hub records? Real requests are kept.')) return;
+        if (!confirm('Remove all demo-tagged hub records? Test users, templates, and real requests are kept.')) return;
         clearBtn.disabled = true;
-        setStatus('Clearing demo data…');
+        setStatus('Clearing staging test data…');
         try {
           const res = await hubFetch('/hub/dev/clear-demo-data', { method: 'POST' });
           const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || 'Clear failed');
-          setStatus(data.message || 'Demo data cleared.');
+          if (!res.ok) throw new Error(data.error || 'Could not clear staging test data.');
+          setStatus(data.message || 'Staging test data cleared.');
           initDashboard();
           if (document.getElementById('hubPageRequests')?.classList.contains('is-active')) {
             initRequestsList();
           }
         } catch (err) {
-          setStatus(err.message, true);
+          setStatus(err.message || 'Clear failed.', true);
         } finally {
           clearBtn.disabled = false;
         }

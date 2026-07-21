@@ -186,6 +186,10 @@ function createServer(options = {}) {
           return false;
         }
       })(),
+      staging_demo_data_enabled:
+        process.env.NODE_ENV === 'staging' &&
+        ['1', 'true', 'yes'].includes(String(process.env.STAGING_DEMO_DATA_ENABLED || '').toLowerCase()),
+      maintainx_configured: !!process.env.MAINTAINX_API_KEY,
       warnings: [
         ...(process.env.NODE_ENV === 'staging' && !postgresOnly && shouldUseLocalStore()
           ? ['HUB_USE_LOCAL_STORE is enabled on staging — use Upstash for multi-tester approval']
@@ -458,6 +462,22 @@ function createServer(options = {}) {
           } catch (stlErr) {
             console.error(`\n[server] ${stlErr.message}`);
             process.exit(1);
+          }
+          // WOS-86 — production must not enable staging-only features; require session secret.
+          if (nodeEnv === 'production') {
+            const secret = process.env.SESSION_SECRET || '';
+            if (secret.length < 32) {
+              console.error('\n[server] SESSION_SECRET is required in production (≥32 characters)');
+              process.exit(1);
+            }
+            if (['1', 'true', 'yes'].includes(String(process.env.STAGING_TEST_LOGIN_ENABLED || '').toLowerCase())) {
+              console.error('\n[server] STAGING_TEST_LOGIN_ENABLED must not be set in production');
+              process.exit(1);
+            }
+            if (['1', 'true', 'yes'].includes(String(process.env.STAGING_DEMO_DATA_ENABLED || '').toLowerCase())) {
+              console.error('\n[server] STAGING_DEMO_DATA_ENABLED must not be set in production');
+              process.exit(1);
+            }
           }
         }
 

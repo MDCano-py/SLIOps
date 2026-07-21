@@ -26,7 +26,7 @@ function vendorNotifyEmail(role) {
 }
 
 function portalUrl() {
-  return process.env.PORTAL_BASE_URL || 'https://partsrequestportal.vercel.app';
+  return process.env.PORTAL_BASE_URL || '';
 }
 
 function buildSafeVendorNotifyPayload(record, extras = {}) {

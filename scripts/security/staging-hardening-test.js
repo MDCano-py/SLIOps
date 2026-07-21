@@ -128,10 +128,34 @@ function main() {
   const hubRoutes = read('api/lib/hub/routes.js');
   assert('seed-demo route returns 403 when not dev', /seed-demo-data[\s\S]*?403/.test(hubRoutes));
   const demoSeed = read('for-dev/hub-demo-seed.js');
-  assert(
-    'isDevDemoAllowed excludes production and staging',
-    /env !== 'production' && env !== 'staging'/.test(demoSeed)
-  );
+  assert('demo seed gates production', /env === 'production'/.test(demoSeed) && /return false/.test(demoSeed));
+  assert('demo seed requires STAGING_DEMO_DATA_ENABLED on staging', /STAGING_DEMO_DATA_ENABLED/.test(demoSeed));
+  {
+    const saved = { ...process.env };
+    try {
+      // Avoid loading Redis-backed hub store while NODE_ENV=staging.
+      process.env.HUB_STORE_MODE = 'postgres';
+      process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://u:p@127.0.0.1:5432/hub';
+      delete require.cache[require.resolve(path.join(ROOT, 'for-dev', 'hub-demo-seed.js'))];
+      try {
+        delete require.cache[require.resolve(path.join(ROOT, 'api', 'lib', 'hub', 'store', 'index.js'))];
+        delete require.cache[require.resolve(path.join(ROOT, 'api', 'lib', 'hub', 'db', 'index.js'))];
+      } catch {
+        /* optional */
+      }
+      process.env.NODE_ENV = 'production';
+      delete process.env.STAGING_DEMO_DATA_ENABLED;
+      const demo = require(path.join(ROOT, 'for-dev', 'hub-demo-seed.js'));
+      assert('isDevDemoAllowed false in production', demo.isDevDemoAllowed(true) === false);
+      process.env.NODE_ENV = 'staging';
+      process.env.STAGING_DEMO_DATA_ENABLED = '0';
+      assert('isDevDemoAllowed false in staging when disabled', demo.isDevDemoAllowed(true) === false);
+      process.env.STAGING_DEMO_DATA_ENABLED = '1';
+      assert('isDevDemoAllowed true in staging when enabled', demo.isDevDemoAllowed(true) === true);
+    } finally {
+      process.env = { ...saved };
+    }
+  }
 
   // --- Source: db:validate never seeds demo data ---
   const validate = read('scripts/db/validate.js');

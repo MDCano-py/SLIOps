@@ -128,6 +128,8 @@ Copy from `.env.staging.example`. Minimum for staging approval:
 | `HOST` | `0.0.0.0` |
 | `APP_BASE_PATH` | `/ops-hub-staging` |
 | `PORTAL_BASE_URL` | `https://automation.streamlinescada.com/ops-hub-staging/` |
+| `APP_BASE_PATH` | `/ops-hub-staging` |
+| `ALLOWED_ORIGIN` | `https://automation.streamlinescada.com` (scheme+host only, no path) |
 | `HUB_STORE_MODE` | `postgres` |
 | `VENDOR_STORE_MODE` | `postgres` |
 | `HUB_USE_LOCAL_STORE` | `0` |
@@ -143,6 +145,9 @@ Copy from `.env.staging.example`. Minimum for staging approval:
 | `SSO_ENFORCEMENT` | `on` |
 | `DEMO_BYPASS` | `0` |
 | `BOOTSTRAP_ADMIN_EMAILS` | Comma-separated approver emails |
+| `MAINTAINX_API_KEY` | Server-only MaintainX bearer token (leave blank until ready) |
+| `STAGING_TEST_LOGIN_ENABLED` | `1` to enable shared-secret test login (staging only) |
+| `STAGING_DEMO_DATA_ENABLED` | `1` to enable Hub Admin seed/clear of tagged demo requests |
 | `ENTRA_TENANT_ID` / `ENTRA_CLIENT_ID` / `ENTRA_CLIENT_SECRET` | Per `ENTRA_SSO_SETUP.md` |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Optional (legacy user/role KV) |
 

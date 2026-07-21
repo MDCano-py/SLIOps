@@ -22,7 +22,7 @@ function getAssignedOwnerLabel(owner) {
 }
 
 function vendorDetailPath(refNumber) {
-  const base = process.env.PORTAL_BASE_URL || 'https://partsrequestportal.vercel.app';
+  const base = process.env.PORTAL_BASE_URL || '';
   return `${base}/#/management/vendors/${encodeURIComponent(refNumber || '')}`;
 }
 
