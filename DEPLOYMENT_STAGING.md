@@ -16,7 +16,7 @@ GitHub is the **source of truth** for code. Your company EC2 instance is the **s
 
 **Do not** use the local JSON store for staging approval. Staging requires Postgres (RDS) for hub requests, vendor master, and outbox/worker delivery.
 
-Optional **Upstash Redis** may remain configured for legacy user/role KV and dedupe keys; it is **not** the system of record when `HUB_STORE_MODE=postgres`.
+Optional **Upstash Redis** may remain configured for legacy user/role KV and dedupe keys; it is **not** required and **not** the system of record when `HUB_STORE_MODE=postgres` and `VENDOR_STORE_MODE=postgres`. Leave `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` blank for PostgreSQL-only staging — `/health` and startup will not initialize Redis or fall back to local JSON.
 
 ---
 

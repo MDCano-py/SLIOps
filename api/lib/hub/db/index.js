@@ -33,6 +33,7 @@ async function checkHubStoreHealth() {
   const mode = getHubStoreMode();
   if (mode === 'postgres') {
     assertPostgresConfigured();
+    // Require postgres adapter for SELECT 1 only — do not touch Redis/Upstash.
     const pg = require('./postgres');
     const pgHealth = await pg.healthCheck();
     return {
@@ -41,6 +42,8 @@ async function checkHubStoreHealth() {
       postgres: pgHealth,
       store_ok: !!pgHealth.connected,
       store_error: pgHealth.error || null,
+      redis_backend: 'not_applicable',
+      legacy_kv: 'disabled',
     };
   }
 

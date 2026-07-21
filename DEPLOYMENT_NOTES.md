@@ -15,7 +15,7 @@ For step-by-step staging setup, see [DEPLOYMENT_STAGING.md](./DEPLOYMENT_STAGING
 | Reverse proxy | Nginx (TLS termination, path prefix e.g. `/ops-hub-staging/`) |
 | Database | AWS RDS PostgreSQL (`DATABASE_URL`, migrations in `/migrations`) |
 | Worker | `scripts/hub-worker.js` (outbox / email / integration delivery) |
-| Optional KV | Upstash Redis (`UPSTASH_REDIS_REST_URL`) — legacy user/role KV, not SoR |
+| Optional KV | Upstash Redis — **optional** when `HUB_STORE_MODE=postgres` + `VENDOR_STORE_MODE=postgres`; leave blank for Postgres-only staging |
 | Blob storage | Vercel Blob API (`BLOB_READ_WRITE_TOKEN`) — legacy JSA/BOL/archive files |
 
 ---

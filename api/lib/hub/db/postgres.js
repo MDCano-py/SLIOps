@@ -3,7 +3,6 @@
 
 const crypto = require('crypto');
 const { Pool } = require('pg');
-const { createRedisClient } = require('../../../../for-dev/redis-client');
 const { DEFAULT_AGING_CONFIG } = require('../constants');
 const { resolvePgSsl } = require('./pg-ssl');
 
@@ -24,8 +23,15 @@ const pool = new Pool({
   ssl: resolvePgSsl(process.env.DATABASE_URL),
 });
 
-// Redis/local KV remains available for short-lived dedupe and dev toggles.
-const redis = createRedisClient();
+// WOS-84 — lazy legacy KV; healthCheck must not initialize Redis/Upstash.
+let _redis = null;
+function getRedis() {
+  if (!_redis) {
+    const { createRedisClient } = require('../../../../for-dev/redis-client');
+    _redis = createRedisClient();
+  }
+  return _redis;
+}
 
 function mapRequestRow(row) {
   if (!row) return null;
@@ -1541,7 +1547,9 @@ async function trackDemoRequest(_requestId) {
 }
 
 module.exports = {
-  redis,
+  get redis() {
+    return getRedis();
+  },
   // Core helpers
   nowIso,
   generateId: uuid,

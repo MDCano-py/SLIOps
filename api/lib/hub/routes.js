@@ -450,11 +450,16 @@ async function handleHubRoute(path, req, res, ctx) {
   }
 
   if (path === '/hub/dev/status' && method === 'GET') {
-    const { getStoreMode } = require('../../../for-dev/redis-client');
+    const { getHubStoreMode } = require('./db/config');
+    const { getLegacyKvStatus, getStoreMode } = require('../../../for-dev/redis-client');
+    const hubMode = getHubStoreMode();
+    const legacy = getLegacyKvStatus();
     return json(res, 200, {
       allowed: devDemoAllowed(),
       is_production: process.env.NODE_ENV === 'production',
-      store_mode: getStoreMode(),
+      store_mode: hubMode === 'postgres' ? 'postgres' : getStoreMode(),
+      hub_store_mode: hubMode,
+      legacy_kv: legacy.legacy_kv,
     });
   }
 

@@ -117,11 +117,14 @@ function createServer(options = {}) {
   }
 
   async function buildHealthPayload() {
-    const { getStoreMode, hasUpstashEnv, shouldUseLocalStore } = require(path.join(
-      ROOT,
-      'for-dev',
-      'redis-client'
-    ));
+    // WOS-84 — do not call getStoreMode()/createRedisClient() when Postgres is SoR.
+    const {
+      getLegacyKvStatus,
+      hasUpstashEnv,
+      shouldUseLocalStore,
+      isPostgresOnlyMode,
+      getStoreMode,
+    } = require(path.join(ROOT, 'for-dev', 'redis-client'));
     const { getHubStoreMode, checkHubStoreHealth } = require(path.join(
       ROOT,
       'api',
@@ -132,6 +135,9 @@ function createServer(options = {}) {
     ));
 
     const hubStoreMode = getHubStoreMode();
+    const postgresOnly = isPostgresOnlyMode() || hubStoreMode === 'postgres';
+    const legacyKv = getLegacyKvStatus();
+
     let hubHealth = {};
     try {
       hubHealth = await checkHubStoreHealth();
@@ -147,6 +153,9 @@ function createServer(options = {}) {
       String(process.env.DEMO_BYPASS || '').toLowerCase()
     );
 
+    // Only resolve legacy Redis mode when Redis/local JSON is the selected store.
+    const legacyStoreMode = postgresOnly ? null : getStoreMode();
+
     return {
       ok: storeOk,
       service: 'streamline-ops-hub',
@@ -157,9 +166,13 @@ function createServer(options = {}) {
       host: HOST,
       app_base_path: basePath || '/',
       hub_store_mode: hubStoreMode,
-      store_mode: hubStoreMode === 'postgres' ? 'postgres' : getStoreMode(),
+      store_mode: hubStoreMode === 'postgres' ? 'postgres' : legacyStoreMode,
       redis_configured: hasUpstashEnv(),
-      local_store_enabled: shouldUseLocalStore() || hubStoreMode === 'local_json',
+      redis_backend: postgresOnly ? 'not_applicable' : legacyKv.redis_backend || legacyStoreMode,
+      legacy_kv: postgresOnly ? 'disabled' : legacyKv.legacy_kv,
+      local_store_enabled: postgresOnly
+        ? false
+        : shouldUseLocalStore() || hubStoreMode === 'local_json',
       postgres: hubHealth.postgres || null,
       store_ok: storeOk,
       store_error: storeError,
@@ -167,7 +180,7 @@ function createServer(options = {}) {
       demo_bypass: demoBypass,
       entra_configured: !!(process.env.ENTRA_TENANT_ID && process.env.ENTRA_CLIENT_ID),
       warnings: [
-        ...(process.env.NODE_ENV === 'staging' && shouldUseLocalStore()
+        ...(process.env.NODE_ENV === 'staging' && !postgresOnly && shouldUseLocalStore()
           ? ['HUB_USE_LOCAL_STORE is enabled on staging — use Upstash for multi-tester approval']
           : []),
         ...(ssoOff && process.env.NODE_ENV === 'staging'
@@ -465,7 +478,7 @@ function createServer(options = {}) {
     });
   }
 
-  return { listen, port: PORT, host: HOST, basePath, withBasePath: (r) => withBasePath(basePath, r) };
+  return { listen, port: PORT, host: HOST, basePath, buildHealthPayload, withBasePath: (r) => withBasePath(basePath, r) };
 }
 
 module.exports = { createServer, loadEnvFile, normalizeBasePath, withBasePath, ROOT };

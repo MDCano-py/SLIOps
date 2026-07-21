@@ -2,7 +2,6 @@
  * WOS-44 Vendor Master store facade — Postgres when enabled, else legacy KV.
  */
 
-const kv = require('./db/kv');
 const pg = require('./db/postgres');
 
 function isVendorPostgresMode() {
@@ -11,7 +10,9 @@ function isVendorPostgresMode() {
 }
 
 function backend() {
-  return isVendorPostgresMode() ? pg : kv;
+  // WOS-84 — do not require Redis-backed kv.js when vendor SoR is Postgres.
+  if (isVendorPostgresMode()) return pg;
+  return require('./db/kv');
 }
 
 async function readVendorRecord(ref) {

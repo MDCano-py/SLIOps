@@ -75,10 +75,20 @@ function loadSsoHandlers() {
 const MAINTAINX_BASE = 'https://api.getmaintainx.com/v1';
 const PHOTO_RETENTION_DAYS = 90;
 
-// ---- Vendor storage ----
+// ---- Vendor / legacy KV storage ----
 // WOS-44: Postgres vendor_master when HUB_STORE_MODE/VENDOR_STORE_MODE=postgres.
 // Legacy: Upstash Redis keys vendor:{ref} + vendors:by-date (see api/lib/vendor/db/kv.js).
-const redis = createRedisClient();
+// WOS-84: lazy Proxy — module load must not initialize Redis (health/startup paths).
+const redis = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      const client = createRedisClient();
+      const value = client[prop];
+      return typeof value === 'function' ? value.bind(client) : value;
+    },
+  }
+);
 
 const vendorMutex = new Map();
 async function withVendorLock(ref, fn) {
