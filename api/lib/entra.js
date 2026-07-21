@@ -7,7 +7,7 @@
 //   ENTRA_TENANT_ID
 //   ENTRA_CLIENT_ID
 //   ENTRA_CLIENT_SECRET
-//   ENTRA_REDIRECT_URI     e.g. https://your-app.vercel.app/api/auth/callback
+//   ENTRA_REDIRECT_URI     e.g. https://your-host/api/auth/callback
 //   SESSION_SECRET         (shared with lib/auth.js)
 //   ALLOWED_EMAIL_DOMAINS  comma-separated, e.g. streamlinecorp.com
 

@@ -471,49 +471,111 @@
     font-size: 11px;
     letter-spacing: 0.04em;
   }
-  /* User menu — appears in the topbar only when authenticated. Shows the
-     user's email (truncated if long) and a sign-out button. Sits to the
-     right of the Connected pill. */
+  /* User menu — accessible account dropdown (WOS-87). */
   .user-menu {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
     padding-left: 16px;
     border-left: 1px solid var(--line);
+  }
+  .user-menu-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px 4px 4px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .user-menu-trigger:hover,
+  .user-menu-trigger[aria-expanded='true'] {
+    border-color: var(--teal-500);
+  }
+  .user-menu-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--teal-50);
+    color: var(--teal-700);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .user-menu-identity {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
+    text-align: left;
+    max-width: 180px;
   }
   .user-menu-email {
     color: var(--ink);
     font-family: 'DM Sans', sans-serif;
     font-size: 12px;
-    font-weight: 500;
-    max-width: 200px;
+    font-weight: 600;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .user-menu-logout {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    background: transparent;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    color: var(--ink-soft);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 11px;
+  .user-menu-role {
+    font-size: 10px;
     font-weight: 500;
-    cursor: pointer;
-    transition: border-color 0.12s, color 0.12s, background 0.12s;
+    color: var(--ink-soft);
   }
-  .user-menu-logout:hover {
-    border-color: var(--teal-500);
-    color: var(--teal-700);
+  .user-menu-caret { opacity: 0.65; }
+  .user-account-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 220px;
+    padding: 8px;
+    background: var(--surface, #fff);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+    z-index: 50;
+  }
+  [data-theme='dark'] .user-account-menu {
+    background: #1e293b;
+    border-color: #334155;
+  }
+  .user-account-menu-meta {
+    padding: 6px 8px 10px;
+    font-size: 11px;
+    color: var(--ink-soft);
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 6px;
+    word-break: break-word;
+  }
+  .user-account-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .user-account-menu-item:hover,
+  .user-account-menu-item:focus {
     background: var(--teal-50);
+    outline: none;
   }
   @media (max-width: 700px) {
-    .user-menu-email { max-width: 120px; }
-    .user-menu-logout span { display: none; }
+    .user-menu-identity { max-width: 100px; }
   }
 
   /* ---------- Home / Landing page ---------- */
@@ -8767,15 +8829,18 @@
            has a session. Shows email + a logout button. Hidden when
            no email is known (pre-SSO or anonymous). -->
       <div class="user-menu" id="userMenu" style="display:none;">
-        <span class="user-menu-email" id="userMenuEmail" title=""></span>
-        <button type="button" class="user-menu-logout" id="userMenuLogoutBtn" title="Sign out">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-          <span>Sign out</span>
+        <button type="button" class="user-menu-trigger" id="userMenuTrigger" aria-haspopup="menu" aria-expanded="false" aria-controls="userAccountMenu">
+          <span class="user-menu-avatar" id="userMenuAvatar" aria-hidden="true">—</span>
+          <span class="user-menu-identity">
+            <span class="user-menu-email" id="userMenuEmail" title=""></span>
+            <span class="user-menu-role" id="userMenuRole" hidden></span>
+          </span>
+          <svg class="user-menu-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
+        <div class="user-account-menu" id="userAccountMenu" role="menu" hidden>
+          <div class="user-account-menu-meta" id="userAccountMenuMeta"></div>
+          <button type="button" class="user-account-menu-item" id="userMenuLogoutBtn" role="menuitem" title="Sign out">Sign out</button>
+        </div>
       </div>
     </div>
   </nav>
@@ -21341,21 +21406,111 @@ function goBack() {
 
   // Show the topbar user menu with the signed-in identity and wire sign-out.
   // Idempotent — safe to call multiple times.
+  function formatPortalRoleLabel(role) {
+    if (!role) return '';
+    const map = {
+      hub_admin: 'Hub Admin',
+      admin: 'Admin',
+      operations: 'Operations Manager',
+      hr: 'HR Manager',
+      ap: 'Accounting',
+      field_supervisor: 'Field Supervisor',
+      field_technician: 'Field Technician',
+      client: 'Client Representative',
+      vendor: 'External Vendor',
+    };
+    const key = String(role).toLowerCase().replace(/[\s-]+/g, '_');
+    if (map[key]) return map[key];
+    return String(role)
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .replace(/\bHub-Admin\b/gi, 'Hub Admin');
+  }
+
   function showUserMenu(meData) {
     const menu = document.getElementById('userMenu');
+    const trigger = document.getElementById('userMenuTrigger');
     const emailEl = document.getElementById('userMenuEmail');
+    const roleEl = document.getElementById('userMenuRole');
+    const avatarEl = document.getElementById('userMenuAvatar');
+    const metaEl = document.getElementById('userAccountMenuMeta');
+    const dropdown = document.getElementById('userAccountMenu');
     const logoutBtn = document.getElementById('userMenuLogoutBtn');
-    if (!menu || !emailEl || !logoutBtn) return;
-    const label = meData.displayName || meData.name || meData.email || '';
-    emailEl.textContent = label;
-    emailEl.title = meData.email || label;
+    if (!menu || !emailEl || !logoutBtn || !trigger || !dropdown) return;
+
+    const email = meData.email || '';
+    const display =
+      meData.displayName ||
+      meData.name ||
+      (email ? email.split('@')[0].replace(/[._]/g, ' ') : '');
+    const pretty = String(display || email)
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .replace(/\bHub-Admin\b/gi, 'Hub Admin');
+    const roleRaw =
+      meData.role ||
+      (Array.isArray(meData.role_keys) ? meData.role_keys[0] : '') ||
+      (Array.isArray(meData.permissions) && meData.permissions.includes('hub_admin')
+        ? 'hub_admin'
+        : Array.isArray(meData.permissions) && meData.permissions.includes('admin')
+          ? 'admin'
+          : '');
+    const roleLabel = formatPortalRoleLabel(roleRaw);
+
+    emailEl.textContent = pretty || email;
+    emailEl.title = email || pretty;
+    if (roleEl) {
+      if (roleLabel) {
+        roleEl.hidden = false;
+        roleEl.textContent = roleLabel;
+      } else {
+        roleEl.hidden = true;
+        roleEl.textContent = '';
+      }
+    }
+    if (avatarEl) {
+      const parts = String(pretty || email || '?').split(/\s+/).filter(Boolean);
+      avatarEl.textContent = ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '•';
+    }
+    if (metaEl) metaEl.textContent = [pretty, roleLabel, email].filter(Boolean).join(' · ');
     menu.style.display = '';
-    if (!logoutBtn._wired) {
-      logoutBtn.addEventListener('click', () => {
+
+    if (!trigger._wired) {
+      const closeMenu = () => {
+        dropdown.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+      };
+      const openMenu = () => {
+        dropdown.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        logoutBtn.focus();
+      };
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (dropdown.hidden) openMenu();
+        else closeMenu();
+      });
+      trigger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          openMenu();
+        }
+      });
+      logoutBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeMenu();
         if (typeof window.portalSignOut === 'function') window.portalSignOut();
         else window.location.href = appPath('/api/auth/logout');
       });
-      logoutBtn._wired = true;
+      document.addEventListener('click', (e) => {
+        if (!dropdown.hidden && !menu.contains(e.target)) closeMenu();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !dropdown.hidden) {
+          closeMenu();
+          trigger.focus();
+        }
+      });
+      trigger._wired = true;
     }
   }
 

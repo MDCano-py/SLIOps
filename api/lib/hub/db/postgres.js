@@ -337,16 +337,22 @@ async function saveRequest(request) {
 async function getRequest(id) {
   if (!id) return null;
   return withClient(async (c) => {
+    const { isDemoDataVisible } = require('../demo-visibility');
     const r = await c.query('SELECT * FROM requests WHERE id=$1', [id]);
-    return mapRequestRow(r.rows[0]);
+    const row = mapRequestRow(r.rows[0]);
+    if (row?.demo && !isDemoDataVisible()) return null;
+    return row;
   });
 }
 
 async function getRequestByNumber(requestNumber) {
   if (!requestNumber) return null;
   return withClient(async (c) => {
+    const { isDemoDataVisible } = require('../demo-visibility');
     const r = await c.query('SELECT * FROM requests WHERE request_number=$1', [requestNumber]);
-    return mapRequestRow(r.rows[0]);
+    const row = mapRequestRow(r.rows[0]);
+    if (row?.demo && !isDemoDataVisible()) return null;
+    return row;
   });
 }
 
@@ -363,9 +369,14 @@ async function findRequestByArchive(kind, archiveId) {
 
 async function listRequests(opts = {}) {
   return withClient(async (c) => {
+    const { shouldIncludeDemoRows } = require('../demo-visibility');
     const limit = Math.min(parseInt(opts.limit || 200, 10) || 200, 500);
     const where = [];
     const params = [];
+    // WOS-87 — hide demo-tagged rows unless staging demo flag (or local dev) allows them.
+    if (!shouldIncludeDemoRows(opts)) {
+      where.push(`(demo IS NOT TRUE)`);
+    }
     if (opts.status) {
       params.push(opts.status);
       where.push(`status=$${params.length}`);

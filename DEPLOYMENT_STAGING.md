@@ -161,12 +161,29 @@ See [RDS_POSTGRES_SETUP.md](./RDS_POSTGRES_SETUP.md) and [WOS_51_RDS_MIGRATION_S
 
 ### MaintainX (after UI loads)
 
+Server-only. Never put the key in browser code or git.
+
 ```env
-MAINTAINX_API_KEY=...
-MAINTAINX_ORG_ID=...
+MAINTAINX_API_KEY=<set-on-server-only>
+# MAINTAINX_ORG_ID=<optional-multi-org>
 ```
 
-Test work-order sync on **staging/sandbox** data first. Use hub demo seed only on a dedicated Upstash database, not production keys.
+| Environment | Where to set |
+|-------------|--------------|
+| Local | `.env.local` / process env (see `.env.example`) |
+| Staging EC2 | `/var/www/ops-hub-staging/.env.staging` (or PM2 env) |
+| Production EC2 | production env file / PM2 env for the production app |
+
+After setting or changing the key:
+
+```bash
+pm2 restart ops-hub-staging ops-hub-staging-worker
+curl -s http://127.0.0.1:3010/health | jq '{ok, maintainx_configured}'
+```
+
+Integrations health should show `configured` without returning the secret. Leave blank until MaintainX is ready — the app stays up; MaintainX proxy calls return a clear misconfiguration error.
+
+Test work-order sync on **staging/sandbox** data first. Use hub demo seed only when `STAGING_DEMO_DATA_ENABLED=1` as Hub Admin; never on production.
 
 ### n8n (after UI loads)
 
@@ -235,10 +252,15 @@ STAGING_TEST_LOGIN_SECRET=<generate-with-openssl-or-node-≥32-chars>
 2. Migrate + seed (idempotent):
 
 ```bash
+# From the app directory with .env.staging loaded (or export DATABASE_URL / NODE_ENV=staging):
 npm run db:migrate
 npm run db:seed-staging-test-users
 pm2 restart ops-hub-staging ops-hub-staging-worker
 ```
+
+**Why test users may appear “not seeded”:** seeding is **not** automatic on `git pull` / PM2 restart. You must run `db:migrate` (includes `012_staging_test_users.sql`) and then `npm run db:seed-staging-test-users` with `DATABASE_URL` and `NODE_ENV=staging` (or local/dev). Production always refuses this seed. Re-running the seed is safe (upserts by email).
+
+**Demo request rows (WO-9000xx):** separate from test users. They appear only when (a) someone seeded them via Hub Admin seed tools and (b) `STAGING_DEMO_DATA_ENABLED=1`. With the flag off (or in production), list/detail APIs hide `demo:true` rows even if they still exist in Postgres.
 
 3. Open:
 
@@ -280,7 +302,7 @@ curl -s http://127.0.0.1:3010/health | jq .ok
 
 1. Open `https://automation.streamlinescada.com/ops-hub-staging/` — Entra sign-in appears.
 2. **Operations Workflow Hub** → dashboard loads counts.
-3. (Optional) Hub admin → **Seed demo data** — only with Upstash staging DB.
+3. (Optional) Hub Admin → **Seed staging test data** — only when `STAGING_DEMO_DATA_ENABLED=1`. With the flag off, DEMO-tagged rows are hidden from lists/dashboards.
 4. Request queue, detail, timelines, aging chips, filters.
 5. Do **not** enable MaintainX/n8n until steps 1–4 pass.
 6. Request written approval before production DNS/path.

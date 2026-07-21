@@ -18,9 +18,9 @@ Legacy SAML (`/api/auth/acs`) remains available only if Entra OIDC env vars are 
    Examples:
 
    - Production: `https://sliops.com/api/auth/callback`
-   - Vercel preview: `https://parts-request-portal-xxx.vercel.app/api/auth/callback`
+   - Staging (path-based): `https://automation.streamlinescada.com/ops-hub-staging/api/auth/callback`
 
-   Must match **`ENTRA_REDIRECT_URI`** exactly (scheme, host, path).
+   Must match **`ENTRA_REDIRECT_URI`** exactly (scheme, host, path). For staging under `/ops-hub-staging/`, include that path prefix.
 
 5. After creation, note:
    - **Application (client) ID** → `ENTRA_CLIENT_ID`
@@ -28,8 +28,7 @@ Legacy SAML (`/api/auth/acs`) remains available only if Entra OIDC env vars are 
 
 6. **Certificates & secrets** → New client secret → copy value → `ENTRA_CLIENT_SECRET`.
 
-7. **API permissions** (Microsoft Graph, delegated):
-
+7. **API permissions** → Microsoft Graph → Delegated:
    - `openid`
    - `profile`
    - `email`
@@ -39,7 +38,9 @@ Legacy SAML (`/api/auth/acs`) remains available only if Entra OIDC env vars are 
 
 8. **Token configuration** (optional): ensure `email`, `preferred_username`, and `name` appear in ID token if sign-in fails with “no email”.
 
-## Vercel environment variables
+## Server environment variables (EC2)
+
+Set these in the Node process environment on the host (e.g. `.env.staging` / `.env.production` loaded by PM2), not in source control:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -52,21 +53,24 @@ Legacy SAML (`/api/auth/acs`) remains available only if Entra OIDC env vars are 
 | `PORTAL_BASE_URL` | No | Post-login redirect base (default `/`) |
 | `SSO_ENFORCEMENT` | No | `off` disables gates (emergency); default `on` |
 | `BOOTSTRAP_ADMIN_EMAILS` | No | Comma-separated emails with full permissions |
+| `ALLOWED_ORIGIN` | Yes (browser) | Exact browser origin (no path), e.g. `https://automation.streamlinescada.com` |
 
-## Routes (via `vercel.json` rewrite)
+After changing Entra or session secrets on EC2, restart the Node process (e.g. `pm2 restart <app-name>`) so the new values load.
+
+## Routes (Nginx → Node)
 
 | URL | Purpose |
 |-----|---------|
 | `GET /api/auth/login` | Start Entra sign-in (`?next=/path` optional) |
 | `GET /api/auth/callback` | OIDC redirect handler (do not call manually) |
-| `GET /api/auth/logout` | Clear session + Microsoft logout |
+| `GET /api/auth/logout` | Clear session (+ optional Microsoft logout) |
 | `GET /api/me` | Identity + permissions (unchanged) |
 
-Rewrites map `/api/auth/*` → `/api/maintainx?path=/auth/*` internally.
+On EC2, Nginx proxies `/api/*` to the Node app. See `DEPLOYMENT_STAGING.md` / `DEPLOYMENT_NOTES.md`.
 
 ## Portal roles (permissions)
 
-New employees are auto-provisioned with the **Employee** role in Redis, which includes:
+New employees are auto-provisioned with the **Employee** role in Redis/Postgres, which includes:
 
 - `view_hub_dashboard`
 - `view_hub_requests`
@@ -101,6 +105,6 @@ Alternatively set `SSO_ENFORCEMENT=off` for fully open API gates during local te
 |---------|--------|
 | Redirect URI mismatch | `ENTRA_REDIRECT_URI` vs Azure “Web” redirect exactly |
 | 403 Email not allowed | `ALLOWED_EMAIL_DOMAINS` includes user’s domain |
-| 503 Entra not configured | All `ENTRA_*` + `SESSION_SECRET` set on Vercel |
+| 503 Entra not configured | All `ENTRA_*` + `SESSION_SECRET` set on the EC2 process env |
 | Login loop | `ALLOWED_ORIGIN` includes your portal origin; cookies not blocked |
 | SAML still used | Entra vars missing — OIDC takes priority when all four `ENTRA_*` are set |

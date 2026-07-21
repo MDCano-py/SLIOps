@@ -1,5 +1,5 @@
-// Vercel serverless function: proxies requests to the MaintainX API,
-// and handles photo uploads to Vercel Blob storage.
+// Primary API handler: proxies MaintainX, hub/vendor routes, auth, and
+// legacy photo uploads via the Blob API token (works from EC2; not Vercel hosting).
 //
 // Endpoints:
 //   GET  /api/maintainx?path=/locations
@@ -7,9 +7,9 @@
 //   POST /api/maintainx?path=/photo-upload   (binary body — uploads a photo, returns { url })
 //   POST /api/maintainx?path=/photo-cleanup  (deletes photos older than 90 days; auth required)
 //
-// Required env vars (set in Vercel project settings):
-//   MAINTAINX_API_KEY      — your bearer token from MaintainX
-//   BLOB_READ_WRITE_TOKEN  — auto-created when you enable Vercel Blob storage
+// Required env vars (set in the Node process env on EC2 / local — never commit secrets):
+//   MAINTAINX_API_KEY      — MaintainX bearer token (leave unset until ready; fails safely)
+//   BLOB_READ_WRITE_TOKEN  — Blob API token for legacy binary photo/archive file I/O
 //
 // Optional env vars:
 //   MAINTAINX_ORG_ID       — required if using a multi-organization token

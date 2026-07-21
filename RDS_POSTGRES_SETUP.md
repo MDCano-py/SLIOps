@@ -48,11 +48,11 @@ npm run db:persistence-test
 
 ## Point staging at RDS
 
-In Vercel (or your staging runtime) set:
+On the EC2 host (`.env.staging` / process env used by PM2), set:
 
 - `HUB_STORE_MODE=postgres` (or legacy `HUB_STORE=postgres`)
 - `DATABASE_URL=...`
-- Ensure **Upstash/Redis** env vars can still be present (used for dedupe + legacy settings); they are not the source of truth when Postgres is enabled.
+- Optional Redis/Upstash env vars may still be present (dedupe + legacy KV); they are not the source of truth when Postgres is enabled (`HUB_STORE_MODE=postgres`).
 
 ## Security group notes
 

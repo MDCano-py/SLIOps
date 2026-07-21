@@ -137,7 +137,15 @@ async function saveRequest(request) {
 }
 
 async function getRequest(id) {
-  return parseJson(await redis.get(`hub:request:${id}`));
+  const rec = parseJson(await redis.get(`hub:request:${id}`));
+  if (!rec) return null;
+  try {
+    const { isDemoDataVisible } = require('./demo-visibility');
+    if (rec.demo && !isDemoDataVisible()) return null;
+  } catch {
+    /* ignore */
+  }
+  return rec;
 }
 
 async function getRequestByNumber(num) {
@@ -213,6 +221,16 @@ async function listRequests(opts = {}) {
   }
   if (opts.open_only) {
     records = records.filter((r) => !['closed', 'canceled', 'rejected'].includes(r.status));
+  }
+
+  // WOS-87 — hide demo-tagged rows unless env gate allows them.
+  try {
+    const { shouldIncludeDemoRows } = require('./demo-visibility');
+    if (!shouldIncludeDemoRows(opts)) {
+      records = records.filter((r) => !r.demo);
+    }
+  } catch {
+    /* visibility helper optional for pure redis path */
   }
 
   return records;

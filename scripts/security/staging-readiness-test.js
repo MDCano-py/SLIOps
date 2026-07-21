@@ -297,6 +297,49 @@ async function main() {
     assert('seed marks demo:true', /demo:\s*true/.test(seedSrc));
   }
 
+  // --- WOS-87 demo visibility gate ---
+  {
+    const { isDemoDataVisible, shouldIncludeDemoRows } = loadFresh('api/lib/hub/demo-visibility.js');
+    await withEnv({ NODE_ENV: 'production', STAGING_DEMO_DATA_ENABLED: '1' }, () => {
+      assert('production never shows demo even if flag set', isDemoDataVisible() === false);
+      assert('production ignores include_demo override', shouldIncludeDemoRows({ include_demo: true }) === false);
+    });
+    await withEnv({ NODE_ENV: 'staging', STAGING_DEMO_DATA_ENABLED: '0' }, () => {
+      assert('staging hides demo when flag off', isDemoDataVisible() === false);
+    });
+    await withEnv({ NODE_ENV: 'staging', STAGING_DEMO_DATA_ENABLED: '1' }, () => {
+      assert('staging shows demo when flag on', isDemoDataVisible() === true);
+      assert('staging can still opt out via include_demo=false', shouldIncludeDemoRows({ include_demo: false }) === false);
+    });
+    await withEnv({ NODE_ENV: 'development', STAGING_DEMO_DATA_ENABLED: undefined }, () => {
+      assert('development shows demo by default', isDemoDataVisible() === true);
+    });
+    const pgSrc = fs.readFileSync(path.join(ROOT, 'api/lib/hub/db/postgres.js'), 'utf8');
+    const storeSrc = fs.readFileSync(path.join(ROOT, 'api/lib/hub/store.js'), 'utf8');
+    assert('postgres list filters demo', /shouldIncludeDemoRows/.test(pgSrc) && /demo IS NOT TRUE/.test(pgSrc));
+    assert('store list filters demo', /shouldIncludeDemoRows/.test(storeSrc));
+  }
+
+  // --- WOS-87 portal top-right user menu ---
+  {
+    const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    assert('portal userMenuTrigger present', /id="userMenuTrigger"/.test(indexHtml));
+    assert('portal userAccountMenu present', /id="userAccountMenu"/.test(indexHtml));
+    assert('portal userMenuLogoutBtn present', /id="userMenuLogoutBtn"/.test(indexHtml));
+    assert(
+      'portal showUserMenu wires portalSignOut',
+      /function showUserMenu[\s\S]*?portalSignOut[\s\S]*?trigger\._wired = true/.test(indexHtml)
+    );
+    assert('portal menu Escape handling', /Escape/.test(indexHtml) && /userAccountMenu/.test(indexHtml));
+    assert('ENTRA setup has no Vercel env section', !/## Vercel environment variables/.test(
+      fs.readFileSync(path.join(ROOT, 'ENTRA_SSO_SETUP.md'), 'utf8')
+    ));
+    assert(
+      'maintainx header is deployment-neutral',
+      !/^\/\/ Vercel serverless function/m.test(fs.readFileSync(path.join(ROOT, 'api/maintainx.js'), 'utf8'))
+    );
+  }
+
   console.log('\n=== Summary ===');
   console.log(`Checks: ${passed} passed, ${failed} failed`);
   if (failed) {
