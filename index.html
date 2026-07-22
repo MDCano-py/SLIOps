@@ -23391,17 +23391,26 @@ function goBack() {
     if (!docs || !docs.length) {
       return '<div class="vendor-docs-empty">No documents uploaded yet.</div>';
     }
-    return docs.map(d => `
+    return docs.map(d => {
+      const href = d.key
+        ? escapeHtml(
+            appPath(
+              `/api/maintainx?path=${encodeURIComponent('/vendor-doc')}&key=${encodeURIComponent(d.key)}`
+            )
+          )
+        : escapeHtml(d.url || '#');
+      return `
       <div class="vendor-doc-row" data-filename="${escapeHtml(d.filename)}">
         <div class="vendor-doc-meta">
           <span class="vendor-doc-kind ${escapeHtml(d.kind || 'other')}">${escapeHtml((d.kind || 'other').toUpperCase())}</span>
-          <a href="${escapeHtml(d.url)}" target="_blank" rel="noopener" class="vendor-doc-name">${escapeHtml(d.filename)}</a>
+          <a href="${href}" target="_blank" rel="noopener" class="vendor-doc-name">${escapeHtml(d.filename)}</a>
           <span class="vendor-doc-size">${formatBytes(d.size || 0)}</span>
           <span class="vendor-doc-date">${d.uploadedAt ? new Date(d.uploadedAt).toLocaleDateString() : ''}</span>
         </div>
         ${showDelete ? `<button type="button" class="btn-doc-delete" title="Delete document" data-filename="${escapeHtml(d.filename)}">×</button>` : ''}
       </div>
-    `).join('');
+    `;
+    }).join('');
   }
 
   async function uploadVendorDoc(ref, kind, file) {

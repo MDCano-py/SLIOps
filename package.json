@@ -71,6 +71,7 @@
     "security:no-origin-auth-gate-test": "node scripts/security/no-origin-auth-gate-test.js",
     "security:submission-idor-test": "node scripts/security/submission-idor-test.js",
     "security:workflow-step-authz-test": "node scripts/security/workflow-step-authz-test.js",
+    "security:object-storage-test": "node scripts/security/object-storage-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",
     "vendor-master:test": "node scripts/vendor-master-test.js",
@@ -82,10 +83,11 @@
     "health": "node -e \"require('http').get(process.env.HEALTH_URL||'http://127.0.0.1:3010/health',r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>{console.log(d);process.exit(r.statusCode===200?0:1)})}).on('error',e=>{console.error(e);process.exit(1)})\""
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1092.0",
+    "@aws-sdk/s3-request-presigner": "^3.1092.0",
     "@azure/msal-node": "^2.16.2",
     "@node-saml/node-saml": "^5.0.0",
     "@upstash/redis": "^1.34.0",
-    "@vercel/blob": "^0.27.0",
     "jszip": "^3.10.1",
     "pg": "^8.21.0"
   }

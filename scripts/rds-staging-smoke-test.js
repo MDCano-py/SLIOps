@@ -76,6 +76,8 @@ function redactEnv() {
     'RESEND_API_KEY',
     'ENTRA_CLIENT_SECRET',
     'BLOB_READ_WRITE_TOKEN',
+    'S3_BUCKET',
+    'STORAGE_DRIVER',
     'SESSION_SECRET',
   ];
   for (const k of keys) {

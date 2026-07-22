@@ -190,6 +190,20 @@ function createServer(options = {}) {
         process.env.NODE_ENV === 'staging' &&
         ['1', 'true', 'yes'].includes(String(process.env.STAGING_DEMO_DATA_ENABLED || '').toLowerCase()),
       maintainx_configured: !!process.env.MAINTAINX_API_KEY,
+      object_storage_configured: (() => {
+        try {
+          return require(path.join(ROOT, 'api', 'lib', 'storage')).isConfigured();
+        } catch {
+          return false;
+        }
+      })(),
+      object_storage_driver: (() => {
+        try {
+          return require(path.join(ROOT, 'api', 'lib', 'storage')).getStorageConfig().driver;
+        } catch {
+          return 'none';
+        }
+      })(),
       warnings: [
         ...(process.env.NODE_ENV === 'staging' && !postgresOnly && shouldUseLocalStore()
           ? ['HUB_USE_LOCAL_STORE is enabled on staging — use Upstash for multi-tester approval']

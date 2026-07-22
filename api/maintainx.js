@@ -1,15 +1,15 @@
 // Primary API handler: proxies MaintainX, hub/vendor routes, auth, and
-// legacy photo uploads via the Blob API token (works from EC2; not Vercel hosting).
+// object storage (Amazon S3) for photos and vendor documents.
 //
 // Endpoints:
 //   GET  /api/maintainx?path=/locations
 //   POST /api/maintainx?path=/workrequests   (JSON body — creates a work request)
-//   POST /api/maintainx?path=/photo-upload   (binary body — uploads a photo, returns { url })
+//   POST /api/maintainx?path=/photo-upload   (binary body — uploads a photo to S3)
 //   POST /api/maintainx?path=/photo-cleanup  (deletes photos older than 90 days; auth required)
 //
 // Required env vars (set in the Node process env on EC2 / local — never commit secrets):
 //   MAINTAINX_API_KEY      — MaintainX bearer token (leave unset until ready; fails safely)
-//   BLOB_READ_WRITE_TOKEN  — Blob API token for legacy binary photo/archive file I/O
+//   S3_BUCKET / S3_REGION  — private Amazon S3 bucket for uploads (prefer EC2 IAM role)
 //
 // Optional env vars:
 //   MAINTAINX_ORG_ID       — required if using a multi-organization token
@@ -20,7 +20,8 @@
 //                            config. Emergency lever if SSO breaks.
 //                            Default (any other value or unset) = on.
 
-const { put, list, del } = require('@vercel/blob');
+const objectStorage = require('./lib/storage');
+const { recordSecurityAudit } = require('./lib/security-audit');
 const { createRedisClient } = require('../for-dev/redis-client');
 const crypto = require('crypto');
 const auth = require('./lib/auth.js');
@@ -126,20 +127,55 @@ async function hydrateVendorForApi(v, ref, opts = {}) {
   return v;
 }
 
-// List all documents for a vendor by querying blob storage directly.
-// Documents stay in Blob — only the vendor metadata is in KV.
+// List vendor documents from private object storage (S3). Metadata stays in KV/Postgres.
 async function listVendorDocuments(ref) {
-  try {
-    const blobs = await list({ prefix: `vendor-docs/${ref}/` });
-    return blobs.blobs.map(b => parseDocBlobPath(b)).filter(Boolean);
-  } catch (e) {
-    console.warn('[vendor:docs] listVendorDocuments failed:', e.message);
+  if (!objectStorage.isConfigured()) {
+    if (objectStorage.getStorageConfig().deployed) {
+      const err = new Error('Object storage not configured');
+      err.code = 'STORAGE_NOT_CONFIGURED';
+      err.statusCode = 503;
+      throw err;
+    }
+    // Local/dev without storage: empty list (no silent S3/Vercel fallback).
     return [];
   }
+  const objects = await objectStorage.listObjects({ prefix: `vendor-docs/${ref}/` });
+  return objects
+    .map((obj) => {
+      const parsed = objectStorage.parseVendorObjectKey(obj.key, {
+        size: obj.size,
+        lastModified: obj.lastModified,
+      });
+      if (!parsed) return null;
+      return {
+        filename: parsed.filename,
+        kind: parsed.kind,
+        key: parsed.key,
+        url: null,
+        downloadKey: parsed.key,
+        uploadedAt: parsed.uploadedAt,
+        size: parsed.size || 0,
+        storage_provider: objectStorage.getStorageConfig().driver === 'local' ? 'local' : 's3',
+      };
+    })
+    .filter(Boolean);
+}
+
+function respondStorageError(res, err, fallbackMessage) {
+  const status = err.statusCode || (err.code === 'STORAGE_NOT_CONFIGURED' ? 503 : 500);
+  const code = err.code || (err.name === 'StorageValidationError' ? err.code : undefined);
+  if (err.name === 'StorageValidationError' || err.code === 'INVALID_UPLOAD' || err.code === 'TOO_LARGE' || err.code === 'INVALID_KEY' || err.code === 'KEY_ISOLATION') {
+    return res.status(err.statusCode || 400).json({ error: err.message, code: err.code || 'INVALID_UPLOAD' });
+  }
+  console.error('[storage]', fallbackMessage || err.message, err.code || err.name);
+  return res.status(status).json({
+    error: status === 503 ? 'Object storage not configured' : fallbackMessage || 'Storage operation failed',
+    code: code || (status === 503 ? 'STORAGE_NOT_CONFIGURED' : 'STORAGE_ERROR'),
+  });
 }
 
 // Map a Content-Type to a sensible file extension. Used as a fallback when a
-// document blob's filename in storage somehow lost its extension — without
+// document object's filename in storage somehow lost its extension — without
 // this the OS can't tell what kind of file it is and may try to open with the
 // wrong app (often defaulting to a browser, making the file look like HTML).
 function extensionFromContentType(ct) {
@@ -163,43 +199,6 @@ function extensionFromContentType(ct) {
     'application/json': '.json',
   };
   return map[t] || '';
-}
-
-function parseDocBlobPath(blob) {
-  // pathname: vendor-docs/VEN-X/1700000000000__w9__form.pdf-abc123
-  // (the trailing -abc123 is from addRandomSuffix:true)
-  const path = blob.pathname || '';
-  const lastSlash = path.lastIndexOf('/');
-  if (lastSlash < 0) return null;
-  const file = path.slice(lastSlash + 1);
-  // Try to parse: timestamp__kind__filename
-  const m = file.match(/^(\d+)__([a-z0-9_-]+)__(.+)$/i);
-  if (m) {
-    const [, ts, kind, rest] = m;
-    let filename = rest;
-    // Strip Vercel Blob's auto-appended random suffix (~21 chars before extension)
-    const suffixMatch = filename.match(/^(.+)-([A-Za-z0-9]{20,32})(\.[^.]+)?$/);
-    if (suffixMatch) {
-      filename = suffixMatch[1] + (suffixMatch[3] || '');
-    }
-    return {
-      filename,
-      kind,
-      url: blob.url,
-      uploadedAt: new Date(parseInt(ts, 10)).toISOString(),
-      size: blob.size || 0,
-      _blobPath: blob.pathname,
-    };
-  }
-  // Legacy uploads (pre-kind-in-path scheme) — best-effort fallback
-  return {
-    filename: file,
-    kind: 'other',
-    url: blob.url,
-    uploadedAt: blob.uploadedAt || new Date().toISOString(),
-    size: blob.size || 0,
-    _blobPath: blob.pathname,
-  };
 }
 
 // ---- Vendor auth helpers ----
@@ -1010,15 +1009,16 @@ function archiveKindKeys(kind) {
 // ---------------------------------------------------------------------
 // Redis-backed storage for jsa / bol / swp archives.
 // ---------------------------------------------------------------------
-// All record JSON lives in Upstash Redis. Per-record storage:
+// All record JSON lives in Upstash Redis / Postgres. Per-record storage:
+// (Historical name "Blob" in helpers refers to archive JSON records, not Vercel Blob.)
 //
 //   archive:{kind}:rec:{id}      — string, JSON-serialized record
 //   archive:{kind}:idx           — zset, score=createdAt-ms, member=id
 //   archive:swp:live             — zset, score=updatedAt-ms (live SWPs only)
 //   archive:swp:closed           — zset, score=closedAt-ms (closed SWPs only)
 //
-// Vercel Blob is no longer used for archive JSON — only for binary
-// content (vendor docs, parts photos). List ops are O(log N) sorted-set
+// Archive JSON is Redis/Postgres — not object storage. Binary vendor docs and
+// parts photos use Amazon S3 (api/lib/storage). List ops are O(log N) sorted-set
 // reads + a single mget; single-record reads are O(1).
 
 function archiveBlobKindKeys(kind) {
@@ -2475,33 +2475,46 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  // ---- Photo upload to Vercel Blob ----
+  // ---- Photo upload to private object storage (S3) ----
   if (path === '/photo-upload') {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed for /photo-upload' });
     }
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return res.status(500).json({ error: 'Server misconfigured: BLOB_READ_WRITE_TOKEN not set' });
+    if (!objectStorage.isConfigured()) {
+      return res.status(503).json({
+        error: 'Object storage not configured',
+        code: 'STORAGE_NOT_CONFIGURED',
+      });
     }
     try {
       const filename = req.headers['x-filename'] || `photo-${Date.now()}.jpg`;
-      const safeFilename = String(filename).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
       const buf = await readRawBody(req);
-      if (buf.length === 0) {
-        return res.status(400).json({ error: 'Empty body' });
-      }
-      // Date-prefixed path for easy cleanup later
-      const datePrefix = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      const blobPath = `parts-photos/${datePrefix}/${safeFilename}`;
-      const result = await put(blobPath, buf, {
-        access: 'public',
-        addRandomSuffix: true, // prevents URL guessing + filename collisions
+      const validated = objectStorage.validateUploadBuffer({
+        kind: 'photo',
+        filename,
         contentType: req.headers['content-type'] || 'image/jpeg',
+        byteLength: buf.length,
       });
-      return res.status(200).json({ url: result.url, pathname: result.pathname });
+      const key = objectStorage.buildPhotoObjectKey(validated.safeFilename);
+      await objectStorage.putObject({
+        key,
+        body: buf,
+        contentType: validated.contentType,
+      });
+      recordSecurityAudit('storage.photo_upload', {
+        actor: auth.getActorEmail(req) || null,
+        key,
+        bytes: buf.length,
+      });
+      // Clients download via authenticated proxy — never a public bucket URL.
+      return res.status(200).json({
+        key,
+        pathname: key,
+        url: null,
+        storage_provider: objectStorage.getStorageConfig().driver,
+      });
     } catch (err) {
-      console.error('Photo upload error:', err);
-      return res.status(500).json({ error: 'Upload failed', detail: err.message });
+      return respondStorageError(res, err, 'Upload failed');
     }
   }
 
@@ -2517,38 +2530,44 @@ module.exports = async function handler(req, res) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
     }
+    if (!objectStorage.isConfigured()) {
+      return res.status(503).json({
+        error: 'Object storage not configured',
+        code: 'STORAGE_NOT_CONFIGURED',
+      });
+    }
     try {
       const cutoff = new Date(Date.now() - PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000);
       const cutoffStr = cutoff.toISOString().slice(0, 10);
-      const blobs = await list({ prefix: 'parts-photos/' });
+      const objects = await objectStorage.listObjects({ prefix: 'parts-photos/' });
       const toDelete = [];
-      for (const blob of blobs.blobs) {
-        // Path looks like: parts-photos/2026-01-15/foo.jpg
-        const datePart = blob.pathname.split('/')[1];
+      for (const obj of objects) {
+        // Path looks like: parts-photos/2026-01-15/uuid_foo.jpg
+        const datePart = String(obj.key || '').split('/')[1];
         if (datePart && datePart < cutoffStr) {
-          toDelete.push(blob.url);
+          toDelete.push(obj.key);
         }
       }
-      if (toDelete.length > 0) await del(toDelete);
+      if (toDelete.length > 0) {
+        await objectStorage.deleteObjects({ keys: toDelete });
+      }
+      recordSecurityAudit('storage.photo_cleanup', {
+        deleted: toDelete.length,
+        cutoff: cutoffStr,
+      });
       return res.status(200).json({
         deleted: toDelete.length,
         cutoff: cutoffStr,
         retainedDays: PHOTO_RETENTION_DAYS,
       });
     } catch (err) {
-      console.error('Cleanup error:', err);
-      return res.status(500).json({ error: 'Cleanup failed', detail: err.message });
+      return respondStorageError(res, err, 'Cleanup failed');
     }
   }
 
-  // ---- One-shot orphaned-archive Blob cleanup ----
+  // ---- One-shot orphaned-archive object cleanup ----
   // POST /api/maintainx?path=/archive-wipe-orphans&kind=jsa
-  // POST /api/maintainx?path=/archive-wipe-orphans&kind=bol
-  // POST /api/maintainx?path=/archive-wipe-orphans&kind=swp
-  //
-  // The jsa/bol/swp archives migrated to Redis. Any blobs left under
-  // `archive/{kind}/` are orphans (pre-migration test data). This
-  // endpoint deletes them all. Authed via CLEANUP_SECRET.
+  // Archives migrated to Redis/Postgres. Objects left under archive/{kind}/ are orphans.
   if (path && path.startsWith('/archive-wipe-orphans')) {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed for /archive-wipe-orphans' });
@@ -2563,17 +2582,20 @@ module.exports = async function handler(req, res) {
     if (!['jsa', 'bol', 'swp'].includes(kind)) {
       return res.status(400).json({ error: 'kind must be one of: jsa, bol, swp' });
     }
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN not set' });
+    if (!objectStorage.isConfigured()) {
+      return res.status(503).json({
+        error: 'Object storage not configured',
+        code: 'STORAGE_NOT_CONFIGURED',
+      });
     }
     try {
-      const blobs = await list({ prefix: `archive/${kind}/` });
-      const urls = blobs.blobs.map(b => b.url);
-      if (urls.length > 0) await del(urls);
-      return res.status(200).json({ kind, deleted: urls.length });
+      const objects = await objectStorage.listObjects({ prefix: `archive/${kind}/` });
+      const keys = objects.map((o) => o.key);
+      if (keys.length > 0) await objectStorage.deleteObjects({ keys });
+      recordSecurityAudit('storage.archive_wipe_orphans', { kind, deleted: keys.length });
+      return res.status(200).json({ kind, deleted: keys.length });
     } catch (err) {
-      console.error('Archive wipe error:', err);
-      return res.status(500).json({ error: 'Wipe failed', detail: err.message });
+      return respondStorageError(res, err, 'Wipe failed');
     }
   }
 
@@ -2596,11 +2618,9 @@ module.exports = async function handler(req, res) {
   // List query params (inline ?... in the path because of proxyUrl encoding):
   //   page, pageSize, search, from, to, creator, status (swp)
   //
-  // Storage:  Redis (string + sorted-set indexes). See readBlobArchiveRecord
-  //          / writeBlobArchiveRecord / listBlobArchive helpers above. During
-  //          the migration window, single-record GETs fall back to Vercel
-  //          Blob if the record isn't in Redis yet, so older records still
-  //          load while we backfill.
+  // Storage:  Redis/Postgres (string + sorted-set indexes). See readBlobArchiveRecord
+  //          / writeBlobArchiveRecord / listBlobArchive helpers above.
+  //          (Function names retain historical "Blob" wording; objects are not in S3.)
   //
   // SWP records have a status lifecycle: 'live' | 'closed'.
   // Live permits can be PATCH-edited any number of times. Closing flips the
@@ -2933,8 +2953,18 @@ module.exports = async function handler(req, res) {
     } else {
       if (!requireVendorAuth(req, res)) return;
     }
-    if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return res.status(500).json({ error: 'Server misconfigured: BLOB_READ_WRITE_TOKEN not set' });
+
+    const needsObjectStorage =
+      (vendorDocMatch && (req.method === 'POST' || req.method === 'DELETE')) ||
+      (vendorDocFetchMatch && req.method === 'GET') ||
+      (vendorZipMatch && req.method === 'GET') ||
+      (vendorMatch && req.method === 'GET') ||
+      (vendorRecordMatch && req.method === 'GET');
+    if (needsObjectStorage && !objectStorage.isConfigured() && objectStorage.getStorageConfig().deployed) {
+      return res.status(503).json({
+        error: 'Object storage not configured',
+        code: 'STORAGE_NOT_CONFIGURED',
+      });
     }
 
     try {
@@ -3275,30 +3305,24 @@ module.exports = async function handler(req, res) {
         const usedNames = new Map();
         for (const d of docs) {
           try {
-            console.log(`[zip] Fetching: ${d.filename} (kind=${d.kind}, url=${d.url})`);
-            const r = await fetch(d.url);
-            if (!r.ok) {
-              console.warn(`[zip] Failed to fetch ${d.url}: ${r.status}`);
+            if (!d.key) {
+              console.warn(`[zip] Skipping ${d.filename}: missing object key`);
               continue;
             }
-            const responseContentType = r.headers.get('content-type') || '';
-            const buf = Buffer.from(await r.arrayBuffer());
+            console.log(`[zip] Fetching: ${d.filename} (kind=${d.kind}, key=${d.key})`);
+            const obj = await objectStorage.getObject({ key: d.key });
+            const responseContentType = obj.contentType || '';
+            const buf = obj.body;
             console.log(`[zip]   → ${buf.length} bytes, content-type: ${responseContentType}`);
 
-            // Sanity check: if the fetch returned HTML when we expected a real
-            // file, something went wrong upstream. Log it and skip rather than
-            // shipping HTML content with a .pdf extension.
             if (responseContentType.includes('text/html')) {
-              console.warn(`[zip] SKIPPING ${d.filename} — fetch returned HTML, not the actual file (${responseContentType})`);
+              console.warn(`[zip] SKIPPING ${d.filename} — object content-type is HTML (${responseContentType})`);
               continue;
             }
 
             // Filename inside zip: kind in CAPS + original filename
             // Example: W9_form.pdf, BANKING_voided-check.pdf
             const kindPrefix = (d.kind || 'other').toUpperCase().replace(/[^A-Z0-9]/g, '');
-            // Defensively ensure the filename has an extension. If not, derive
-            // from the response content-type. Without this, the OS guesses based
-            // on the filename pattern (often defaulting to "open in browser").
             let baseFilename = d.filename;
             if (!/\.[A-Za-z0-9]{1,8}$/.test(baseFilename)) {
               const ext = extensionFromContentType(responseContentType);
@@ -3338,29 +3362,52 @@ module.exports = async function handler(req, res) {
       if (vendorDocMatch && req.method === 'POST') {
         const ref = vendorDocMatch[1];
         const filename = vendorDocMatch[2];
-        const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
+        if (!objectStorage.isConfigured()) {
+          return res.status(503).json({
+            error: 'Object storage not configured',
+            code: 'STORAGE_NOT_CONFIGURED',
+          });
+        }
         const buf = await readRawBody(req);
-        if (buf.length === 0) return res.status(400).json({ error: 'Empty body' });
+        let validated;
+        try {
+          validated = objectStorage.validateUploadBuffer({
+            kind: 'vendor_doc',
+            filename,
+            contentType: req.headers['content-type'] || 'application/octet-stream',
+            byteLength: buf.length,
+          });
+        } catch (err) {
+          return respondStorageError(res, err, 'Invalid upload');
+        }
 
-        // Encode doc kind in the path itself so we don't need the vendor record
-        // to remember it. The vendor record's `documents` array is no longer the
-        // source of truth — the blob listing is. This eliminates the read-modify-
-        // write race that was losing documents on rapid sequential uploads.
         const kind = (
           req.query.docType ||
           req.query.kind ||
           req.headers['x-doc-kind'] ||
           'other'
         ).replace(/[^a-z0-9_-]/gi, '');
-        const docPath = `vendor-docs/${ref}/${Date.now()}__${kind}__${safeFilename}`;
-        const docResult = await put(docPath, buf, {
-          access: 'public',
-          addRandomSuffix: true,
-          contentType: req.headers['content-type'] || 'application/octet-stream',
+        const docKey = objectStorage.buildVendorDocObjectKey(ref, kind, validated.safeFilename);
+        try {
+          await objectStorage.putObject({
+            key: docKey,
+            body: buf,
+            contentType: validated.contentType,
+          });
+        } catch (err) {
+          return respondStorageError(res, err, 'Upload failed');
+        }
+
+        recordSecurityAudit('storage.vendor_doc_upload', {
+          actor: auth.getActorEmail(req) || null,
+          ref,
+          key: docKey,
+          kind,
+          bytes: buf.length,
         });
 
         // Append a history entry under the vendor lock. If this fails, the doc
-        // is still uploaded and discoverable via blob listing — we just lose the
+        // is still uploaded and discoverable via object listing — we just lose the
         // history note. That's a much smaller failure than losing the doc itself.
         const updatedRecord = await withVendorLock(ref, async () => {
           const found = await readVendorRecord(ref);
@@ -3369,7 +3416,7 @@ module.exports = async function handler(req, res) {
           const actor = auth.getActorEmail(req) || 'unknown';
           const wasComplete = isRequiredDocumentsComplete(v);
           const uploadResult = attachUploadedFile(v, kind, {
-            filename: safeFilename,
+            filename: validated.safeFilename,
             size: buf.length,
             uploadedAt: new Date().toISOString(),
           }, actor);
@@ -3388,8 +3435,10 @@ module.exports = async function handler(req, res) {
         }
 
         return res.status(200).json({
-          filename: safeFilename,
-          url: docResult.url,
+          filename: validated.safeFilename,
+          key: docKey,
+          url: null,
+          storage_provider: objectStorage.getStorageConfig().driver,
           record: updatedRecord?.v || updatedRecord,
         });
       }
@@ -3399,19 +3448,36 @@ module.exports = async function handler(req, res) {
         const ref = vendorDocMatch[1];
         const filename = decodeURIComponent(vendorDocMatch[2]);
 
-        // Find the actual blob by listing — the vendor record's documents array
-        // is no longer the source of truth.
+        if (!objectStorage.isConfigured()) {
+          return res.status(503).json({
+            error: 'Object storage not configured',
+            code: 'STORAGE_NOT_CONFIGURED',
+          });
+        }
+
         const allDocs = await listVendorDocuments(ref);
-        const doc = allDocs.find(d => d.filename === filename || (d.url && d.url.endsWith(filename)));
-        if (!doc) {
+        const doc = allDocs.find(
+          (d) => d.filename === filename || (d.key && d.key.endsWith(filename))
+        );
+        if (!doc || !doc.key) {
           return res.status(404).json({ error: 'Document not found' });
         }
 
-        // Delete the actual blob first (best-effort)
-        try { await del(doc.url); } catch (e) { console.warn('Blob delete failed:', e.message); }
+        try {
+          objectStorage.assertVendorDocKey(doc.key, ref);
+          await objectStorage.deleteObject({ key: doc.key });
+        } catch (e) {
+          console.warn('Object delete failed:', e.message);
+          return respondStorageError(res, e, 'Delete failed');
+        }
 
-        // Add a history entry under the vendor lock. If the lock fails we still
-        // succeeded in deleting the doc.
+        recordSecurityAudit('storage.vendor_doc_delete', {
+          actor: auth.getActorEmail(req) || null,
+          ref,
+          key: doc.key,
+          filename: doc.filename,
+        });
+
         const updatedRecord = await withVendorLock(ref, async () => {
           const found = await readVendorRecord(ref);
           if (!found) return null;
@@ -3432,31 +3498,86 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ deleted: true, record: updatedRecord });
       }
 
-      // ----- GET /vendor-doc?url=... : proxy-fetch a document -----
-      // Used so the portal can stream a doc back without exposing the blob URL,
-      // which would let anyone with the URL bypass auth.
+      // ----- GET /vendor-doc?key=... : authorized download from private storage -----
+      // Optional: ?presign=1 returns a short-lived presigned GET URL (S3 only).
       if (vendorDocFetchMatch && req.method === 'GET') {
-        const docUrl = req.query.url;
-        if (!docUrl || !docUrl.startsWith('https://')) {
-          return res.status(400).json({ error: 'Missing or invalid url param' });
+        const objectKey = req.query.key;
+        if (!objectKey || typeof objectKey !== 'string') {
+          return res.status(400).json({ error: 'Missing key param' });
         }
-        // Only allow Vercel Blob URLs to prevent SSRF
-        const u = new URL(docUrl);
-        if (!u.hostname.endsWith('.public.blob.vercel-storage.com')) {
-          return res.status(403).json({ error: 'URL not allowed' });
+        if (!objectStorage.isConfigured()) {
+          return res.status(503).json({
+            error: 'Object storage not configured',
+            code: 'STORAGE_NOT_CONFIGURED',
+          });
         }
-        const upstream = await fetch(docUrl);
-        if (!upstream.ok) {
-          return res.status(upstream.status).json({ error: 'Upstream fetch failed' });
+
+        let key;
+        try {
+          key = objectStorage.assertAllowedObjectKey(objectKey, {
+            allowedPrefixes: ['vendor-docs/'],
+          });
+        } catch (err) {
+          return respondStorageError(res, err, 'Invalid key');
         }
-        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
-        const buf = Buffer.from(await upstream.arrayBuffer());
-        return res.status(200).send(buf);
+
+        const ref = key.split('/')[1];
+        if (!ref) {
+          return res.status(400).json({ error: 'Invalid object key' });
+        }
+
+        // Isolation: object must exist under this vendor and be listed for the ref.
+        const docs = await listVendorDocuments(ref);
+        const owned = docs.find((d) => d.key === key);
+        if (!owned) {
+          return res.status(404).json({ error: 'Document not found' });
+        }
+
+        recordSecurityAudit('storage.vendor_doc_download', {
+          actor: auth.getActorEmail(req) || null,
+          ref,
+          key,
+          presign: req.query.presign === '1',
+        });
+
+        if (req.query.presign === '1') {
+          try {
+            const signed = await objectStorage.getPresignedGetUrl({ key });
+            return res.status(200).json({
+              url: signed.url,
+              expiresIn: signed.expiresIn,
+              key,
+            });
+          } catch (err) {
+            return respondStorageError(res, err, 'Presign failed');
+          }
+        }
+
+        try {
+          const obj = await objectStorage.getObject({ key });
+          res.setHeader('Content-Type', obj.contentType || 'application/octet-stream');
+          res.setHeader('Cache-Control', 'private, no-store');
+          if (owned.filename) {
+            res.setHeader(
+              'Content-Disposition',
+              `inline; filename="${String(owned.filename).replace(/"/g, '')}"`
+            );
+          }
+          return res.status(200).send(obj.body);
+        } catch (err) {
+          return respondStorageError(res, err, 'Download failed');
+        }
       }
 
       return res.status(405).json({ error: 'Method not allowed for vendor path' });
     } catch (err) {
       console.error('Vendor endpoint error:', err);
+      if (err.code === 'STORAGE_NOT_CONFIGURED') {
+        return res.status(503).json({
+          error: 'Object storage not configured',
+          code: 'STORAGE_NOT_CONFIGURED',
+        });
+      }
       return res.status(500).json({ error: 'Vendor operation failed', detail: err.message });
     }
   }
@@ -3511,6 +3632,15 @@ module.exports = async function handler(req, res) {
           ? 'MaintainX API key is configured on the server.'
           : 'Set MAINTAINX_API_KEY in the server environment and restart to enable MaintainX sync.',
       },
+      object_storage: (() => {
+        const st = objectStorage.getStatus();
+        return {
+          status: st.configured ? 'configured' : 'not_configured',
+          label: 'Amazon S3 object storage',
+          driver: st.driver,
+          message: st.message,
+        };
+      })(),
       data_store: {
         status: dataStoreStatus,
         label: dataStoreLabel,

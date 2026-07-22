@@ -75,7 +75,7 @@ for key in "${REQUIRED_KEYS[@]}"; do
       host="$(node -e "try{const u=new URL(process.argv[1]);console.log(u.hostname+'/'+u.pathname.replace(/^\//,''))}catch(e){console.log('invalid')}" "$val")"
       echo "  $key=postgresql://***@${host}"
       ;;
-    SESSION_SECRET|RESEND_API_KEY|BLOB_READ_WRITE_TOKEN|ENTRA_CLIENT_SECRET)
+    SESSION_SECRET|RESEND_API_KEY|S3_BUCKET|AWS_SECRET_ACCESS_KEY|ENTRA_CLIENT_SECRET)
       echo "  $key=(set, redacted)"
       ;;
     *)

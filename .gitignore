@@ -8,6 +8,10 @@ node_modules/
 !.env.example
 !.env*.example
 
+# Local object storage (STORAGE_DRIVER=local only)
+for-dev/local-object-storage/
+!for-dev/local-object-storage/.gitignore
+
 # Local dev stores (Postgres is SoR on staging/prod; JSON is dev-only)
 for-dev/local-hub-data/redis.json
 for-dev/local-hub-data/*.json

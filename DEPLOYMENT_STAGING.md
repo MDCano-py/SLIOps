@@ -140,7 +140,7 @@ Copy from `.env.staging.example`. Minimum for staging approval:
 | `EMAIL_NOTIFICATIONS_ENABLED` | `true` (when Resend configured) |
 | `RESEND_API_KEY` / `EMAIL_FROM` | Verified sender |
 | `VENDOR_NOTIFY_EMAIL_*` | Rebekah/AP/Legal recipients |
-| `BLOB_READ_WRITE_TOKEN` | Required for vendor doc upload smoke |
+| `S3_BUCKET` / `S3_REGION` | Private Amazon S3 bucket for vendor docs and photos (prefer EC2 IAM role) |
 | `SESSION_SECRET` | Long random string (32+ chars) |
 | `SSO_ENFORCEMENT` | `on` |
 | `DEMO_BYPASS` | `0` |
@@ -184,6 +184,57 @@ curl -s http://127.0.0.1:3010/health | jq '{ok, maintainx_configured}'
 Integrations health should show `configured` without returning the secret. Leave blank until MaintainX is ready — the app stays up; MaintainX proxy calls return a clear misconfiguration error.
 
 Test work-order sync on **staging/sandbox** data first. Use hub demo seed only when `STAGING_DEMO_DATA_ENABLED=1` as Hub Admin; never on production.
+
+### Amazon S3 object storage (vendor docs + photos)
+
+Uploads go to a **private** S3 bucket. The app never uses public ACLs. Browsers download via authenticated same-origin proxy (`/vendor-doc?key=…`) or short-lived presigned GET URLs after RBAC. **Bucket CORS is not required** when uploads go through the Node API (current design).
+
+```env
+STORAGE_DRIVER=s3
+S3_BUCKET=<your-private-bucket>
+S3_REGION=us-east-1
+PRESIGNED_URL_EXPIRES_SECONDS=300
+```
+
+Prefer an **EC2 instance IAM role** with least privilege (no long-lived access keys on the server):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListAppPrefixes",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::YOUR_BUCKET",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["vendor-docs/*", "parts-photos/*", "archive/*"]
+        }
+      }
+    },
+    {
+      "Sid": "ObjectRW",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::YOUR_BUCKET/vendor-docs/*",
+        "arn:aws:s3:::YOUR_BUCKET/parts-photos/*",
+        "arn:aws:s3:::YOUR_BUCKET/archive/*"
+      ]
+    }
+  ]
+}
+```
+
+Block public access on the bucket. After setting env:
+
+```bash
+pm2 restart ops-hub-staging ops-hub-staging-worker
+curl -s http://127.0.0.1:3010/health | jq '{ok, object_storage_configured, object_storage_driver}'
+```
+
+Local development only: `STORAGE_DRIVER=local` + `STORAGE_LOCAL_ROOT=./for-dev/local-object-storage` (refused on staging/production).
 
 ### n8n (after UI loads)
 

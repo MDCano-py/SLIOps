@@ -16,7 +16,7 @@ For step-by-step staging setup, see [DEPLOYMENT_STAGING.md](./DEPLOYMENT_STAGING
 | Database | AWS RDS PostgreSQL (`DATABASE_URL`, migrations in `/migrations`) |
 | Worker | `scripts/hub-worker.js` (outbox / email / integration delivery) |
 | Optional KV | Upstash Redis — **optional** when `HUB_STORE_MODE=postgres` + `VENDOR_STORE_MODE=postgres`; leave blank for Postgres-only staging |
-| Blob storage | Vercel Blob API (`BLOB_READ_WRITE_TOKEN`) — legacy JSA/BOL/archive files |
+| Blob storage | Amazon S3 private bucket (`S3_BUCKET`, prefer EC2 IAM role) — vendor docs + photos |
 
 ---
 
@@ -77,7 +77,7 @@ For step-by-step staging setup, see [DEPLOYMENT_STAGING.md](./DEPLOYMENT_STAGING
 | `@azure/msal-node` | Yes | Microsoft Entra SSO (`api/lib/entra.js`) |
 | `@node-saml/node-saml` | Yes | Multi-tenant SAML SSO |
 | `@upstash/redis` | Yes (optional on server) | Legacy KV when configured |
-| `@vercel/blob` | Yes | Legacy archive blob I/O via `BLOB_READ_WRITE_TOKEN` (not Vercel hosting) |
+| `@aws-sdk/client-s3` / `@aws-sdk/s3-request-presigner` | Yes | Private object storage for vendor docs and photos |
 | `pg` | Yes | RDS PostgreSQL |
 | `jszip` | Yes | Document export in `api/maintainx.js` |
 
