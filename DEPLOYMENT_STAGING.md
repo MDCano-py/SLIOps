@@ -416,8 +416,8 @@ GitHub (source)  -->  git pull on EC2  -->  Node :3010 (PM2 ops-hub-staging)
                                               +--> hub-worker (PM2 ops-hub-staging-worker)
                                               |
                                          AWS RDS PostgreSQL (system of record)
+                                         Amazon S3 private bucket (vendor docs / photos)
                                          Entra SSO (auth)
                                          Resend (email via outbox worker)
-                                         Vercel Blob (vendor docs)
-                                         MaintainX / n8n (optional, later)
+                                         MaintainX / n8n (optional until configured)
 ```

@@ -5,7 +5,8 @@ const DEFAULT_PORTAL_SETTINGS = {
   displayName: 'Streamline Operations Hub',
   defaultLandingPage: 'hub-dashboard',
   defaultRequesterRole: 'requester',
-  demoSeedEnabled: true,
+  // Explicit opt-in only — staging Cyber handoff keeps seed controls off by default.
+  demoSeedEnabled: false,
 };
 
 const LANDING_PAGE_OPTIONS = [
@@ -35,7 +36,7 @@ function normalizePortalSettings(raw) {
     defaultRequesterRole: REQUESTER_ROLE_OPTIONS.some((o) => o.value === role)
       ? role
       : DEFAULT_PORTAL_SETTINGS.defaultRequesterRole,
-    demoSeedEnabled: src.demoSeedEnabled !== false,
+    demoSeedEnabled: src.demoSeedEnabled === true,
     updatedAt: src.updatedAt || null,
   };
 }

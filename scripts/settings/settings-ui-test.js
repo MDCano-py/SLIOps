@@ -143,7 +143,7 @@ async function main() {
     displayName: before.displayName,
     defaultLandingPage: before.defaultLandingPage,
     defaultRequesterRole: before.defaultRequesterRole,
-    demoSeedEnabled: before.demoSeedEnabled !== false,
+    demoSeedEnabled: !!before.demoSeedEnabled,
   });
   assert('PATCH /hub/settings/portal', patchRes.statusCode === 200);
 

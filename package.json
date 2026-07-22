@@ -72,6 +72,7 @@
     "security:submission-idor-test": "node scripts/security/submission-idor-test.js",
     "security:workflow-step-authz-test": "node scripts/security/workflow-step-authz-test.js",
     "security:object-storage-test": "node scripts/security/object-storage-test.js",
+    "security:staging-launch-readiness-test": "node scripts/security/staging-launch-readiness-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",
     "vendor-master:test": "node scripts/vendor-master-test.js",

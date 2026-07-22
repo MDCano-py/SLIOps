@@ -8803,7 +8803,6 @@
           <button type="button" class="tab-menu-item" role="menuitem" data-tab="management" data-mgmt-section="vendor" data-rbac-key="mgmt:vendor">Vendor Management</button>
           <button type="button" class="tab-menu-item" role="menuitem" data-tab="management" data-mgmt-section="user" data-rbac-key="mgmt:user">User Management</button>
           <button type="button" class="tab-menu-item" role="menuitem" data-tab="management" data-mgmt-section="role" data-rbac-key="mgmt:role">Role Management</button>
-          <button type="button" class="tab-menu-item" role="menuitem" data-tab="management" data-mgmt-section="pssr" data-rbac-key="mgmt:pssr">PSSR Management</button>
           <button type="button" class="tab-menu-item" role="menuitem" data-tab="management" data-mgmt-section="sso" data-rbac-key="mgmt:sso">Organization SSO</button>
           <button type="button" class="tab-menu-item" role="menuitem" data-tab="management" data-mgmt-section="integrations" data-rbac-key="mgmt:integrations">Integrations</button>
         </div>
@@ -8963,7 +8962,6 @@
             <div class="hub-topbar-search">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
               <input type="search" id="hubGlobalSearch" placeholder="Search requests, work orders, documents…" aria-label="Search hub" />
-              <kbd>⌘K</kbd>
             </div>
             <div class="hub-topbar-actions">
               <button type="button" class="hub-topbar-icon-btn" id="hubThemeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
@@ -12824,26 +12822,12 @@ function goBack() {
           </div>
         </section>
 
-        <!-- PSSR Management — splash placeholder until the real workflow is built -->
-        <section id="mgmtPssrView" style="display:none;">
-          <div class="card" style="padding:80px 40px;text-align:center;">
-            <div style="margin:0 auto 24px;width:72px;height:72px;border-radius:50%;background:var(--teal-50);display:flex;align-items:center;justify-content:center;color:var(--teal-700);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="36" height="36" aria-hidden="true">
-                <path d="M2 20h20"/>
-                <path d="M14 20V8a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v12"/>
-                <path d="M19 20V12a2 2 0 0 0-2-2h-3"/>
-                <line x1="9" y1="10" x2="9" y2="10"/>
-                <line x1="9" y1="14" x2="9" y2="14"/>
-                <line x1="9" y1="18" x2="9" y2="18"/>
-              </svg>
-            </div>
-            <h2 style="font-size:24px;letter-spacing:-0.01em;margin:0 0 8px;color:var(--ink);">PSSR Management</h2>
-            <div style="font-size:13px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-bottom:16px;">🚧 Under construction</div>
+        <!-- PSSR Management — not offered in staging launch; route redirects to Vendor Management -->
+        <section id="mgmtPssrView" style="display:none;" hidden aria-hidden="true">
+          <div class="card" style="padding:48px 40px;text-align:center;">
+            <h2 style="font-size:20px;margin:0 0 8px;color:var(--ink);">PSSR Management is not available</h2>
             <p style="max-width:520px;margin:0 auto;color:var(--ink-soft);font-size:14px;line-height:1.6;">
-              Pre-Startup Safety Review tracking is on the way. This section will let you create, manage, and archive PSSR records.
-            </p>
-            <p style="max-width:520px;margin:18px auto 0;color:var(--ink-mute);font-size:13px;line-height:1.6;">
-              Have a request for what this should include? Let the operations team know.
+              Pre-Startup Safety Review tracking is not part of the current staging release. Use Vendor Management or Forms for in-scope workflows.
             </p>
           </div>
         </section>
@@ -22691,13 +22675,8 @@ function goBack() {
       document.getElementById('mgmtRolesView').style.display = '';
       loadRolesView();
     } else if (section === 'pssr') {
-      subtabsEl.style.display = 'none';
-      headingEl.textContent = 'PSSR Management';
-      crumbEl.textContent = 'Operations / Management / PSSR';
-      if (subheadEl) subheadEl.innerHTML = 'Track Pre-Startup Safety Reviews — coming soon.' + signOutLink;
-      hideAllSectionViews();
-      document.getElementById('mgmtPssrView').style.display = '';
-      // No load logic yet — splash only
+      // WOS-89 — PSSR is out of staging launch scope; redirect to an in-scope section.
+      return mgmtSwitchSection('vendor');
     } else if (section === 'sso') {
       subtabsEl.style.display = 'none';
       headingEl.textContent = 'Organization SSO';
@@ -24408,8 +24387,16 @@ function goBack() {
   async function loadPermissionsView() {
     const ssoBanner = document.getElementById('permsSsoBanner');
     if (ssoBanner) {
+      // WOS-89 — do not claim "SSO not yet enabled" on live staging sessions.
+      // Only show a local-dev notice when portal no-auth / role-preview mode is active.
       const noAuth = window._portalNoAuth || (window.RbacClient && window.RbacClient.isPortalNoAuthMode());
-      ssoBanner.style.display = noAuth ? 'none' : '';
+      if (noAuth) {
+        ssoBanner.innerHTML =
+          '<strong>Local development mode.</strong> Permission edits are saved, but this session is not using Microsoft Entra / staging test login.';
+        ssoBanner.style.display = '';
+      } else {
+        ssoBanner.style.display = 'none';
+      }
     }
     // Catalog first (cached), then list, then audit (parallel)
     if (!permissionsCatalog) {

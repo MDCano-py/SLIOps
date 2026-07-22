@@ -187,7 +187,7 @@
     },
     management: {
       title: 'Management',
-      subtitle: 'Vendor, user, role, and PSSR administration.',
+      subtitle: 'Vendor, user, role, SSO, and integrations administration.',
       breadcrumb: ['Operations Hub', 'Admin'],
     },
   };
@@ -196,7 +196,6 @@
     vendor: 'Vendor Management',
     user: 'User Management',
     role: 'Role Management',
-    pssr: 'PSSR Management',
   };
 
   let mountedLegacyTab = null;
@@ -1527,7 +1526,7 @@
                   `<option value="${esc(v)}"${settings.defaultLandingPage === v ? ' selected' : ''}>${esc(l)}</option>`
               )
               .join('')}</select>
-            <span class="hub-settings-field-hint">Stored for future sign-in redirect (not yet applied automatically).</span>
+            <span class="hub-settings-field-hint">Preference saved for future sign-in redirect.</span>
           </label>
           <label class="hub-settings-field">
             <span>Default requester role</span>
@@ -1537,12 +1536,16 @@
                   `<option value="${esc(v)}"${settings.defaultRequesterRole === v ? ' selected' : ''}>${esc(l)}</option>`
               )
               .join('')}</select>
-            <span class="hub-settings-field-hint">Stored for future request defaults (not yet applied automatically).</span>
+            <span class="hub-settings-field-hint">Preference saved for future request defaults.</span>
           </label>
-          <label class="hub-settings-check">
-            <input type="checkbox" id="hubSetDemoSeed" ${settings.demoSeedEnabled !== false ? 'checked' : ''} />
-            <span>Show demo seed controls for hub admins</span>
-          </label>
+          ${
+            settings._demoSeedToggleVisible
+              ? `<label class="hub-settings-check">
+            <input type="checkbox" id="hubSetDemoSeed" ${settings.demoSeedEnabled ? 'checked' : ''} />
+            <span>Show staging demo seed controls for hub admins (requires STAGING_DEMO_DATA_ENABLED)</span>
+          </label>`
+              : ''
+          }
         </div>
         <div id="hubGeneralSettingsStatus" class="hub-settings-status" hidden></div>
         <div class="hub-settings-actions">
@@ -1563,13 +1566,27 @@
           displayName: detail.querySelector('#hubSetDisplayName')?.value || '',
           defaultLandingPage: detail.querySelector('#hubSetLanding')?.value,
           defaultRequesterRole: detail.querySelector('#hubSetRequesterRole')?.value,
-          demoSeedEnabled: !!detail.querySelector('#hubSetDemoSeed')?.checked,
+          demoSeedEnabled: detail.querySelector('#hubSetDemoSeed')
+            ? !!detail.querySelector('#hubSetDemoSeed').checked
+            : !!_generalSettingsSnapshot?.demoSeedEnabled,
         });
-        _generalSettingsSnapshot = { ...saved };
-        showSettingsStatus(statusEl, 'Settings saved' + (saved.updatedAt ? ' · ' + saved.updatedAt : ''), 'success');
+        _generalSettingsSnapshot = {
+          ...saved,
+          _demoSeedToggleVisible: !!_generalSettingsSnapshot?._demoSeedToggleVisible,
+        };
+        renderGeneralSettingsForm(detail, _generalSettingsSnapshot);
+        showSettingsStatus(
+          detail.querySelector('#hubGeneralSettingsStatus'),
+          'Settings saved' + (saved.updatedAt ? ' · ' + saved.updatedAt : ''),
+          'success'
+        );
         initDevTools();
       } catch (err) {
-        showSettingsStatus(statusEl, err.message, 'error');
+        showSettingsStatus(
+          detail.querySelector('#hubGeneralSettingsStatus') || statusEl,
+          err.message,
+          'error'
+        );
       }
     });
   }
@@ -1582,7 +1599,15 @@
     detail.innerHTML = '<div class="hub-loading">Loading general settings…</div>';
     try {
       const settings = global._portalSettings || (await fetchPortalSettings());
-      renderGeneralSettingsForm(detail, settings);
+      let demoSeedToggleVisible = false;
+      try {
+        const statusRes = await hubFetch('/hub/dev/status');
+        const status = await statusRes.json().catch(() => ({}));
+        demoSeedToggleVisible = !!status.allowed;
+      } catch {
+        demoSeedToggleVisible = false;
+      }
+      renderGeneralSettingsForm(detail, { ...settings, _demoSeedToggleVisible: demoSeedToggleVisible });
     } catch (err) {
       detail.innerHTML = `<div class="hub-settings-inline-warn"><strong>General settings unavailable</strong><span>${esc(err.message)}</span></div>`;
     }
