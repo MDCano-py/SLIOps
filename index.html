@@ -9169,7 +9169,7 @@
                   </button>
                   <button type="button" class="hub-settings-card hub-settings-card--action" data-hub-settings-card="integrations">
                     <strong>Integrations</strong>
-                    <span>MaintainX, n8n, Postgres, and webhooks</span>
+                    <span>MaintainX, Automation webhooks, Postgres, and object storage</span>
                     <span class="hub-settings-card-foot">Open integrations</span>
                   </button>
                   <button type="button" class="hub-settings-card hub-settings-card--action" data-hub-settings-card="appearance">
@@ -12840,7 +12840,7 @@ function goBack() {
           </div>
           <div class="vendor-form-body" style="max-width:800px;padding:20px 24px;">
             <p style="margin:0 0 12px;color:var(--ink-soft);font-size:14px;line-height:1.5;">
-              System status for MaintainX, document storage, and notification delivery. Automation runs in the background; users see in-app notifications only.
+              System status for MaintainX, Amazon S3 object storage, Postgres, and automation delivery. Automation runs in the background; users see in-app notifications only.
             </p>
             <div class="mgmt-integ-grid" id="mgmtIntegrationsGrid">
               <div class="archive-empty">Loading integration status…</div>
@@ -13059,8 +13059,32 @@ function goBack() {
     if (!skipConfirm) {
       if (!window.confirm('Are you sure you want to sign out?')) return;
     }
+    try {
+      sessionStorage.setItem('sliops_signed_out', String(Date.now()));
+    } catch {
+      /* ignore */
+    }
     window.location.href = appPath('/api/auth/logout');
   };
+
+  // WOS-92 — After logout, browser Back must not restore a usable authenticated shell from BFCache.
+  window.addEventListener('pageshow', (event) => {
+    let signedOutAt = null;
+    try {
+      signedOutAt = sessionStorage.getItem('sliops_signed_out');
+    } catch {
+      signedOutAt = null;
+    }
+    if (!signedOutAt) return;
+    if (event.persisted || (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]?.type === 'back_forward')) {
+      try {
+        sessionStorage.removeItem('sliops_signed_out');
+      } catch {
+        /* ignore */
+      }
+      window.location.replace(appPath('/api/auth/login'));
+    }
+  });
 
   // ---------------------------------------------------------------------
   // Local request ID (for the user's reference, not sent to MaintainX)
@@ -21333,6 +21357,13 @@ function goBack() {
   // before /me resolves would see the passcode gate flash even when their
   // SSO permissions would have let them in.
   const meLoadPromise = proxyFetch('/me').then(r => r.json()).then(data => {
+    if (data && data.email) {
+      try {
+        sessionStorage.removeItem('sliops_signed_out');
+      } catch {
+        /* ignore */
+      }
+    }
     if (data && data.ssoEnforced === false) {
       window._portalNoAuth = true;
       if (window.RbacClient) window.RbacClient.enablePortalNoAuthMode();
@@ -23405,6 +23436,11 @@ function goBack() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        if (err.code === 'STORAGE_NOT_CONFIGURED' || res.status === 503) {
+          throw new Error(
+            'Document storage is not configured (Amazon S3). Uploads are unavailable until S3 is set on the server.'
+          );
+        }
         throw new Error(err.error || `Upload failed: ${res.status}`);
       }
       const result = await res.json();
@@ -24363,13 +24399,29 @@ function goBack() {
       const r = await mgmtFetch(proxyUrl('/integrations-status'));
       if (!r.ok) throw new Error(`Status ${r.status}`);
       const data = await r.json();
-      const cards = ['portal', 'maintainx', 'data_store', 'notification_delivery'].map((key) => {
+      const cards = ['portal', 'maintainx', 'object_storage', 'data_store', 'notification_delivery'].map((key) => {
         const item = data[key];
         if (!item) return '';
         const st = item.status || 'unknown';
-        const cls = st === 'configured' || st === 'online' ? 'ok' : st === 'pending' ? 'warn' : 'err';
-        const label = st === 'configured' ? 'Configured' : st === 'online' ? 'Online' : st === 'not_configured' ? 'Not configured' : st;
-        return `<div class="mgmt-integ-card"><h3>${escapeHtml(item.label || key)}</h3><div class="mgmt-integ-status ${cls}">${escapeHtml(label)}</div></div>`;
+        const cls =
+          st === 'configured' || st === 'online' || st === 'postgres_connected'
+            ? 'ok'
+            : st === 'pending' || st === 'not_configured'
+              ? 'warn'
+              : 'err';
+        const labelMap = {
+          configured: 'Configured',
+          online: 'Online',
+          not_configured: 'Not configured',
+          postgres_connected: 'Connected',
+          postgres_error: 'Unavailable',
+        };
+        const label = labelMap[st] || st.replace(/_/g, ' ');
+        const msg =
+          item.message && (st === 'not_configured' || st === 'postgres_error')
+            ? `<p class="mgmt-integ-msg">${escapeHtml(item.message)}</p>`
+            : '';
+        return `<div class="mgmt-integ-card"><h3>${escapeHtml(item.label || key)}</h3><div class="mgmt-integ-status ${cls}">${escapeHtml(label)}</div>${msg}</div>`;
       });
       grid.innerHTML = cards.join('') || '<div class="archive-empty">No status available.</div>';
       const pending = data.pending_automation_events ?? 0;

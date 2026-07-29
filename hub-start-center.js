@@ -16,7 +16,7 @@
 
   const TOP_CARDS = [
     {
-      id: 'sc-start-here',
+      id: 'sc-overview',
       title: 'Start here',
       blurb: 'What Streamline does and how the hub fits together.',
       chip: 'Overview',
@@ -28,7 +28,7 @@
       chip: 'Users',
     },
     {
-      id: 'sc-admin-setup',
+      id: 'sc-admin-setup-flow',
       title: 'Admin setup',
       blurb: 'Forms, roles, approval routes, and publishing for New Request.',
       chip: 'Admins',

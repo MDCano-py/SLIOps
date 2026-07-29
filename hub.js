@@ -1782,6 +1782,8 @@
               <ul class="hub-settings-health-list">
                 <li><span>Store mode</span><strong>${esc(health.hub_store_mode || health.store_mode || '—')}</strong></li>
                 <li><span>Postgres</span><strong>${pg.ok === false || pg.connected === false ? 'Unavailable' : 'Connected'}</strong></li>
+                <li><span>Object storage</span><strong>${health.object_storage_configured ? esc(health.object_storage_driver || 'configured') : 'Not configured'}</strong></li>
+                <li><span>MaintainX</span><strong>${health.maintainx_configured ? 'Configured' : 'Not configured'}</strong></li>
                 <li><span>Service</span><strong>${ok ? 'Running' : 'Degraded'}</strong></li>
                 <li><span>Environment</span><strong>${esc(health.node_env || '—')}</strong></li>
                 <li><span>Version</span><strong>${esc(health.version || '—')}</strong></li>

@@ -3648,7 +3648,7 @@ module.exports = async function handler(req, res) {
       },
       notification_delivery: {
         status: notificationAutomation,
-        label: 'Notification delivery (automation)',
+        label: 'Automation delivery',
       },
       pending_automation_events: pendingAutomation,
     });

@@ -85,6 +85,10 @@ function main() {
   assert('content includes Settings', html.includes('Settings'));
   assert('launch checklist present', html.includes('Confirm it appears in Archive'));
   assert('troubleshooting section present', html.includes('Troubleshooting') || startCenterSrc.includes('TROUBLESHOOTING'));
+  assert('Admin setup card targets sc-admin-setup-flow', /id:\s*'sc-admin-setup-flow'/.test(startCenterSrc));
+  assert('Start here card targets sc-overview', /id:\s*'sc-overview'/.test(startCenterSrc));
+  assert('top card ids match section ids', html.includes('data-scroll-target="sc-admin-setup-flow"') && html.includes('id="sc-admin-setup-flow"'));
+  assert('overview scroll target present', html.includes('data-scroll-target="sc-overview"') && html.includes('id="sc-overview"'));
 
   BANNED.forEach((term) => {
     assert(`Start Center does not mention banned term: ${term}`, !html.includes(term) && !startCenterSrc.includes(term));
