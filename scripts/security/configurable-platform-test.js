@@ -151,7 +151,12 @@ assert('disabled payload has code', disabledPayload().code === 'CONFIGURABLE_PLA
   const good = validateWorkflowDefinition({
     nodes: [
       { key: 'start', type: 'trigger.request_created', name: 'Start' },
-      { key: 'fill', type: 'human.fill', name: 'Fill' },
+      {
+        key: 'fill',
+        type: 'human.fill',
+        name: 'Fill',
+        config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin' } },
+      },
       { key: 'done', type: 'terminal.complete', name: 'Done' },
     ],
     connections: [

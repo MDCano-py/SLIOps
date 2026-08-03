@@ -182,4 +182,4 @@
   }
 
   global.HubFormRenderer = { render, renderField, collectFormData, esc };
-})(typeof window !== 'undefined' ? window : global);
+})(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : this);

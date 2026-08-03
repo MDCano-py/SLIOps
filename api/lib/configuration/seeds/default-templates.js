@@ -139,8 +139,8 @@ function ndaWorkflowPayload() {
   return {
     nodes: [
       { key: 'start', type: 'trigger.request_created', name: 'NDA request created', x: 80, y: 40 },
-      { key: 'fill', type: 'human.fill', name: 'Counterparty form', x: 80, y: 140, config: { assignee_role: 'requester' } },
-      { key: 'legal_review', type: 'human.review', name: 'Legal reviews NDA', x: 80, y: 240, config: { assignee_role: 'legal' } },
+      { key: 'fill', type: 'human.fill', name: 'Counterparty form', x: 80, y: 140, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'legal_review', type: 'human.review', name: 'Legal reviews NDA', x: 80, y: 240, config: { assignee_role: 'legal', assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' } } },
       {
         key: 'legal_decision',
         type: 'logic.condition',
@@ -159,10 +159,10 @@ function ndaWorkflowPayload() {
           },
         },
       },
-      { key: 'corrections', type: 'human.provide_info', name: 'Return for corrections', x: 300, y: 340, config: { assignee_role: 'requester' } },
+      { key: 'corrections', type: 'human.provide_info', name: 'Return for corrections', x: 300, y: 340, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
       { key: 'generate', type: 'document.generate', name: 'Generate NDA', x: 80, y: 440, config: {} },
-      { key: 'sign_internal', type: 'human.sign', name: 'Internal signature', x: 80, y: 540, config: { assignee_role: 'legal' } },
-      { key: 'sign_external', type: 'human.sign', name: 'External signature', x: 80, y: 640, config: { assignee_role: 'client' } },
+      { key: 'sign_internal', type: 'human.sign', name: 'Internal signature', x: 80, y: 540, config: { assignee_role: 'legal', assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'sign_external', type: 'human.sign', name: 'External signature', x: 80, y: 640, config: { assignee_role: 'client', assignment: { mode: 'external_participant', form_field_key: 'contact_email', fallback: 'hub_admin', strategy: 'shared_queue' } } },
       { key: 'archive_doc', type: 'document.archive', name: 'Archive document', x: 80, y: 740 },
       { key: 'complete', type: 'terminal.complete', name: 'Complete request', x: 80, y: 840 },
     ],
@@ -186,7 +186,7 @@ function purchaseWorkflowPayload() {
   return {
     nodes: [
       { key: 'start', type: 'trigger.form_submitted', name: 'Purchase submitted', x: 80, y: 40 },
-      { key: 'manager', type: 'human.review', name: 'Manager review', x: 80, y: 140, config: { assignee_role: 'manager' } },
+      { key: 'manager', type: 'human.review', name: 'Manager review', x: 80, y: 140, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
       {
         key: 'cost_gate',
         type: 'logic.condition',
@@ -205,9 +205,9 @@ function purchaseWorkflowPayload() {
           },
         },
       },
-      { key: 'accounting', type: 'human.approve', name: 'Accounting review', x: 280, y: 340, config: { assignee_role: 'ap' } },
-      { key: 'executive', type: 'human.approve', name: 'Executive approval', x: 280, y: 440, config: { assignee_role: 'manager' } },
-      { key: 'approve_low', type: 'human.approve', name: 'Approve', x: 80, y: 340, config: { assignee_role: 'manager' } },
+      { key: 'accounting', type: 'human.approve', name: 'Accounting review', x: 280, y: 340, config: { assignee_role: 'ap', assignment: { mode: 'role', role_key: 'ap', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'executive', type: 'human.approve', name: 'Executive approval', x: 280, y: 440, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'approve_low', type: 'human.approve', name: 'Approve', x: 80, y: 340, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
       { key: 'mx', type: 'integration.maintainx_create', name: 'Create work order', x: 180, y: 540 },
       { key: 'notify', type: 'notify.completion', name: 'Completion notification', x: 180, y: 640 },
       { key: 'complete', type: 'terminal.complete', name: 'Complete', x: 180, y: 740 },
@@ -230,11 +230,11 @@ function vendorWorkflowPayload() {
   return {
     nodes: [
       { key: 'start', type: 'trigger.request_created', name: 'Vendor onboarding started', x: 80, y: 40 },
-      { key: 'fill', type: 'human.fill', name: 'Vendor information', x: 80, y: 140, config: { assignee_role: 'requester' } },
-      { key: 'upload', type: 'human.upload', name: 'Required document upload', x: 80, y: 240, config: { assignee_role: 'requester' } },
-      { key: 'ops', type: 'human.review', name: 'Operations review', x: 80, y: 340, config: { assignee_role: 'manager' } },
-      { key: 'acct', type: 'human.review', name: 'Accounting review', x: 80, y: 440, config: { assignee_role: 'ap' } },
-      { key: 'decision', type: 'human.approve', name: 'Approve or reject', x: 80, y: 540, config: { assignee_role: 'manager' } },
+      { key: 'fill', type: 'human.fill', name: 'Vendor information', x: 80, y: 140, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'upload', type: 'human.upload', name: 'Required document upload', x: 80, y: 240, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'ops', type: 'human.review', name: 'Operations review', x: 80, y: 340, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'acct', type: 'human.review', name: 'Accounting review', x: 80, y: 440, config: { assignee_role: 'ap', assignment: { mode: 'role', role_key: 'ap', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      { key: 'decision', type: 'human.approve', name: 'Approve or reject', x: 80, y: 540, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
       { key: 'activate', type: 'logic.update_request', name: 'Vendor activation', x: 80, y: 640 },
       { key: 'complete', type: 'terminal.complete', name: 'Completion', x: 80, y: 740 },
       { key: 'reject', type: 'terminal.reject', name: 'Rejected', x: 280, y: 640 },

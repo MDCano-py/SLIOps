@@ -314,4 +314,4 @@
     },
     _test: { ROLE_OPTIONS, ROUTE_TYPES, spaceIconGlyph },
   };
-})(typeof window !== 'undefined' ? window : global);
+})(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : this);

@@ -113,6 +113,28 @@ function validateWorkflowDefinition(payload) {
     if (n.config && n.config.condition) {
       issues.push(...validateConditionShape(n.config.condition));
     }
+    const metaType = getNodeType(n.type);
+    if (metaType && metaType.category === 'human') {
+      const asg = (n.config && n.config.assignment) || {};
+      const mode = asg.mode || (n.config && n.config.assignee_role ? 'role' : null);
+      const hasAssignment =
+        (mode === 'specific_user' && asg.user_id) ||
+        (mode === 'role' && (asg.role_key || (n.config && n.config.assignee_role))) ||
+        mode === 'request_creator' ||
+        mode === 'form_user_field' ||
+        mode === 'external_participant' ||
+        (n.config && n.config.assignee_role);
+      if (!hasAssignment) {
+        issues.push({
+          severity: 'error',
+          code: 'MISSING_ASSIGNMENT',
+          message: `"${n.name || n.key}" has no assignment. Choose a user, role, or dynamic assignment source.`,
+          entity: 'node',
+          affected: n.key,
+          suggested_correction: 'Open the node inspector and set Assignment',
+        });
+      }
+    }
   }
 
   if (startNodes.length !== 1) {

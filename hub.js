@@ -511,9 +511,49 @@
         }));
         sections.push(renderTaskSection('Recently completed', done, 'No recent completions.'));
       }
+
+      // WOS-94 — configurable platform human tasks
+      try {
+        const cfgRes = await hubFetch('/hub/workflow-runtime/tasks');
+        if (cfgRes.ok) {
+          const cfgData = await cfgRes.json();
+          const cfgTasks = cfgData.tasks || [];
+          if (cfgTasks.length && (myTasksFilter === 'all' || myTasksFilter === 'waiting')) {
+            const rows = cfgTasks
+              .map((task) => {
+                const title = task.task_type || 'Action needed';
+                return `<tr data-cfg-task="${esc(task.id)}"><td class="mono">${esc(task.related_request_id || task.instance_id || '—')}</td><td>${esc(title)}</td><td>Configurable</td><td><span class="hub-chip">${esc(task.assigned_role || task.assigned_user_email || 'queue')}</span></td></tr>`;
+              })
+              .join('');
+            sections.push(
+              `<div class="hub-panel"><div class="hub-panel-head"><h2>Configurable workflow tasks</h2><span>${cfgTasks.length}</span></div><div class="hub-panel-body"><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Request / instance</th><th>Action needed</th><th>Type</th><th>Assignment</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`
+            );
+          }
+        }
+      } catch {
+        /* optional when flag off */
+      }
+
       root.innerHTML = sections.join('');
       root.querySelectorAll('[data-open-request]').forEach((row) => {
         row.addEventListener('click', () => openRequestDetail(row.dataset.openRequest));
+      });
+      root.querySelectorAll('[data-cfg-task]').forEach((row) => {
+        row.addEventListener('click', async () => {
+          const taskId = row.dataset.cfgTask;
+          if (!taskId) return;
+          const outcome = prompt('Complete task outcome (default / approved / rejected)', 'default') || 'default';
+          try {
+            await hubFetch(`/hub/workflow-runtime/tasks/${encodeURIComponent(taskId)}/complete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ outcome }),
+            });
+            initMyTasks();
+          } catch (err) {
+            alert(err.message || 'Could not complete task');
+          }
+        });
       });
     } catch (err) {
       root.innerHTML = `<div class="hub-empty">${esc(err.message)}</div>`;
@@ -2668,23 +2708,33 @@
       byCat[cat].push(t);
     });
     let html = '';
-    const catOrder = ['published_forms', 'operations', 'safety', 'logistics', 'documents', 'general'];
+    const catOrder = ['request_types', 'published_forms', 'legacy_operations', 'operations', 'safety', 'logistics', 'documents', 'general'];
     const cats = [...new Set([...catOrder, ...Object.keys(byCat)])].filter((c) => byCat[c]?.length);
     cats.forEach((cat) => {
       const catLabel =
-        cat === 'published_forms'
-          ? 'Published forms'
-          : esc(CATEGORY_LABELS[cat] || cat);
+        nr && typeof nr.categoryLabel === 'function'
+          ? esc(nr.categoryLabel(cat))
+          : cat === 'published_forms'
+            ? 'Published forms'
+            : cat === 'request_types'
+              ? 'Published Request Types'
+              : esc(CATEGORY_LABELS[cat] || cat);
       const catHint =
-        cat === 'published_forms'
-          ? '<p class="hub-sub hub-type-cat-hint">Forms your team published — fill out and submit here.</p>'
-          : '<p class="hub-sub hub-type-cat-hint">Standard request types — start a legacy workflow or open an existing portal form.</p>';
+        cat === 'request_types'
+          ? '<p class="hub-sub hub-type-cat-hint">Configured request types — start here. Supporting forms appear later as tasks.</p>'
+          : cat === 'published_forms'
+            ? '<p class="hub-sub hub-type-cat-hint">Published forms (shown only when no request types are published yet).</p>'
+            : '<p class="hub-sub hub-type-cat-hint">Legacy operations and portal tools.</p>';
       html += `<div class="hub-type-category" data-category="${esc(cat)}"><h3>${catLabel}</h3>${catHint}<div class="hub-type-grid">`;
       byCat[cat].forEach((t) => {
         const action = nr.cardActionLabel(t);
         const icon = typeIcon(t.icon || t.key);
         const isDynamic = nr.isPublishedFormCard(t);
-        html += `<button type="button" class="hub-type-item${isDynamic ? ' hub-type-item-dynamic' : ''}" data-type-key="${esc(t.key)}" data-render="${esc(t.render_mode)}" data-tab="${esc(t.portal_tab || '')}"${isDynamic ? ` data-launch-entry="${esc(t.launch_entry_id)}"` : ''}>
+        const isCfg = nr.isCfgRequestTypeCard && nr.isCfgRequestTypeCard(t);
+        const extra =
+          (isDynamic ? ` data-launch-entry="${esc(t.launch_entry_id)}"` : '') +
+          (isCfg ? ` data-request-type-id="${esc(t.request_type_id)}"` : '');
+        html += `<button type="button" class="hub-type-item${isDynamic || isCfg ? ' hub-type-item-dynamic' : ''}" data-type-key="${esc(t.key)}" data-render="${esc(t.render_mode)}" data-tab="${esc(t.portal_tab || '')}"${extra}>
           <div class="hub-type-icon">${icon}</div>
           <strong>${esc(t.label)}</strong>
           <span class="hub-type-desc">${esc(t.description || '')}</span>
@@ -2731,12 +2781,20 @@
     };
 
     try {
-      const [legacyTypes, launchRegistry] = await Promise.all([
+      const [legacyTypes, launchRegistry, cfgRequestTypes] = await Promise.all([
         fetchRegistry(),
         fetchLaunchRegistry().catch(() => ({ spaces: [] })),
+        hubFetch('/hub/configuration/request-types')
+          .then((d) => d.definitions || [])
+          .catch(() => []),
       ]);
       const publishedForms = nr ? nr.publishedFormsFromRegistry(launchRegistry) : [];
-      const allTypes = nr ? nr.mergeNewRequestTypes(legacyTypes, publishedForms) : legacyTypes;
+      const requestTypes = nr && nr.requestTypesFromConfiguration
+        ? nr.requestTypesFromConfiguration(cfgRequestTypes)
+        : [];
+      const allTypes = nr
+        ? nr.mergeNewRequestTypes(legacyTypes, publishedForms, requestTypes)
+        : legacyTypes;
 
       let html = '<div class="hub-type-list">';
       html += renderNewRequestTypeGrid(allTypes, nr || { cardActionLabel: () => 'Start request', isPublishedFormCard: () => false });
@@ -2749,6 +2807,48 @@
           const render = btn.dataset.render;
           const tab = btn.dataset.tab;
           const launchEntryId = btn.dataset.launchEntry;
+          const requestTypeId = btn.dataset.requestTypeId;
+
+          if (render === 'cfg_request_type' && requestTypeId) {
+            const item = allTypes.find((t) => t.request_type_id === requestTypeId);
+            if (item && item.workflow_definition_id) {
+              try {
+                await hubFetch('/hub/workflow-runtime/start', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    workflow_definition_id: item.workflow_definition_id,
+                    context: { request_type_id: requestTypeId, request_type_key: item.key },
+                  }),
+                });
+              } catch (err) {
+                console.warn('[hub] configurable workflow start', err);
+              }
+            }
+            if (item && item.starting_form_template_id && formEl && global.TemplateRuntimeUI) {
+              // Prefer launch entry matching template when available
+              const formCard = publishedForms.find((f) => f.template_id === item.starting_form_template_id);
+              if (formCard && formCard.launch_entry_id) {
+                showFormHost();
+                formEl.innerHTML = '';
+                await global.TemplateRuntimeUI.renderLaunchForm(formEl, formCard.launch_entry_id, {
+                  onCancel: showTypeList,
+                  onSubmitSuccess: (submissionId) => {
+                    if (typeof global.switchTab === 'function') {
+                      global.switchTab('hub-submission', { submissionId });
+                    }
+                  },
+                });
+                return;
+              }
+            }
+            alert(
+              'Request type "' +
+                (item && item.label ? item.label : key) +
+                '" is published. Attach a starting form in Configuration Center to collect intake data.'
+            );
+            return;
+          }
 
           if (render === 'published_form' && launchEntryId && formEl && global.TemplateRuntimeUI) {
             showFormHost();
@@ -3006,4 +3106,4 @@
   } else {
     init();
   }
-})(typeof window !== 'undefined' ? window : global);
+})(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : this);

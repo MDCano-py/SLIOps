@@ -3873,3 +3873,40 @@ html[data-theme="dark"] .cfg-row,
 html[data-theme="dark"] .cfg-panel {
   background: var(--hub-surface);
 }
+
+/* WOS-94 Configuration Center registry + builders */
+.cfg-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; align-items: center; }
+.cfg-row-head { font-size: 0.8rem; color: var(--hub-muted); cursor: default; }
+.cfg-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+.cfg-split-left, .cfg-split-right { min-width: 0; }
+.cfg-doc-preview, .cfg-dash-preview {
+  border: 1px solid var(--hub-border); border-radius: 8px; padding: 1rem; min-height: 280px;
+  background: var(--hub-surface-2);
+}
+.cfg-var-token { background: color-mix(in srgb, var(--hub-teal) 18%, transparent); padding: 0 0.2rem; border-radius: 3px; }
+.cfg-var-picker { margin-top: 0.75rem; }
+.cfg-var-list { display: flex; flex-direction: column; gap: 0.25rem; max-height: 220px; overflow: auto; }
+.cfg-var-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem;
+  border: 1px solid var(--hub-border); border-radius: 6px; padding: 0.4rem 0.55rem;
+  background: var(--hub-surface-2); color: inherit; font: inherit; cursor: pointer; text-align: left;
+}
+.cfg-var-item span { color: var(--hub-muted); font-size: 0.8rem; }
+.cfg-dash-widget {
+  border: 1px solid var(--hub-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem;
+  background: var(--hub-surface); display: flex; flex-direction: column; gap: 0.25rem;
+}
+.cfg-dash-widget-sm { max-width: 40%; }
+.cfg-dash-widget-lg { min-height: 110px; }
+.cfg-wf-v2 { grid-template-columns: 160px minmax(0, 1fr) 240px; }
+.cfg-wf-library { border: 1px solid var(--hub-border); border-radius: 8px; padding: 0.65rem; background: var(--hub-surface); display: flex; flex-direction: column; gap: 0.25rem; max-height: 560px; overflow: auto; }
+.cfg-wf-handles { display: flex; justify-content: space-between; margin-top: 0.25rem; }
+.cfg-wf-handle { color: var(--hub-teal); font-size: 0.7rem; line-height: 1; }
+.cfg-wf-edge-end { fill: var(--hub-teal); }
+.cfg-assign-preview {
+  white-space: pre-wrap; font-size: 0.85rem; border: 1px solid var(--hub-border);
+  border-radius: 6px; padding: 0.55rem; background: var(--hub-surface-2); margin: 0.5rem 0;
+}
+@media (max-width: 1000px) {
+  .cfg-split, .cfg-wf-v2 { grid-template-columns: 1fr; }
+}
