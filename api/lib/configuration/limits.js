@@ -1,0 +1,16 @@
+/** Hard limits for configuration payloads (DoS / abuse protection). */
+
+const LIMITS = Object.freeze({
+  MAX_FORM_FIELDS: 100,
+  MAX_WORKFLOW_NODES: 100,
+  MAX_WORKFLOW_CONNECTIONS: 150,
+  MAX_DASHBOARD_WIDGETS: 30,
+  MAX_CONDITION_DEPTH: 8,
+  MAX_STRING_LENGTH: 8000,
+  MAX_TEMPLATE_HTML_LENGTH: 200000,
+  MAX_KEY_LENGTH: 120,
+  MAX_LABEL_LENGTH: 240,
+  MAX_NODES_PER_PUBLISH_VALIDATE: 100,
+});
+
+module.exports = { LIMITS };

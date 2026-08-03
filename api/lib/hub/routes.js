@@ -17,6 +17,7 @@ const { handleTemplateRoutes } = require('../templates/routes');
 const { handleTemplateRuntimeRoutes } = require('../templates/runtime-routes');
 const { handleSpaceRoutes } = require('../spaces/routes');
 const { handleRbacRoutes } = require('../rbac/routes');
+const { handleConfigurationRoutes } = require('../configuration/routes');
 
 function parseBody(req) {
   if (!req.body) return {};
@@ -164,6 +165,13 @@ async function handleHubRoute(path, req, res, ctx) {
     isAdmin,
   });
   if (rbacHandled) return true;
+
+  const configurationHandled = await handleConfigurationRoutes(path, req, res, {
+    actorEmail,
+    permissions,
+    isAdmin,
+  });
+  if (configurationHandled) return true;
 
   const runtimeHandled = await handleTemplateRuntimeRoutes(path, req, res, {
     actorEmail,

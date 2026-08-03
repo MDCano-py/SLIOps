@@ -73,6 +73,9 @@
     'hub:settings-admin': { any: ['hub_admin', 'admin'] },
     'hub:start-center-admin': { any: ['hub_admin', 'admin'] },
     'hub:workflows-nav': { any: ['hub_admin', 'admin'] },
+    'hub:configuration-admin': {
+      any: ['configuration.view', 'configuration.edit', 'configuration.publish', 'hub_admin', 'admin'],
+    },
   };
 
   const HUB_TAB_RULES = {
@@ -80,6 +83,9 @@
     'hub-reports': { any: ['view_hub_reports', 'view_hub_dashboard'] },
     'hub-settings': { any: ['hub_admin', 'admin'] },
     'hub-start-center': { any: ['hub_admin', 'admin'] },
+    'hub-configuration': {
+      any: ['configuration.view', 'configuration.edit', 'configuration.publish', 'hub_admin', 'admin'],
+    },
     'hub-workflows': { any: ['hub_admin', 'admin'] },
     'hub-documents': { any: ['hub_admin', 'admin'] },
     'hub-users': { any: ['admin', 'hub_admin'] },

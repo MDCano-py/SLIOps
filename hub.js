@@ -46,6 +46,7 @@
     'hub-reports',
     'hub-settings',
     'hub-start-center',
+    'hub-configuration',
     'hub-workflows',
     'hub-forms',
     'hub-documents',
@@ -72,6 +73,10 @@
     'hub-start-center': {
       title: 'Start Center',
       subtitle: 'Learn how to run requests, forms, workflows, users, roles, and records in Streamline.',
+    },
+    'hub-configuration': {
+      title: 'Configuration Center',
+      subtitle: 'Configure request types, forms, documents, workflows, dashboards, and variables.',
     },
     'hub-workflows': {
       title: 'Workflows',
@@ -784,6 +789,7 @@
     if (tab === 'hub-reports') return '#/reports';
     if (tab === 'hub-settings') return '#/settings';
     if (tab === 'hub-start-center') return '#/start-center';
+    if (tab === 'hub-configuration') return '#/configuration';
     if (tab === 'hub-spaces' && routeOpts.spaceKey) return '#/spaces/' + routeOpts.spaceKey;
     if (tab === 'hub-launch' && routeOpts.entryId) return '#/launch/' + routeOpts.entryId;
     if (tab === 'hub-submission' && routeOpts.submissionId) return '#/submissions/' + routeOpts.submissionId;
@@ -1892,6 +1898,29 @@
     }
   }
 
+  async function initHubConfigurationCenter() {
+    showHubPage('hub-configuration');
+    setSidebarForTab('hub-configuration');
+    updateTopbarUser();
+    await loadPermissionsFromMe();
+    applyHubNavPermissions();
+
+    const root = document.getElementById('hubConfigurationRoot');
+    if (!root) return;
+    if (!canAccessHubTab('hub-configuration')) {
+      renderAccessRestricted(root, 'Configuration Center');
+      return;
+    }
+    // Reveal nav only when feature is enabled (status check inside UI)
+    const navBtn = document.querySelector('[data-hub-tab="hub-configuration"]');
+    if (navBtn) navBtn.hidden = false;
+    if (global.HubConfigurationCenter && typeof global.HubConfigurationCenter.init === 'function') {
+      await global.HubConfigurationCenter.init();
+    } else {
+      root.innerHTML = '<div class="hub-empty">Configuration Center failed to load.</div>';
+    }
+  }
+
   async function initHubSettings() {
     showHubPage('hub-settings');
     setSidebarForTab('hub-settings');
@@ -2876,6 +2905,7 @@
     else if (tabName === 'hub-reports') initHubReports();
     else if (tabName === 'hub-settings') initHubSettings();
     else if (tabName === 'hub-start-center') initHubStartCenter();
+    else if (tabName === 'hub-configuration') initHubConfigurationCenter();
     else if (tabName === 'hub-forms') initHubForms();
     else if (tabName === 'hub-documents') initHubDocuments();
     else if (tabName === 'hub-workflows') initHubWorkflows();
@@ -2955,6 +2985,7 @@
     initHubAnalytics,
     initRequestsList,
     fetchRegistry,
+    hubFetch,
     _test: {
       buildWorkflowsHash(query) {
         if (query && query.type === 'document') return '#/documents/templates';

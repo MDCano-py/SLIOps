@@ -521,6 +521,17 @@ const PERMISSION_CATALOG = [
   { group: 'Archive Deletion',   id: 'delete_bol_archive',       label: 'Delete Any BOL Archive Record (override 24h rule)' },
 
   { group: 'Admin',              id: 'admin',                    label: 'Manage User Permissions' },
+
+  { group: 'Configuration',      id: 'configuration.view',       label: 'View Configuration Center' },
+  { group: 'Configuration',      id: 'configuration.edit',       label: 'Edit configuration drafts' },
+  { group: 'Configuration',      id: 'configuration.publish',    label: 'Publish configuration versions' },
+  { group: 'Configuration',      id: 'configuration.archive',    label: 'Archive configuration definitions' },
+  { group: 'Configuration',      id: 'workflow.execute',         label: 'Execute configurable workflows' },
+  { group: 'Configuration',      id: 'workflow.manage',          label: 'Manage workflow definitions' },
+  { group: 'Configuration',      id: 'form.manage',              label: 'Manage form definitions' },
+  { group: 'Configuration',      id: 'document.manage',          label: 'Manage document templates' },
+  { group: 'Configuration',      id: 'dashboard.manage',         label: 'Manage dashboard definitions' },
+  { group: 'Configuration',      id: 'variable.manage',          label: 'Manage custom variables' },
 ];
 
 const ALL_PERMISSION_IDS = PERMISSION_CATALOG.map(p => p.id);

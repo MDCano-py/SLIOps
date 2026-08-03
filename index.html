@@ -8952,6 +8952,7 @@
             <button type="button" class="hub-nav-link" data-hub-tab="hub-analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Analytics</span></button>
             <div class="hub-nav-group-label">Admin</div>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-start-center" data-rbac-key="hub:start-center-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg><span>Start Center</span></button>
+            <button type="button" class="hub-nav-link" data-hub-tab="hub-configuration" data-rbac-key="hub:configuration-admin" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Configuration</span></button>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-users" data-rbac-key="hub:users-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><span>Users</span></button>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-settings" data-rbac-key="hub:settings-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button>
           </nav>
@@ -9133,6 +9134,15 @@
                   </div>
                 </div>
                 <div id="hubStartCenterRoot" class="hub-start-center-root"></div>
+              </div>
+              <div class="hub-page" id="hubPageConfiguration" data-hub-page="hub-configuration" hidden>
+                <div class="hub-page-head">
+                  <div>
+                    <h1>Configuration Center</h1>
+                    <p class="hub-sub">Configure request types, forms, documents, workflows, dashboards, and variables.</p>
+                  </div>
+                </div>
+                <div id="hubConfigurationRoot" class="cfg-root"></div>
               </div>
               <div class="hub-page" id="hubPageSettings" data-hub-page="hub-settings" hidden>
                 <div class="hub-page-head">
@@ -25610,7 +25620,7 @@ function goBack() {
   // tabMenuItems = both flat top-level tabs (e.g. Home) and nested dropdown items
   const tabMenuItems = document.querySelectorAll('.tabs [data-tab]');
   const tabGroups = document.querySelectorAll('.tab-group');
-  const HUB_NATIVE_TABS = ['hub-dashboard', 'hub-analytics', 'hub-requests', 'hub-request-detail', 'hub-new-request', 'hub-my-tasks', 'hub-reports', 'hub-settings', 'hub-start-center', 'hub-forms', 'hub-documents', 'hub-workflows', 'hub-users', 'hub-spaces', 'hub-launch', 'hub-submission', 'hub-archive'];
+  const HUB_NATIVE_TABS = ['hub-dashboard', 'hub-analytics', 'hub-requests', 'hub-request-detail', 'hub-new-request', 'hub-my-tasks', 'hub-reports', 'hub-settings', 'hub-start-center', 'hub-configuration', 'hub-forms', 'hub-documents', 'hub-workflows', 'hub-users', 'hub-spaces', 'hub-launch', 'hub-submission', 'hub-archive'];
   const hubShellPanel = document.getElementById('panel-hub-shell');
   const panels = {
     'home': document.getElementById('panel-home'),
@@ -25931,6 +25941,8 @@ function goBack() {
       return { tab: 'hub-settings', segments: [], query };
     } else if (tab === 'start-center') {
       return { tab: 'hub-start-center', segments: [], query };
+    } else if (tab === 'configuration' || tab === 'admin' && rest[0] === 'configuration') {
+      return { tab: 'hub-configuration', segments: rest[0] === 'configuration' ? rest.slice(1) : rest, query };
     } else if (tab === 'launch' && rest[0]) {
       return { tab: 'hub-launch', segments: [rest[0]], query };
     } else if (tab === 'submissions' && rest[0]) {
@@ -26013,6 +26025,10 @@ function goBack() {
     if (tab === 'hub-reports') return '#/reports';
     if (tab === 'hub-settings') return '#/settings';
     if (tab === 'hub-start-center') return '#/start-center';
+    if (tab === 'hub-configuration') {
+      const segs = (segments || []).filter(Boolean);
+      return segs.length ? '#/configuration/' + segs.join('/') : '#/configuration';
+    }
     if (tab === 'hub-forms') {
       const segs = segments || [];
       if (segs[0] === 'builder' && segs[1] && segs[2]) {
@@ -26083,7 +26099,7 @@ function goBack() {
     const { tab, segments, mgmtSection } = parsed;
     _routingInProgress = true;
     try {
-      const knownTabs = ['home','hub-dashboard','hub-analytics','hub-requests','hub-request-detail','hub-new-request','hub-my-tasks','hub-reports','hub-settings','hub-start-center','hub-forms','hub-documents','hub-workflows','hub-users','hub-spaces','hub-launch','hub-submission','hub-archive','parts','work-order','bol','jsa','jsa-archive','bol-archive','parts-request-archive','work-order-archive','forms-archive','roll-off-swap','roll-off-swap-archive','management','swp'];
+      const knownTabs = ['home','hub-dashboard','hub-analytics','hub-requests','hub-request-detail','hub-new-request','hub-my-tasks','hub-reports','hub-settings','hub-start-center','hub-configuration','hub-forms','hub-documents','hub-workflows','hub-users','hub-spaces','hub-launch','hub-submission','hub-archive','parts','work-order','bol','jsa','jsa-archive','bol-archive','parts-request-archive','work-order-archive','forms-archive','roll-off-swap','roll-off-swap-archive','management','swp'];
       let target = knownTabs.includes(tab) ? tab : 'hub-dashboard';
       const routeOpts = {};
       if (mgmtSection) routeOpts.mgmtSection = mgmtSection;
@@ -26091,7 +26107,7 @@ function goBack() {
       if (segments && segments.length) routeOpts.segments = segments;
       if (parsed.query && Object.keys(parsed.query).length) routeOpts.query = parsed.query;
 
-      if (window.RbacClient && ['hub-reports','hub-settings','hub-start-center','hub-forms','hub-documents','hub-workflows','hub-users'].includes(target)) {
+      if (window.RbacClient && ['hub-reports','hub-settings','hub-start-center','hub-configuration','hub-forms','hub-documents','hub-workflows','hub-users'].includes(target)) {
         if (!window.RbacClient.isPortalNoAuthMode() && !window.RbacClient.canAccessHubTab(portalPerms(), target)) {
           switchTab(target, routeOpts);
           return;
@@ -26477,6 +26493,7 @@ function goBack() {
 <script src="hub-new-request-registry.js"></script>
 <script src="hub-unified-archive.js"></script>
 <script src="hub-start-center.js"></script>
+<script src="hub-configuration-center.js"></script>
 <script src="hub.js"></script>
 </body>
 </html>
