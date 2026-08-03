@@ -1,7 +1,7 @@
 # WOS-93 — Configurable Platform Builder Report
 
 **Branch:** `wos-93-configurable-platform-builder`  
-**Commit:** _(filled after commit)_  
+**Commit:** `112f4d9`  
 **Feature flag:** `CONFIGURABLE_PLATFORM_ENABLED=1`
 
 ---
@@ -123,8 +123,8 @@ Seeds create **definitions only** (no demo request rows).
 
 | Suite | Result |
 |-------|--------|
-| `npm run security:configurable-platform-test` | (run in CI / local) |
-| Existing security/template regression with flag off | Should remain PASS |
+| `npm run security:configurable-platform-test` | **38/38 PASS** |
+| Existing security/template regression with flag off | PASS (rbac, hardening, workflow-step-authz, no-origin, object-storage, staging-readiness, start-center, secret-scan) |
 
 ---
 
