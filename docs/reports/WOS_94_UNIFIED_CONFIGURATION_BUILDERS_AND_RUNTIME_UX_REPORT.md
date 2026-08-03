@@ -1,7 +1,7 @@
 # WOS-94 — Unified Configuration Builders and Runtime UX
 
 **Branch:** `wos-94-unify-configuration-builders`  
-**Commit:** _(filled after commit)_  
+**Commit:** `75bf77a`  
 **Base:** WOS-93 configurable platform (`wos-93-configurable-platform-builder`)
 
 ---
