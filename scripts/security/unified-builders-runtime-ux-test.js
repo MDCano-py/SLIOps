@@ -129,7 +129,7 @@ const { validateWorkflowDefinition } = require('../../api/lib/configuration/vali
 }
 
 // Workflow canvas helpers present
-assert('workflow auto-layout present', /function autoLayout|Auto-layout/.test(cfgSrc));
+assert('workflow auto-layout present', /function autoLayout|Auto-layout|HubWorkflowDesigner/.test(cfgSrc) && (/Auto-layout/.test(fs.readFileSync(path.join(root, 'hub-workflow-designer.js'), 'utf8')) || /autoLayout/.test(cfgSrc)));
 assert('workflow handles present', /nodeHandles|source_handle|cfg-wf-handle/.test(cfgSrc));
 assert('assignment inspector present', /Assignment preview|specific_user|shared_queue/.test(cfgSrc));
 assert('document live preview present', /Live preview|cfg-doc-preview/.test(cfgSrc));

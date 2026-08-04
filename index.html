@@ -4422,6 +4422,19 @@
   .sl-modal-body textarea.input {
     margin-top: 4px;
   }
+  .sl-modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sl-modal-field-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-top: 10px;
+  }
+  .sl-modal-field-label:first-child { margin-top: 0; }
   .sl-modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -13063,11 +13076,21 @@ function goBack() {
     TITLE_PREFIX: 'Parts Request'
   };
 
-  // WOS-86 — single shared sign-out entry point (server-side session clear).
-  window.portalSignOut = function portalSignOut(opts) {
+  // WOS-86 / WOS-95 — shared sign-out (WOS modal; server clears session).
+  window.portalSignOut = async function portalSignOut(opts) {
     const skipConfirm = opts && opts.skipConfirm === true;
     if (!skipConfirm) {
-      if (!window.confirm('Are you sure you want to sign out?')) return;
+      const modal = window.streamlineModal;
+      if (modal && typeof modal.confirm === 'function') {
+        const ok = await modal.confirm({
+          title: 'Sign out?',
+          body: 'You will need to sign in again to access the Operations Workflow Hub.',
+          confirmLabel: 'Sign out',
+          cancelLabel: 'Cancel',
+          focusCancel: true,
+        });
+        if (!ok) return;
+      }
     }
     window.location.href = appPath('/api/auth/logout');
   };
@@ -13937,7 +13960,8 @@ function goBack() {
             document.getElementById('slModalCancel').addEventListener('click', () => close(false));
             const confirmBtn = document.getElementById('slModalConfirm');
             confirmBtn.addEventListener('click', () => close(true));
-            setTimeout(() => confirmBtn.focus(), 30);
+            const focusEl = opts.focusCancel ? document.getElementById('slModalCancel') : confirmBtn;
+            setTimeout(() => focusEl && focusEl.focus(), 30);
           });
         });
       },
@@ -13995,6 +14019,84 @@ function goBack() {
             inputEl.addEventListener('input', () => { errEl.textContent = ''; });
 
             setTimeout(() => inputEl.focus(), 30);
+          });
+        });
+      },
+
+      // WOS-95 — multi-field create dialog (replaces stacked window.prompt calls)
+      // opts.fields: [{ name, label, type?, placeholder?, defaultValue?, hint?, required? }]
+      // resolves object of values or undefined if cancelled
+      form(opts) {
+        closeIfOpen();
+        return new Promise(resolve => {
+          activeResolver = resolve;
+          const fields = Array.isArray(opts.fields) ? opts.fields : [];
+          open(opts, () => {
+            const rows = fields.map((f, i) => {
+              const id = 'slModalField_' + i;
+              const inputType = f.type || 'text';
+              const control = f.multiline
+                ? `<textarea class="input" id="${id}" rows="3" placeholder="${escapeAttr(f.placeholder || '')}">${escapeHtml(f.defaultValue || '')}</textarea>`
+                : `<input class="input" type="${escapeAttr(inputType)}" id="${id}" placeholder="${escapeAttr(f.placeholder || '')}" value="${escapeAttr(f.defaultValue || '')}" autocomplete="off">`;
+              return `<label class="sl-modal-field-label" for="${id}">${escapeHtml(f.label || f.name)}</label>${control}${f.hint ? `<div class="sl-modal-hint">${escapeHtml(f.hint)}</div>` : ''}`;
+            }).join('');
+            bodyEl.innerHTML = `
+              ${opts.body ? `<p>${escapeHtml(opts.body)}</p>` : ''}
+              <div class="sl-modal-form">${rows}</div>
+              <div class="sl-modal-error" id="slModalError"></div>
+            `;
+          }, () => {
+            actsEl.innerHTML = `
+              <button type="button" class="secondary" id="slModalCancel">${escapeHtml(opts.cancelLabel || 'Cancel')}</button>
+              <button type="button" class="primary" id="slModalOk">${escapeHtml(opts.okLabel || 'Create draft')}</button>
+            `;
+            const errEl = document.getElementById('slModalError');
+            const okBtn = document.getElementById('slModalOk');
+            const readValues = () => {
+              const out = {};
+              fields.forEach((f, i) => {
+                const el = document.getElementById('slModalField_' + i);
+                out[f.name] = el ? el.value : '';
+              });
+              return out;
+            };
+            const submit = () => {
+              const values = readValues();
+              if (typeof opts.validate === 'function') {
+                const err = opts.validate(values);
+                if (err) {
+                  errEl.textContent = err;
+                  return;
+                }
+              }
+              for (const f of fields) {
+                if (f.required && !(values[f.name] || '').trim()) {
+                  errEl.textContent = (f.label || f.name) + ' is required';
+                  return;
+                }
+              }
+              close(values);
+            };
+            okBtn.addEventListener('click', submit);
+            document.getElementById('slModalCancel').addEventListener('click', () => close(undefined));
+            fields.forEach((f, i) => {
+              const el = document.getElementById('slModalField_' + i);
+              if (!el) return;
+              el.addEventListener('input', () => { errEl.textContent = ''; });
+              if (typeof opts.onFieldInput === 'function') {
+                el.addEventListener('input', () => opts.onFieldInput(f.name, el.value, readValues, {
+                  setField(name, value) {
+                    const idx = fields.findIndex((x) => x.name === name);
+                    const target = document.getElementById('slModalField_' + idx);
+                    if (target && document.activeElement !== target) target.value = value;
+                  },
+                }));
+              }
+            });
+            setTimeout(() => {
+              const first = document.getElementById('slModalField_0');
+              if (first) first.focus();
+            }, 30);
           });
         });
       },
@@ -26493,6 +26595,7 @@ function goBack() {
 <script src="hub-new-request-registry.js"></script>
 <script src="hub-unified-archive.js"></script>
 <script src="hub-start-center.js"></script>
+<script src="hub-workflow-designer.js"></script>
 <script src="hub-configuration-center.js"></script>
 <script src="hub.js"></script>
 </body>

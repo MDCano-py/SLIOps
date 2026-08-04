@@ -1002,8 +1002,25 @@
       else if (typeof window.portalSignOut === 'function') window.portalSignOut();
       else {
         const base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
-        if (!window.confirm('Are you sure you want to sign out?')) return;
-        window.location.href = `${base}/api/auth/logout`;
+        const go = () => {
+          window.location.href = `${base}/api/auth/logout`;
+        };
+        const modal = global.streamlineModal || window.streamlineModal;
+        if (modal && typeof modal.confirm === 'function') {
+          modal
+            .confirm({
+              title: 'Sign out?',
+              body: 'You will need to sign in again to access the Operations Workflow Hub.',
+              confirmLabel: 'Sign out',
+              cancelLabel: 'Cancel',
+              focusCancel: true,
+            })
+            .then((ok) => {
+              if (ok) go();
+            });
+        } else {
+          go();
+        }
       }
     });
     document.addEventListener('click', (e) => {

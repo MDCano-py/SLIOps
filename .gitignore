@@ -66,6 +66,13 @@ temp/
 *.bak
 .cache/
 
+# WOS-95 — third-party reference copies (never commit)
+reference/
+n8n-master/
+n8n/
+n8n-reference/
+vendor/n8n/
+
 # Local screenshots / artifacts (unless intentionally under docs/)
 screenshots/
 *.png.bak

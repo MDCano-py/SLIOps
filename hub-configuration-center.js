@@ -46,6 +46,9 @@
     statusFilter: 'all',
     roles: [],
     users: [],
+    dirty: false,
+    lastSavedAt: null,
+    validationOk: null,
   };
 
   function hubFetch(path, opts) {
@@ -96,6 +99,85 @@
   function setMsg(text, isError) {
     state.message = isError ? '' : text || '';
     state.error = isError ? text || '' : '';
+  }
+
+  function markDirty() {
+    state.dirty = true;
+  }
+
+  function clearDirty() {
+    state.dirty = false;
+    state.lastSavedAt = new Date();
+  }
+
+  function slugifyKey(name) {
+    if (root.HubWorkflowDesigner && typeof root.HubWorkflowDesigner.slugifyKey === 'function') {
+      return root.HubWorkflowDesigner.slugifyKey(name);
+    }
+    return String(name || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 64);
+  }
+
+  function kindLabel(kind) {
+    const map = {
+      request_type: 'Request type',
+      document: 'Document',
+      workflow: 'Workflow',
+      dashboard: 'Dashboard',
+      saved_view: 'Saved view',
+      form: 'Form',
+    };
+    return map[kind] || kind || 'Definition';
+  }
+
+  async function wosConfirm(opts) {
+    const modal = root.streamlineModal;
+    if (modal && typeof modal.confirm === 'function') return modal.confirm(opts);
+    return true;
+  }
+
+  async function wosAlert(opts) {
+    const modal = root.streamlineModal;
+    if (modal && typeof modal.alert === 'function') return modal.alert(opts);
+  }
+
+  async function promptCreateDraft(meta) {
+    const modal = root.streamlineModal;
+    const title = 'Create ' + kindLabel(meta.kind).toLowerCase();
+    if (!modal || typeof modal.form !== 'function') {
+      await wosAlert({ title: 'Unavailable', body: 'Create dialog is not available.' });
+      return null;
+    }
+    const existing = new Set((state.definitions[meta.path] || []).map((d) => d.key));
+    return modal.form({
+      title,
+      okLabel: 'Create draft',
+      cancelLabel: 'Cancel',
+      fields: [
+        { name: 'name', label: 'Display name', required: true, placeholder: 'Operations Leadership Dashboard' },
+        {
+          name: 'key',
+          label: 'Stable key',
+          required: true,
+          placeholder: 'operations_leadership_dashboard',
+          hint: 'Generated from the display name. Becomes restricted after publication.',
+        },
+        { name: 'description', label: 'Description', multiline: true, placeholder: 'Optional' },
+      ],
+      onFieldInput(field, value, values, api) {
+        if (field === 'name') api.setField('key', slugifyKey(value));
+      },
+      validate(values) {
+        const key = slugifyKey(values.key || values.name);
+        if (!/^[a-z][a-z0-9_]*$/.test(key)) return 'Stable key must start with a letter and use lowercase letters, numbers, and underscores.';
+        if (existing.has(key)) return 'That stable key is already in use. Choose another.';
+        return null;
+      },
+    });
   }
 
   function openWorkspaceFormBuilder(templateId, versionId) {
@@ -497,29 +579,38 @@
   }
 
   async function createDraft(meta) {
-    const key = prompt('Stable key (e.g. nda_request)');
-    if (!key) return;
-    const name = prompt('Display name', key) || key;
+    const values = await promptCreateDraft(meta);
+    if (!values) return;
+    const name = String(values.name || '').trim();
+    const key = slugifyKey(values.key || name);
+    const description = String(values.description || '').trim();
     let payload = {};
     if (meta.kind === 'workflow') {
       payload = {
         nodes: [
-          { key: 'start', type: 'trigger.request_created', name: 'Request created', x: 80, y: 80, config: {} },
-          { key: 'done', type: 'terminal.complete', name: 'Complete', x: 80, y: 260, config: {} },
+          { key: 'start', type: 'trigger.request_created', name: 'Request created', x: 80, y: 120, config: {} },
+          { key: 'done', type: 'terminal.complete', name: 'Complete', x: 380, y: 120, config: {} },
         ],
-        connections: [{ key: 'c1', source: 'start', target: 'done', outcome_key: 'default', label: '', sort_order: 0 }],
+        connections: [{ key: 'c1', source: 'start', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', label: '', sort_order: 0 }],
       };
     } else if (meta.kind === 'document') {
       payload = {
         title: name,
         document_type: 'web_document',
-        body_html: '<h1>' + name + '</h1><p>Agreement with {{organization.legal_name}}.</p>',
-        blocks: [{ type: 'heading', text: name }, { type: 'paragraph', text: 'Agreement with {{organization.legal_name}}.' }],
+        description,
+        body_html: '',
+        blocks: [
+          { type: 'heading', text: name },
+          { type: 'paragraph', text: 'Agreement with {{organization.legal_name}}.' },
+          { type: 'signature', text: '' },
+        ],
         signers: [],
       };
+      if (root.HubWorkflowDesigner) payload.body_html = root.HubWorkflowDesigner.blocksToHtml(payload.blocks);
     } else if (meta.kind === 'dashboard') {
       payload = {
         name,
+        description,
         layout: 'grid',
         widgets: [{ key: 'w1', type: 'my_tasks', title: 'My Tasks', size: 'md', order: 0, config: {} }],
         audience_roles: [],
@@ -528,6 +619,7 @@
       payload = {
         key,
         display_name: name,
+        description,
         number_prefix: 'REQ-',
         default_priority: 'normal',
         available_priorities: ['low', 'normal', 'high'],
@@ -535,14 +627,15 @@
         workflow_definition_id: null,
       };
     } else if (meta.kind === 'saved_view') {
-      payload = { name, owner_type: 'organization', filters: {}, columns: [] };
+      payload = { name, description, owner_type: 'organization', filters: {}, columns: [] };
     }
     try {
       const res = await hubFetch('/hub/configuration/' + meta.path, {
         method: 'POST',
-        body: { key, name, payload },
+        body: { key, name, description, payload },
       });
       setMsg('Draft created');
+      clearDirty();
       await loadKind(meta.path);
       await openDefinition(meta, res.definition.id);
     } catch (err) {
@@ -565,6 +658,9 @@
         ensureWorkflowHandles(state.designer);
         state.selectedNodeKey = null;
       }
+      state.dirty = false;
+      state.lastSavedAt = null;
+      state.validationOk = null;
       setMsg('');
       refresh();
     } catch (err) {
@@ -579,43 +675,64 @@
     const published = def.published_version;
     const isDraft = draft && draft.status === 'draft';
     const wrap = el('div', { className: 'cfg-editor hub-panel' });
-    wrap.appendChild(
+
+    const crumb = el('nav', { className: 'cfg-breadcrumb', 'aria-label': 'Breadcrumb' });
+    crumb.appendChild(
       el('button', {
         type: 'button',
-        className: 'hub-link-btn',
-        text: '← Back to registry',
+        className: 'cfg-back-btn',
+        text: 'Configuration Center',
         onclick: () => {
+          state.section = 'overview';
           state.selected = null;
           state.selectedId = null;
           state.designer = null;
+          state.dirty = false;
           refresh();
         },
       })
     );
-    wrap.appendChild(el('h3', { text: title || def.name }));
-    if (published && isDraft) {
-      wrap.appendChild(
-        el('div', {
-          className: 'tmpl-readonly-banner',
-          text:
-            'Editing draft revision ' +
-            (draft.revision || 1) +
-            '. Published version ' +
-            (published.version_number || '') +
-            ' remains active until this draft is published.',
-        })
-      );
-    } else if (!isDraft && published) {
-      wrap.appendChild(
-        el('div', {
-          className: 'tmpl-readonly-banner',
-          text: 'This published version is read-only. Clone it to a draft to make changes.',
-        })
-      );
-    }
-    bodyFn(wrap, { isDraft, draft, published });
+    crumb.appendChild(el('span', { className: 'cfg-crumb-sep', text: '/', 'aria-hidden': 'true' }));
+    crumb.appendChild(
+      el('button', {
+        type: 'button',
+        className: 'cfg-back-btn',
+        text: meta.label || kindLabel(meta.kind),
+        onclick: () => {
+          state.selected = null;
+          state.selectedId = null;
+          state.designer = null;
+          state.dirty = false;
+          refresh();
+        },
+      })
+    );
+    crumb.appendChild(el('span', { className: 'cfg-crumb-sep', text: '/', 'aria-hidden': 'true' }));
+    crumb.appendChild(el('span', { className: 'cfg-crumb-current', text: def.name || def.key }));
+    wrap.appendChild(crumb);
 
-    const actions = el('div', { className: 'cfg-actions' });
+    const header = el('div', { className: 'cfg-editor-header' });
+    const headMain = el('div', { className: 'cfg-editor-head-main' });
+    headMain.appendChild(el('h3', { className: 'cfg-editor-title', text: title || def.name }));
+    const metaRow = el('div', { className: 'cfg-editor-meta' });
+    metaRow.appendChild(el('span', { className: 'cfg-badge', text: kindLabel(meta.kind) }));
+    metaRow.appendChild(el('span', { className: 'cfg-badge', text: isDraft ? 'Draft' : 'Published' }));
+    metaRow.appendChild(
+      el('span', {
+        className: 'cfg-hint',
+        text: isDraft
+          ? 'Version draft · rev ' + (draft.revision || 1)
+          : 'Version ' + (published && published.version_number != null ? published.version_number : def.published_version_number || '—'),
+      })
+    );
+    if (state.dirty) metaRow.appendChild(el('span', { className: 'cfg-unsaved', text: 'Unsaved changes' }));
+    else if (state.lastSavedAt) metaRow.appendChild(el('span', { className: 'cfg-saved', text: 'Saved just now' }));
+    if (state.validationOk === true) metaRow.appendChild(el('span', { className: 'cfg-badge cfg-badge-ok', text: 'Valid' }));
+    if (state.validationOk === false) metaRow.appendChild(el('span', { className: 'cfg-badge cfg-badge-err', text: 'Validation issues' }));
+    headMain.appendChild(metaRow);
+    header.appendChild(headMain);
+
+    const actions = el('div', { className: 'cfg-editor-actions' });
     if (isDraft) {
       actions.appendChild(el('button', { type: 'button', className: 'hub-btn', text: 'Save draft', onclick: () => saveDraft(meta, wrap) }));
       actions.appendChild(el('button', { type: 'button', className: 'hub-btn', text: 'Validate', onclick: () => validateSelected(meta) }));
@@ -643,17 +760,29 @@
         })
       );
     }
-    actions.appendChild(
+    const moreWrap = el('div', { className: 'cfg-more-wrap' });
+    const moreBtn = el('button', { type: 'button', className: 'hub-btn', text: 'More', 'aria-haspopup': 'true' });
+    const moreMenu = el('div', { className: 'cfg-more-menu', hidden: 'hidden' });
+    moreMenu.appendChild(
       el('button', {
         type: 'button',
-        className: 'hub-btn',
+        className: 'cfg-more-item',
         text: 'Archive',
         onclick: async () => {
-          if (!confirm('Archive this definition?')) return;
+          moreMenu.hidden = true;
+          const ok = await wosConfirm({
+            title: 'Archive definition?',
+            body: 'Archived definitions leave the active registry. Published runtime behavior may be affected.',
+            confirmLabel: 'Archive',
+            cancelLabel: 'Cancel',
+            danger: true,
+          });
+          if (!ok) return;
           try {
             await hubFetch('/hub/configuration/' + meta.path + '/' + def.id + '/archive', { method: 'POST', body: {} });
             setMsg('Archived');
             state.selected = null;
+            state.dirty = false;
             await loadKind(meta.path);
             refresh();
           } catch (err) {
@@ -663,7 +792,36 @@
         },
       })
     );
-    wrap.appendChild(actions);
+    moreBtn.addEventListener('click', () => {
+      moreMenu.hidden = !moreMenu.hidden;
+    });
+    moreWrap.appendChild(moreBtn);
+    moreWrap.appendChild(moreMenu);
+    actions.appendChild(moreWrap);
+    header.appendChild(actions);
+    wrap.appendChild(header);
+
+    if (published && isDraft) {
+      wrap.appendChild(
+        el('div', {
+          className: 'tmpl-readonly-banner',
+          text:
+            'Editing draft version ' +
+            (draft.revision || 1) +
+            '. Published version ' +
+            (published.version_number || '') +
+            ' remains active until this draft is published.',
+        })
+      );
+    } else if (!isDraft && published) {
+      wrap.appendChild(
+        el('div', {
+          className: 'tmpl-readonly-banner',
+          text: 'This published version is read-only. Clone it to a draft to make changes.',
+        })
+      );
+    }
+    bodyFn(wrap, { isDraft, draft, published });
     return wrap;
   }
 
@@ -687,7 +845,8 @@
       if (meta.kind === 'workflow') {
         state.designer = JSON.parse(JSON.stringify(res.definition.draft_version.payload_json || state.designer));
       }
-      setMsg('Draft saved (revision ' + (res.definition.draft_version && res.definition.draft_version.revision) + ')');
+      clearDirty();
+      setMsg('Draft saved');
       await loadKind(meta.path);
       refresh();
     } catch (err) {
@@ -702,10 +861,12 @@
         method: 'POST',
         body: {},
       });
+      state.validationOk = !!res.ok;
       setMsg(res.ok ? 'Validation passed' : 'Validation issues — see details');
       if (!res.ok) console.warn('cfg validation', res.issues);
       refresh();
     } catch (err) {
+      state.validationOk = false;
       const issues = err.data && err.data.validation;
       setMsg((issues && issues[0] && issues[0].message) || err.message || 'Validation failed', true);
       refresh();
@@ -729,13 +890,17 @@
   }
 
   function ensureWorkflowHandles(graph) {
+    if (root.HubWorkflowDesigner && typeof root.HubWorkflowDesigner.ensureGraph === 'function') {
+      root.HubWorkflowDesigner.ensureGraph(graph);
+      return;
+    }
     if (!graph.nodes) graph.nodes = [];
     if (!graph.connections) graph.connections = [];
     graph.nodes.forEach((n) => {
       n.config = n.config || {};
-      if (!n.config.assignment) {
+      if (HUMAN_NODE_TYPES.has(n.type) && !n.config.assignment) {
         n.config.assignment = {
-          mode: HUMAN_NODE_TYPES.has(n.type) ? 'role' : 'none',
+          mode: 'role',
           user_id: null,
           user_email: null,
           role_key: n.config.assignee_role || null,
@@ -747,495 +912,404 @@
     });
   }
 
-  function nodeHandles(node) {
-    const handles = [{ id: 'in', side: 'left', label: 'In' }];
-    if (node.type === 'logic.condition' || node.type === 'logic.multi_branch') {
-      handles.push({ id: 'yes', side: 'right', label: 'Yes', y: 0.35 });
-      handles.push({ id: 'no', side: 'right', label: 'No', y: 0.65 });
-    } else if (isTerminal(node.type)) {
-      /* terminal: input only */
-    } else {
-      handles.push({ id: 'out', side: 'right', label: 'Out', y: 0.5 });
-      if (HUMAN_NODE_TYPES.has(node.type)) {
-        handles.push({ id: 'reject', side: 'right', label: 'Reject', y: 0.75 });
-      }
-    }
-    return handles;
-  }
-
-  function isTerminal(type) {
-    return String(type || '').startsWith('terminal.');
-  }
-
-  function handlePoint(node, handleId) {
-    const w = 168;
-    const h = 72;
-    const handles = nodeHandles(node);
-    const hnd = handles.find((x) => x.id === handleId) || handles[handles.length - 1];
-    const yRatio = hnd && hnd.y != null ? hnd.y : 0.5;
-    const x = hnd && hnd.side === 'left' ? node.x : node.x + w;
-    const y = node.y + h * yRatio;
-    return { x, y };
-  }
-
-  function autoLayout(graph) {
-    const nodes = graph.nodes || [];
-    const connections = graph.connections || [];
-    const start = nodes.find((n) => String(n.type).startsWith('trigger.')) || nodes[0];
-    if (!start) return;
-    const adj = {};
-    nodes.forEach((n) => (adj[n.key] = []));
-    connections.forEach((c) => {
-      if (adj[c.source]) adj[c.source].push(c);
-    });
-    const depth = {};
-    const queue = [start.key];
-    depth[start.key] = 0;
-    while (queue.length) {
-      const cur = queue.shift();
-      (adj[cur] || []).forEach((c) => {
-        if (depth[c.target] == null) {
-          depth[c.target] = depth[cur] + 1;
-          queue.push(c.target);
-        }
-      });
-    }
-    const columns = {};
-    nodes.forEach((n) => {
-      const d = depth[n.key] != null ? depth[n.key] : 0;
-      if (!columns[d]) columns[d] = [];
-      columns[d].push(n);
-    });
-    Object.keys(columns).forEach((d) => {
-      columns[d].forEach((n, i) => {
-        n.x = 60 + Number(d) * 220;
-        n.y = 60 + i * 110;
-      });
-    });
-  }
-
   function renderWorkflowBuilder(meta) {
     ensureWorkflowHandles(state.designer);
-    const graph = state.designer;
     const readOnly = !(state.selected.draft_version && state.selected.draft_version.status === 'draft');
-    return editorChrome(meta, state.selected.name + ' — Workflow', (wrap) => {
-      const layout = el('div', { className: 'cfg-wf cfg-wf-v2' });
-
-      const toolbar = el('div', { className: 'cfg-wf-toolbar' });
-      const nodeSel = el('select', { className: 'cfg-input', 'aria-label': 'Node type', disabled: readOnly ? 'disabled' : null });
-      ((state.catalogs && state.catalogs.node_types) || []).forEach((n) => {
-        nodeSel.appendChild(el('option', { value: n.type, text: n.category + ': ' + n.label }));
-      });
-      toolbar.appendChild(nodeSel);
-      if (!readOnly) {
-        toolbar.appendChild(
-          el('button', {
-            type: 'button',
-            className: 'hub-btn',
-            text: 'Add node',
-            onclick: () => {
-              const key = 'node_' + Date.now().toString(36);
-              graph.nodes.push({
-                key,
-                type: nodeSel.value,
-                name: nodeSel.options[nodeSel.selectedIndex].text.split(': ').pop(),
-                x: 80 + (graph.nodes.length % 3) * 200,
-                y: 80 + Math.floor(graph.nodes.length / 3) * 110,
-                config: {},
-              });
-              ensureWorkflowHandles(graph);
-              state.designer = graph;
-              refresh();
-            },
-          })
-        );
-        toolbar.appendChild(
-          el('button', {
-            type: 'button',
-            className: 'hub-btn',
-            text: 'Auto-layout',
-            onclick: () => {
-              autoLayout(graph);
-              state.designer = graph;
-              refresh();
-            },
-          })
-        );
-        toolbar.appendChild(
-          el('button', {
-            type: 'button',
-            className: 'hub-btn',
-            text: 'Connect…',
-            onclick: () => {
-              const source = prompt('Source node key', state.selectedNodeKey || '');
-              const target = prompt('Target node key');
-              if (!source || !target) return;
-              const outcome = prompt('Outcome (default / yes / no / approved / rejected)', 'default') || 'default';
-              graph.connections.push({
-                key: 'c_' + Date.now().toString(36),
-                source,
-                target,
-                source_handle: outcome === 'yes' || outcome === 'no' || outcome === 'reject' ? outcome : 'out',
-                target_handle: 'in',
-                label: outcome === 'default' ? '' : outcome,
-                outcome_key: outcome,
-                sort_order: graph.connections.length,
-              });
-              state.designer = graph;
-              refresh();
-            },
-          })
-        );
-      }
-      layout.appendChild(toolbar);
-
-      const library = el('aside', { className: 'cfg-wf-library' });
-      library.appendChild(el('h4', { text: 'Node library' }));
-      const cats = {};
-      ((state.catalogs && state.catalogs.node_types) || []).forEach((n) => {
-        if (!cats[n.category]) cats[n.category] = [];
-        cats[n.category].push(n);
-      });
-      Object.keys(cats).forEach((cat) => {
-        library.appendChild(el('div', { className: 'cfg-hint', text: cat }));
-        cats[cat].slice(0, 8).forEach((n) => {
-          library.appendChild(
-            el('button', {
-              type: 'button',
-              className: 'hub-link-btn',
-              text: n.label,
-              disabled: readOnly ? 'disabled' : null,
-              onclick: () => {
-                if (readOnly) return;
-                nodeSel.value = n.type;
-              },
-            })
-          );
-        });
-      });
-      layout.appendChild(library);
-
-      const canvas = el('div', { className: 'cfg-wf-canvas', tabindex: '0', 'aria-label': 'Workflow canvas' });
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('class', 'cfg-wf-svg');
-      const maxX = Math.max(900, ...graph.nodes.map((n) => n.x + 220), 900);
-      const maxY = Math.max(520, ...graph.nodes.map((n) => n.y + 140), 520);
-      svg.setAttribute('width', String(maxX));
-      svg.setAttribute('height', String(maxY));
-      svg.setAttribute('viewBox', '0 0 ' + maxX + ' ' + maxY);
-
-      function redrawEdges() {
-        while (svg.firstChild) svg.removeChild(svg.firstChild);
-        graph.connections.forEach((c) => {
-          const a = graph.nodes.find((n) => n.key === c.source);
-          const b = graph.nodes.find((n) => n.key === c.target);
-          if (!a || !b) return;
-          const p1 = handlePoint(a, c.source_handle || (c.outcome_key === 'yes' || c.outcome_key === 'no' ? c.outcome_key : 'out'));
-          const p2 = handlePoint(b, c.target_handle || 'in');
-          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          const midX = (p1.x + p2.x) / 2;
-          path.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' C ' + midX + ' ' + p1.y + ', ' + midX + ' ' + p2.y + ', ' + p2.x + ' ' + p2.y);
-          path.setAttribute('class', 'cfg-wf-edge');
-          path.setAttribute('fill', 'none');
-          svg.appendChild(path);
-          const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-          marker.setAttribute('cx', String(p2.x));
-          marker.setAttribute('cy', String(p2.y));
-          marker.setAttribute('r', '3');
-          marker.setAttribute('class', 'cfg-wf-edge-end');
-          svg.appendChild(marker);
-          if (c.label || (c.outcome_key && c.outcome_key !== 'default')) {
-            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('x', String(midX));
-            text.setAttribute('y', String((p1.y + p2.y) / 2 - 6));
-            text.setAttribute('class', 'cfg-wf-edge-label');
-            text.textContent = c.label || c.outcome_key;
-            svg.appendChild(text);
-          }
-        });
-      }
-      redrawEdges();
-      canvas.appendChild(svg);
-
-      const layer = el('div', { className: 'cfg-wf-nodes', style: 'width:' + maxX + 'px;height:' + maxY + 'px' });
-      graph.nodes.forEach((n) => {
-        const node = el('div', {
-          className: 'cfg-wf-node' + (state.selectedNodeKey === n.key ? ' is-selected' : ''),
-          'data-node-key': n.key,
-          style: 'left:' + n.x + 'px;top:' + n.y + 'px',
-          tabindex: '0',
-          role: 'button',
-          'aria-label': n.name + ' (' + n.type + ')',
-        });
-        node.appendChild(el('strong', { text: n.name || n.key }));
-        node.appendChild(el('span', { text: n.type }));
-        const handlesWrap = el('div', { className: 'cfg-wf-handles' });
-        nodeHandles(n).forEach((h) => {
-          handlesWrap.appendChild(
-            el('span', {
-              className: 'cfg-wf-handle cfg-wf-handle-' + h.side,
-              'data-handle': h.id,
-              title: h.label,
-              text: '•',
-            })
-          );
-        });
-        node.appendChild(handlesWrap);
-        if (!readOnly) {
-          node.appendChild(
-            el('button', {
-              type: 'button',
-              className: 'hub-link-btn',
-              text: 'Delete',
-              onclick: (e) => {
-                e.stopPropagation();
-                graph.nodes = graph.nodes.filter((x) => x.key !== n.key);
-                graph.connections = graph.connections.filter((c) => c.source !== n.key && c.target !== n.key);
-                state.designer = graph;
-                refresh();
-              },
-            })
-          );
-        }
-        node.addEventListener('click', () => {
-          state.selectedNodeKey = n.key;
-          refresh();
-        });
-        if (!readOnly) {
-          let dragging = false;
-          let ox = 0;
-          let oy = 0;
-          node.addEventListener('pointerdown', (e) => {
-            if (e.target.closest('button')) return;
-            dragging = true;
-            ox = e.clientX - n.x;
-            oy = e.clientY - n.y;
-            node.setPointerCapture(e.pointerId);
-            state.selectedNodeKey = n.key;
-          });
-          node.addEventListener('pointermove', (e) => {
-            if (!dragging) return;
-            n.x = Math.max(0, e.clientX - ox);
-            n.y = Math.max(0, e.clientY - oy);
-            node.style.left = n.x + 'px';
-            node.style.top = n.y + 'px';
-            redrawEdges();
-          });
-          node.addEventListener('pointerup', () => {
-            dragging = false;
-            state.designer = graph;
-          });
-        }
-        layer.appendChild(node);
-      });
-      canvas.appendChild(layer);
-      layout.appendChild(canvas);
-
-      const side = el('aside', { className: 'cfg-wf-side' });
-      side.appendChild(el('h4', { text: 'Node inspector' }));
-      const selected = graph.nodes.find((n) => n.key === state.selectedNodeKey);
-      if (!selected) {
-        side.appendChild(el('p', { className: 'cfg-hint', text: 'Select a node to configure assignment, form, and outcomes.' }));
-      } else {
-        side.appendChild(el('strong', { text: selected.name || selected.key }));
-        side.appendChild(el('div', { className: 'cfg-hint', text: selected.type }));
-        if (HUMAN_NODE_TYPES.has(selected.type)) {
-          side.appendChild(el('h5', { text: 'Assignment' }));
-          const mode = el('select', { className: 'cfg-input', 'aria-label': 'Assignment mode', disabled: readOnly ? 'disabled' : null });
-          [
-            ['specific_user', 'Specific user'],
-            ['role', 'Role (shared queue)'],
-            ['request_creator', 'Request creator'],
-            ['form_user_field', 'User from form field'],
-            ['external_participant', 'External participant (form fields)'],
-          ].forEach(([v, label]) => mode.appendChild(el('option', { value: v, text: label })));
-          const asg = selected.config.assignment || {};
-          mode.value = asg.mode || 'role';
-          side.appendChild(mode);
-
-          const roleSel = el('select', { className: 'cfg-input', 'aria-label': 'Role', disabled: readOnly ? 'disabled' : null });
-          roleSel.appendChild(el('option', { value: '', text: 'Select role…' }));
-          (state.roles.length
-            ? state.roles
-            : [{ key: 'legal', name: 'Legal' }, { key: 'manager', name: 'Manager' }, { key: 'ap', name: 'Accounting' }, { key: 'requester', name: 'Requester' }, { key: 'hub_admin', name: 'Hub Admin' }]
-          ).forEach((r) => {
-            const key = r.key || r.id || r.role_key;
-            roleSel.appendChild(el('option', { value: key, text: r.name || r.label || key }));
-          });
-          roleSel.value = asg.role_key || '';
-          side.appendChild(roleSel);
-
-          const userSel = el('select', { className: 'cfg-input', 'aria-label': 'User', disabled: readOnly ? 'disabled' : null });
-          userSel.appendChild(el('option', { value: '', text: 'Select user…' }));
-          (state.users || []).slice(0, 200).forEach((u) => {
-            const id = u.id || u.email;
-            const active = u.active !== false && u.status !== 'inactive';
-            if (!active) return;
-            userSel.appendChild(
-              el('option', {
-                value: String(id),
-                text: (u.name || u.display_name || u.email || id) + ' <' + (u.email || '') + '>',
-              })
-            );
-          });
-          if (asg.user_id) userSel.value = String(asg.user_id);
-          side.appendChild(userSel);
-
-          const fieldInput = el('input', {
-            type: 'text',
-            className: 'cfg-input',
-            placeholder: 'form.field_key',
-            value: asg.form_field_key || '',
-            'aria-label': 'Form field key',
-            disabled: readOnly ? 'disabled' : null,
-          });
-          side.appendChild(fieldInput);
-
-          const fallback = el('select', { className: 'cfg-input', 'aria-label': 'Fallback', disabled: readOnly ? 'disabled' : null });
-          [
-            ['hub_admin', 'Route to Hub Admin'],
-            ['pause', 'Pause with assignment error'],
-            ['request_creator', 'Assign to request creator'],
-            ['fallback_role', 'Fallback role'],
-          ].forEach(([v, t]) => fallback.appendChild(el('option', { value: v, text: t })));
-          fallback.value = asg.fallback || 'hub_admin';
-          side.appendChild(fallback);
-
-          const preview = el('div', { className: 'cfg-assign-preview' });
-          function updatePreview() {
-            const m = mode.value;
-            let text = 'Assignment preview\nMode: ' + m;
-            if (m === 'role') {
-              text += '\nRole: ' + (roleSel.value || '—') + '\nStrategy: Shared queue';
-              const match = (state.users || []).filter((u) => {
-                const roles = u.roles || u.role_keys || [];
-                return Array.isArray(roles) && roles.includes(roleSel.value);
-              });
-              text += '\nMatching active users: ' + (match.length || '(unknown until runtime)');
-            } else if (m === 'specific_user') {
-              text += '\nUser ID: ' + (userSel.value || '—');
-            } else if (m === 'form_user_field' || m === 'external_participant') {
-              text += '\nForm field: ' + (fieldInput.value || '—');
-            }
-            text += '\nFallback: ' + fallback.value;
-            preview.textContent = text;
-          }
-          updatePreview();
-          [mode, roleSel, userSel, fieldInput, fallback].forEach((ctl) => ctl.addEventListener('change', updatePreview));
-          fieldInput.addEventListener('input', updatePreview);
-          side.appendChild(preview);
-
-          if (!readOnly) {
-            side.appendChild(
-              el('button', {
-                type: 'button',
-                className: 'hub-btn hub-btn-sm',
-                text: 'Apply assignment',
-                onclick: () => {
-                  selected.config.assignment = {
-                    mode: mode.value,
-                    role_key: roleSel.value || null,
-                    user_id: userSel.value || null,
-                    user_email: null,
-                    form_field_key: fieldInput.value || null,
-                    strategy: 'shared_queue',
-                    fallback: fallback.value,
-                  };
-                  selected.config.assignee_role = roleSel.value || selected.config.assignee_role;
-                  state.designer = graph;
-                  setMsg('Assignment updated on node (save draft to persist)');
-                  refresh();
-                },
-              })
-            );
-          }
-        }
-        const connList = el('ul', { className: 'cfg-conn-list' });
-        graph.connections
-          .filter((c) => c.source === selected.key || c.target === selected.key)
-          .forEach((c) => {
-            const li = el('li', { text: c.source + ' → ' + c.target + (c.label ? ' (' + c.label + ')' : '') });
-            if (!readOnly) {
-              li.appendChild(
-                el('button', {
-                  type: 'button',
-                  className: 'hub-link-btn',
-                  text: 'Remove',
-                  onclick: () => {
-                    graph.connections = graph.connections.filter((x) => x.key !== c.key);
-                    state.designer = graph;
-                    refresh();
-                  },
-                })
-              );
-            }
-            connList.appendChild(li);
-          });
-        side.appendChild(connList);
-      }
-      layout.appendChild(side);
-      wrap.appendChild(layout);
+    return editorChrome(meta, state.selected.name, (wrap) => {
+      const host = el('div', { className: 'cfg-wf-host' });
+      wrap.appendChild(host);
       wrap._getPayload = () => state.designer;
+      const Designer = root.HubWorkflowDesigner;
+      if (!Designer || typeof Designer.mount !== 'function') {
+        host.appendChild(el('p', { className: 'cfg-hint', text: 'Workflow designer failed to load.' }));
+        return;
+      }
+      Designer.mount(host, {
+        graph: state.designer,
+        readOnly,
+        autoFit: readOnly || !(state.designer.nodes || []).length,
+        catalogs: state.catalogs || {},
+        roles: state.roles,
+        users: state.users,
+        selectedNodeKey: state.selectedNodeKey,
+        onSelect: (key) => {
+          state.selectedNodeKey = key;
+        },
+        onChange: (graph) => {
+          state.designer = graph;
+        },
+        onDirty: () => {
+          markDirty();
+          const metaRow = wrap.querySelector('.cfg-editor-meta');
+          if (metaRow && !metaRow.querySelector('.cfg-unsaved')) {
+            metaRow.appendChild(el('span', { className: 'cfg-unsaved', text: 'Unsaved changes' }));
+          }
+          const saved = metaRow && metaRow.querySelector('.cfg-saved');
+          if (saved) saved.remove();
+        },
+        onChooseTemplate: async () => {
+          const modal = root.streamlineModal;
+          if (!modal || !modal.form) return;
+          const pick = await modal.form({
+            title: 'Choose workflow template',
+            okLabel: 'Apply template',
+            fields: [
+              {
+                name: 'template',
+                label: 'Template key',
+                defaultValue: 'basic_approval',
+                hint: 'basic_approval · request_review_complete · conditional_approval · vendor_onboarding · purchase_approval',
+              },
+            ],
+          });
+          if (!pick) return;
+          const key = String(pick.template || '').trim();
+          let payload = {
+            nodes: [
+              { key: 'start', type: 'trigger.request_created', name: 'Request created', x: 60, y: 120 },
+              {
+                key: 'review',
+                type: 'human.review',
+                name: 'Review',
+                x: 320,
+                y: 120,
+                config: { assignment: { mode: 'role', role_key: 'manager', strategy: 'shared_queue', fallback: 'hub_admin' } },
+              },
+              { key: 'done', type: 'terminal.complete', name: 'Complete', x: 580, y: 120 },
+            ],
+            connections: [
+              { key: 'c1', source: 'start', target: 'review', source_handle: 'out', target_handle: 'in', outcome_key: 'default', label: '', sort_order: 0 },
+              { key: 'c2', source: 'review', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', label: '', sort_order: 1 },
+            ],
+          };
+          if (key === 'request_review_complete') {
+            payload = {
+              nodes: [
+                { key: 'start', type: 'trigger.request_created', name: 'Request created', x: 60, y: 100 },
+                {
+                  key: 'fill',
+                  type: 'human.fill',
+                  name: 'Complete form',
+                  x: 300,
+                  y: 100,
+                  config: { assignment: { mode: 'request_creator', fallback: 'hub_admin' } },
+                },
+                {
+                  key: 'review',
+                  type: 'human.review',
+                  name: 'Review',
+                  x: 540,
+                  y: 100,
+                  config: { assignment: { mode: 'role', role_key: 'manager', strategy: 'shared_queue', fallback: 'hub_admin' } },
+                },
+                { key: 'done', type: 'terminal.complete', name: 'Complete', x: 780, y: 100 },
+              ],
+              connections: [
+                { key: 'c1', source: 'start', target: 'fill', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 0 },
+                { key: 'c2', source: 'fill', target: 'review', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 1 },
+                { key: 'c3', source: 'review', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 2 },
+              ],
+            };
+          } else if (key === 'conditional_approval') {
+            payload = {
+              nodes: [
+                { key: 'start', type: 'trigger.form_submitted', name: 'Form submitted', x: 60, y: 140 },
+                {
+                  key: 'cond',
+                  type: 'logic.condition',
+                  name: 'Needs approval?',
+                  x: 300,
+                  y: 140,
+                  config: { outcomes: [{ key: 'yes', label: 'Yes' }, { key: 'no', label: 'No' }] },
+                },
+                {
+                  key: 'approve',
+                  type: 'human.approve',
+                  name: 'Approve',
+                  x: 560,
+                  y: 60,
+                  config: { assignment: { mode: 'role', role_key: 'manager', strategy: 'shared_queue', fallback: 'hub_admin' } },
+                },
+                { key: 'done', type: 'terminal.complete', name: 'Complete', x: 820, y: 140 },
+              ],
+              connections: [
+                { key: 'c1', source: 'start', target: 'cond', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 0 },
+                { key: 'c2', source: 'cond', target: 'approve', source_handle: 'yes', target_handle: 'in', outcome_key: 'yes', label: 'Yes', sort_order: 1 },
+                { key: 'c3', source: 'cond', target: 'done', source_handle: 'no', target_handle: 'in', outcome_key: 'no', label: 'No', sort_order: 2 },
+                { key: 'c4', source: 'approve', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 3 },
+              ],
+            };
+          } else if (key === 'vendor_onboarding') {
+            payload = {
+              nodes: [
+                { key: 'start', type: 'trigger.request_created', name: 'Vendor onboarding started', x: 60, y: 80 },
+                {
+                  key: 'fill',
+                  type: 'human.fill',
+                  name: 'Vendor information',
+                  x: 300,
+                  y: 80,
+                  config: { assignment: { mode: 'request_creator', fallback: 'hub_admin' } },
+                },
+                {
+                  key: 'ops',
+                  type: 'human.review',
+                  name: 'Operations review',
+                  x: 540,
+                  y: 80,
+                  config: { assignment: { mode: 'role', role_key: 'manager', strategy: 'shared_queue', fallback: 'hub_admin' } },
+                },
+                {
+                  key: 'acct',
+                  type: 'human.review',
+                  name: 'Accounting review',
+                  x: 780,
+                  y: 80,
+                  config: { assignment: { mode: 'role', role_key: 'ap', strategy: 'shared_queue', fallback: 'hub_admin' } },
+                },
+                { key: 'done', type: 'terminal.complete', name: 'Complete', x: 1020, y: 80 },
+                { key: 'reject', type: 'terminal.reject', name: 'Rejected', x: 780, y: 220 },
+              ],
+              connections: [
+                { key: 'c1', source: 'start', target: 'fill', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 0 },
+                { key: 'c2', source: 'fill', target: 'ops', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 1 },
+                { key: 'c3', source: 'ops', target: 'acct', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 2 },
+                { key: 'c4', source: 'acct', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 3 },
+                { key: 'c5', source: 'acct', target: 'reject', source_handle: 'reject', target_handle: 'in', outcome_key: 'reject', label: 'Rejected', sort_order: 4 },
+              ],
+            };
+          }
+          state.designer = JSON.parse(JSON.stringify(payload));
+          ensureWorkflowHandles(state.designer);
+          markDirty();
+          refresh();
+        },
+      });
     });
   }
+
 
   function renderDocumentBuilder(meta) {
     const draft = state.selected.draft_version || {};
-    const payload = draft.payload_json || {};
-    return editorChrome(meta, state.selected.name + ' — Document', (wrap) => {
-      const layout = el('div', { className: 'cfg-split' });
+    const payload = JSON.parse(JSON.stringify(draft.payload_json || {}));
+    let blocks = Array.isArray(payload.blocks) && payload.blocks.length
+      ? payload.blocks
+      : [
+          { type: 'heading', text: payload.title || state.selected.name || 'Document' },
+          { type: 'paragraph', text: 'Agreement with {{organization.legal_name}}.' },
+        ];
+    let sampleMode = true;
+    let showAdvanced = false;
+    const Designer = root.HubWorkflowDesigner;
+
+    return editorChrome(meta, state.selected.name, (wrap) => {
+      const layout = el('div', { className: 'cfg-split cfg-doc-split' });
       const left = el('div', { className: 'cfg-split-left' });
       const right = el('div', { className: 'cfg-split-right' });
-      left.appendChild(el('h4', { text: 'Build' }));
-      const title = el('input', { type: 'text', className: 'cfg-input', value: payload.title || '', 'aria-label': 'Title' });
-      const body = el('textarea', { className: 'cfg-json', rows: '14', 'aria-label': 'Document body' });
-      body.value = payload.body_html || '';
+
+      left.appendChild(el('h4', { text: 'Document structure' }));
+      const title = el('input', {
+        type: 'text',
+        className: 'cfg-input',
+        value: payload.title || '',
+        'aria-label': 'Title',
+      });
       left.appendChild(el('label', { text: 'Title' }));
       left.appendChild(title);
-      left.appendChild(el('label', { text: 'Content (variables insert as tokens)' }));
-      left.appendChild(body);
+
+      const blockList = el('div', { className: 'cfg-block-list' });
+      left.appendChild(blockList);
+
+      const addRow = el('div', { className: 'cfg-toolbar' });
+      [
+        ['heading', 'Heading'],
+        ['paragraph', 'Paragraph'],
+        ['list', 'List'],
+        ['table', 'Table'],
+        ['divider', 'Divider'],
+        ['variable', 'Variable'],
+        ['conditional', 'Conditional'],
+        ['signature', 'Signature'],
+        ['initial', 'Initial'],
+        ['acknowledgement', 'Acknowledgement'],
+      ].forEach(([type, label]) => {
+        addRow.appendChild(
+          el('button', {
+            type: 'button',
+            className: 'hub-btn hub-btn-sm',
+            text: label,
+            onclick: () => {
+              blocks.push({
+                type,
+                text: type === 'variable' ? '' : label,
+                key: type === 'variable' ? 'organization.legal_name' : undefined,
+                items: type === 'list' ? ['Item one', 'Item two'] : undefined,
+                condition: type === 'conditional' ? 'request.priority == high' : undefined,
+              });
+              markDirty();
+              redrawBlocks();
+              updatePreview();
+            },
+          })
+        );
+      });
+      left.appendChild(addRow);
 
       const picker = el('div', { className: 'cfg-var-picker' });
-      picker.appendChild(el('strong', { text: 'Variable picker' }));
-      const search = el('input', { type: 'search', className: 'cfg-input', placeholder: 'Search variables…', 'aria-label': 'Search variables' });
+      picker.appendChild(el('strong', { text: 'Insert variable' }));
+      const search = el('input', {
+        type: 'search',
+        className: 'cfg-input',
+        placeholder: 'Search variables…',
+        'aria-label': 'Search variables',
+      });
       picker.appendChild(search);
-      const list = el('div', { className: 'cfg-var-list' });
+      const varList = el('div', { className: 'cfg-var-list' });
       function renderVars() {
-        list.innerHTML = '';
+        varList.innerHTML = '';
         const q = search.value.trim().toLowerCase();
-        ((state.catalogs && state.catalogs.builtin_variables) || [])
-          .filter((v) => !q || v.key.includes(q) || (v.label || '').toLowerCase().includes(q))
-          .forEach((v) => {
+        const cats = {};
+        ((state.catalogs && state.catalogs.builtin_variables) || []).forEach((v) => {
+          if (q && !(v.key || '').includes(q) && !(v.label || '').toLowerCase().includes(q)) return;
+          const cat = v.category || 'Custom';
+          if (!cats[cat]) cats[cat] = [];
+          cats[cat].push(v);
+        });
+        Object.keys(cats).forEach((cat) => {
+          varList.appendChild(el('div', { className: 'cfg-hint', text: cat }));
+          cats[cat].forEach((v) => {
             const btn = el('button', {
               type: 'button',
               className: 'cfg-var-item',
               onclick: () => {
-                body.value += '{{' + v.key + '}}';
+                blocks.push({ type: 'variable', key: v.key, text: v.label || v.key });
+                markDirty();
+                redrawBlocks();
                 updatePreview();
               },
             });
             btn.appendChild(el('strong', { text: v.label || v.key }));
-            btn.appendChild(el('span', { text: '{{' + v.key + '}}' }));
-            list.appendChild(btn);
+            btn.appendChild(el('span', { text: '{{' + v.key + '}} · ' + (v.data_type || 'text') }));
+            varList.appendChild(btn);
           });
+        });
       }
       search.addEventListener('input', renderVars);
       renderVars();
-      picker.appendChild(list);
+      picker.appendChild(varList);
       left.appendChild(picker);
 
-      right.appendChild(el('h4', { text: 'Live preview' }));
-      const preview = el('div', { className: 'cfg-doc-preview' });
-      function updatePreview() {
-        let html = body.value || '';
-        html = html.replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (_, k) => '<mark class="cfg-var-token">{{' + k + '}}</mark>');
-        preview.innerHTML = html;
-      }
-      body.addEventListener('input', updatePreview);
-      title.addEventListener('input', updatePreview);
-      updatePreview();
+      const advToggle = el('button', {
+        type: 'button',
+        className: 'hub-link-btn',
+        text: 'Advanced source',
+        onclick: () => {
+          showAdvanced = !showAdvanced;
+          advWrap.hidden = !showAdvanced;
+          advToggle.textContent = showAdvanced ? 'Hide advanced source' : 'Advanced source';
+        },
+      });
+      left.appendChild(advToggle);
+      const advWrap = el('div', { hidden: 'hidden' });
+      const body = el('textarea', { className: 'cfg-json', rows: '8', 'aria-label': 'Advanced HTML source' });
+      body.value = payload.body_html || (Designer ? Designer.blocksToHtml(blocks) : '');
+      body.addEventListener('input', () => {
+        markDirty();
+        updatePreview();
+      });
+      advWrap.appendChild(el('p', { className: 'cfg-hint', text: 'Raw HTML remains sanitized on save. Prefer structured blocks for authoring.' }));
+      advWrap.appendChild(body);
+      left.appendChild(advWrap);
+
+      right.appendChild(el('h4', { text: 'Live document preview' }));
+      const toggle = el('div', { className: 'cfg-toolbar' });
+      toggle.appendChild(
+        el('button', {
+          type: 'button',
+          className: 'hub-btn hub-btn-sm',
+          text: 'Preview sample values',
+          onclick: () => {
+            sampleMode = true;
+            updatePreview();
+          },
+        })
+      );
+      toggle.appendChild(
+        el('button', {
+          type: 'button',
+          className: 'hub-btn hub-btn-sm',
+          text: 'Show variable keys',
+          onclick: () => {
+            sampleMode = false;
+            updatePreview();
+          },
+        })
+      );
+      right.appendChild(toggle);
+      const preview = el('div', { className: 'cfg-doc-preview cfg-doc-page' });
       right.appendChild(preview);
-      right.appendChild(el('p', { className: 'cfg-hint', text: 'PDF generation remains unavailable in this release. Web preview and signatures are supported.' }));
+      right.appendChild(
+        el('p', {
+          className: 'cfg-hint',
+          text: 'PDF generation remains unavailable in this release. Web preview and signatures are supported.',
+        })
+      );
+
+      function redrawBlocks() {
+        blockList.innerHTML = '';
+        blocks.forEach((b, idx) => {
+          const row = el('div', { className: 'cfg-block-row' });
+          row.appendChild(el('span', { className: 'cfg-badge', text: b.type }));
+          const input = el('input', {
+            type: 'text',
+            className: 'cfg-input',
+            value: b.type === 'variable' ? b.key || '' : b.text || '',
+            'aria-label': 'Block ' + (idx + 1),
+          });
+          input.addEventListener('input', () => {
+            if (b.type === 'variable') b.key = input.value;
+            else b.text = input.value;
+            markDirty();
+            syncHtmlFromBlocks();
+            updatePreview();
+          });
+          row.appendChild(input);
+          row.appendChild(
+            el('button', {
+              type: 'button',
+              className: 'hub-link-btn',
+              text: 'Remove',
+              onclick: () => {
+                blocks.splice(idx, 1);
+                markDirty();
+                redrawBlocks();
+                syncHtmlFromBlocks();
+                updatePreview();
+              },
+            })
+          );
+          blockList.appendChild(row);
+        });
+        syncHtmlFromBlocks();
+      }
+
+      function syncHtmlFromBlocks() {
+        if (Designer) body.value = Designer.blocksToHtml(blocks);
+      }
+
+      function updatePreview() {
+        const html = showAdvanced ? body.value : Designer ? Designer.blocksToHtml(blocks) : body.value;
+        const rendered = Designer ? Designer.renderPreviewHtml(html, sampleMode) : html;
+        preview.innerHTML = '<article class="cfg-doc-article">' + rendered + '</article>';
+      }
+
+      title.addEventListener('input', () => {
+        markDirty();
+        updatePreview();
+      });
+
+      redrawBlocks();
+      updatePreview();
 
       layout.appendChild(left);
       layout.appendChild(right);
@@ -1243,7 +1317,8 @@
       wrap._getPayload = () => ({
         ...payload,
         title: title.value,
-        body_html: body.value,
+        blocks,
+        body_html: showAdvanced ? body.value : Designer ? Designer.blocksToHtml(blocks) : body.value,
         pdf_status: 'unavailable',
         pdf_message: 'Final sealed PDF generation is not available in this release.',
       });
@@ -1254,17 +1329,46 @@
     const draft = state.selected.draft_version || {};
     const payload = JSON.parse(JSON.stringify(draft.payload_json || {}));
     const widgets = payload.widgets || [];
-    return editorChrome(meta, state.selected.name + ' — Dashboard', (wrap) => {
+    return editorChrome(meta, state.selected.name, (wrap) => {
       const layout = el('div', { className: 'cfg-split' });
       const left = el('div', { className: 'cfg-split-left' });
       const right = el('div', { className: 'cfg-split-right' });
-      left.appendChild(el('h4', { text: 'Widgets' }));
+      left.appendChild(el('h4', { text: 'Widget structure' }));
       const list = el('div', { className: 'cfg-field-list' });
+
       function redraw() {
         list.innerHTML = '';
+        if (!widgets.length) {
+          list.appendChild(el('p', { className: 'cfg-hint', text: 'Add widgets to build the dashboard layout.' }));
+        }
         widgets.forEach((w, idx) => {
           const row = el('div', { className: 'cfg-field-row' });
-          row.appendChild(el('span', { text: (w.title || w.type) + ' · ' + w.type }));
+          const titleIn = el('input', {
+            type: 'text',
+            className: 'cfg-input',
+            value: w.title || w.type,
+            'aria-label': 'Widget title',
+          });
+          titleIn.addEventListener('input', () => {
+            w.title = titleIn.value;
+            markDirty();
+            renderPreview();
+          });
+          const size = el('select', { className: 'cfg-input', 'aria-label': 'Widget size' });
+          [
+            ['sm', 'Small'],
+            ['md', 'Medium'],
+            ['lg', 'Large'],
+          ].forEach(([v, t]) => size.appendChild(el('option', { value: v, text: t })));
+          size.value = w.size || 'md';
+          size.addEventListener('change', () => {
+            w.size = size.value;
+            markDirty();
+            renderPreview();
+          });
+          row.appendChild(el('span', { className: 'cfg-badge', text: w.type }));
+          row.appendChild(titleIn);
+          row.appendChild(size);
           row.appendChild(
             el('button', {
               type: 'button',
@@ -1275,6 +1379,7 @@
                 const t = widgets[idx - 1];
                 widgets[idx - 1] = widgets[idx];
                 widgets[idx] = t;
+                markDirty();
                 redraw();
                 renderPreview();
               },
@@ -1287,6 +1392,7 @@
               text: 'Remove',
               onclick: () => {
                 widgets.splice(idx, 1);
+                markDirty();
                 redraw();
                 renderPreview();
               },
@@ -1298,8 +1404,8 @@
       redraw();
       left.appendChild(list);
       const sel = el('select', { className: 'cfg-input', 'aria-label': 'Widget type' });
-      ((state.catalogs && state.catalogs.widget_types) || []).forEach((w) => {
-        sel.appendChild(el('option', { value: w.type, text: w.label }));
+      ((state.catalogs && state.catalogs.widget_types) || [{ type: 'my_tasks', label: 'My Tasks' }]).forEach((w) => {
+        sel.appendChild(el('option', { value: w.type, text: w.label || w.type }));
       });
       left.appendChild(sel);
       left.appendChild(
@@ -1316,14 +1422,15 @@
               order: widgets.length,
               config: {},
             });
+            markDirty();
             redraw();
             renderPreview();
           },
         })
       );
 
-      right.appendChild(el('h4', { text: 'Live preview' }));
-      const preview = el('div', { className: 'cfg-dash-preview' });
+      right.appendChild(el('h4', { text: 'Live dashboard preview' }));
+      const preview = el('div', { className: 'cfg-dash-preview cfg-dash-grid' });
       function renderPreview() {
         preview.innerHTML = '';
         if (!widgets.length) {
@@ -1335,6 +1442,7 @@
             el('div', { className: 'cfg-dash-widget cfg-dash-widget-' + (w.size || 'md') }, [
               el('strong', { text: w.title || w.type }),
               el('span', { text: 'Sample data · ' + w.type }),
+              el('div', { className: 'cfg-dash-sample', text: w.type === 'my_tasks' ? '3 open tasks' : '12 items' }),
             ])
           );
         });
@@ -1354,6 +1462,7 @@
       });
     });
   }
+
 
   function renderRequestTypeEditor(meta) {
     const draft = state.selected.draft_version || {};
@@ -1499,9 +1608,13 @@
     init: initHubConfigurationCenter,
     openWorkspaceFormBuilder,
     SECTIONS,
+    slugifyKey,
     _test: {
       safeGlobalBootstrap: true,
       openWorkspaceFormBuilder,
+      slugifyKey,
+      markDirty,
+      clearDirty,
     },
   };
 })(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : this);
