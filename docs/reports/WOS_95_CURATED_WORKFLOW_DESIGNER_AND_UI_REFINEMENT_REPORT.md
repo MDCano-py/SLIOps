@@ -10,7 +10,7 @@ Focused refinement of the Configuration Center workflow designer and related edi
 
 ## Commit
 
-See `git log -1` on this branch after merge of this work (message: `WOS-95 refine workflow designer and configuration editor UX`).
+`ae83411f1600549dd6357ad04c465274539f5f08` — `WOS-95 refine workflow designer and configuration editor UX`
 
 ## n8n reference
 
