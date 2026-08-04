@@ -4033,9 +4033,40 @@ module.exports = async function handler(req, res) {
         cookieEmail = auth.getActorEmail(req) || getDemoActorEmail();
         permissions = ALL_PERMISSION_IDS.slice();
       }
+      let roleKeys = [];
+      let actorUserId = null;
+      try {
+        const rbacPg = require('./lib/rbac/postgres');
+        if (cookieEmail && rbacPg.isAvailable && rbacPg.isAvailable()) {
+          roleKeys = await rbacPg.getUserRoleKeys(cookieEmail);
+        }
+      } catch {
+        roleKeys = [];
+      }
+      if (cookieEmail && process.env.DATABASE_URL) {
+        try {
+          const { Pool } = require('pg');
+          const { resolvePgSsl } = require('./lib/hub/db/pg-ssl');
+          if (!global.__wosUserIdPool) {
+            global.__wosUserIdPool = new Pool({
+              connectionString: process.env.DATABASE_URL,
+              ssl: resolvePgSsl(process.env.DATABASE_URL),
+            });
+          }
+          const ur = await global.__wosUserIdPool.query(
+            `SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+            [cookieEmail]
+          );
+          actorUserId = ur.rows[0] ? ur.rows[0].id : null;
+        } catch {
+          actorUserId = null;
+        }
+      }
       const handled = await handleHubRoute(path, req, res, {
         actorEmail: cookieEmail,
         permissions,
+        roleKeys,
+        actorUserId,
       });
       if (handled !== false) return;
       return res.status(404).json({ error: 'Hub route not found', path });

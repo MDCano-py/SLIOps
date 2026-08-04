@@ -10,6 +10,13 @@ const { evaluateCondition } = require('../conditions');
 const { isStartNodeType, isTerminalNodeType, isHumanNodeType, getNodeType } = require('../nodes/registry');
 const { resolveVariables } = require('../variables/resolver');
 const { sanitizeHtml } = require('../sanitize');
+const { resolveAssignment, findUserByEmail, hubAdminUsers } = require('./resolve-assignment');
+const {
+  notifyTaskAssigned,
+  notifyAssignmentFailed,
+  dismissRoleCandidateNotifications,
+  notifyWorkflowCompleted,
+} = require('./task-notifications');
 
 let pool = null;
 function getPool() {
@@ -161,35 +168,134 @@ async function failExecution(client, executionId, summary) {
   );
 }
 
-async function createHumanTask(client, instance, execution, node) {
+async function createHumanTask(client, instance, execution, node, context) {
   const meta = getNodeType(node.type);
   const taskType = (meta && meta.taskType) || 'Provide Information';
   const cfg = node.config || {};
+  const resolution = await resolveAssignment({ client, node, context: context || instance.context_json || {} });
+
+  if (!resolution.ok) {
+    await client.query(
+      `UPDATE cfg_node_executions
+       SET state = 'waiting', assignment_error = $2, assignment_mode = $3, updated_at = now()
+       WHERE id = $1`,
+      [execution.id, resolution.error || 'Assignment failed', resolution.mode]
+    );
+    await client.query(
+      `UPDATE cfg_workflow_instances
+       SET state = 'waiting', current_node_key = $2, failure_summary = $3, updated_at = now()
+       WHERE id = $1`,
+      [instance.id, node.key, resolution.error || 'Assignment failed']
+    );
+    const admins = await hubAdminUsers(client);
+    await notifyAssignmentFailed({
+      client,
+      instance,
+      node,
+      error: resolution.error || 'Assignment failed',
+      adminUsers: admins,
+    });
+    await store.writeAudit(client, {
+      actor_email: context && context.currentUser && context.currentUser.email,
+      action: 'workflow.assignment_failed',
+      definition_kind: 'workflow',
+      definition_id: instance.definition_id,
+      version_id: instance.version_id,
+      after_summary: { instance_id: instance.id, node: node.key, error: resolution.error },
+      meta_json: { related_request_id: instance.related_request_id || null },
+    });
+    return { task: null, resolution, blocked: true };
+  }
+
+  const assignedEmail =
+    resolution.assignmentKind === 'specific_user'
+      ? resolution.email
+      : resolution.assignmentKind === 'external'
+        ? resolution.email
+        : null;
+  const assignedUserId = resolution.assignmentKind === 'specific_user' ? resolution.userId : null;
+  const assignedRole = resolution.assignmentKind === 'shared_role' ? resolution.roleKey : null;
+  const summaryParts = [];
+  if (resolution.assignmentKind === 'specific_user' && resolution.user) {
+    summaryParts.push(resolution.user.name || resolution.user.email);
+  } else if (resolution.assignmentKind === 'shared_role') {
+    summaryParts.push(`Role ${resolution.roleKey} · ${(resolution.users || []).length} eligible`);
+  } else if (resolution.assignmentKind === 'external') {
+    summaryParts.push(`External ${resolution.email}`);
+  }
+  if (resolution.fallbackApplied) summaryParts.push(`Fallback: ${resolution.fallbackApplied}`);
+
   const { rows } = await client.query(
     `INSERT INTO cfg_workflow_tasks
-      (instance_id, node_execution_id, task_type, status, assigned_user_email, assigned_role, due_at)
-     VALUES ($1,$2,$3,'open',$4,$5,$6)
+      (instance_id, node_execution_id, task_type, status, title, instructions,
+       assignment_mode, assigned_user_email, assigned_user_id, assigned_role,
+       related_request_id, assignment_summary, fallback_applied, due_at)
+     VALUES ($1,$2,$3,'open',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
      RETURNING *`,
     [
       instance.id,
       execution.id,
       taskType,
-      cfg.assignee_email || null,
-      cfg.assignee_role || cfg.required_role || null,
+      node.name || taskType,
+      cfg.instructions || cfg.description || null,
+      resolution.mode,
+      assignedEmail,
+      assignedUserId,
+      assignedRole,
+      instance.related_request_id || null,
+      summaryParts.join(' · ') || null,
+      resolution.fallbackApplied || null,
       cfg.due_at || null,
     ]
   );
+  const task = rows[0];
+
   await client.query(
     `UPDATE cfg_node_executions
-     SET state = 'waiting', assignee_email = $2, assignee_role = $3, updated_at = now()
+     SET state = 'waiting',
+         assignee_email = $2,
+         assignee_role = $3,
+         assigned_user_id = $4,
+         assignment_mode = $5,
+         assignment_error = NULL,
+         updated_at = now()
      WHERE id = $1`,
-    [execution.id, cfg.assignee_email || null, cfg.assignee_role || cfg.required_role || null]
+    [execution.id, assignedEmail, assignedRole, assignedUserId, resolution.mode]
   );
   await client.query(
-    `UPDATE cfg_workflow_instances SET state = 'waiting', current_node_key = $2, updated_at = now() WHERE id = $1`,
+    `UPDATE cfg_workflow_instances SET state = 'waiting', current_node_key = $2, failure_summary = NULL, updated_at = now() WHERE id = $1`,
     [instance.id, node.key]
   );
-  return rows[0];
+
+  const requestNumber =
+    (context && context.request && context.request.request_number) ||
+    (instance.context_json && instance.context_json.request && instance.context_json.request.request_number) ||
+    null;
+  await notifyTaskAssigned({
+    client,
+    task,
+    instance,
+    resolution,
+    node,
+    requestNumber,
+  });
+  await store.writeAudit(client, {
+    actor_email: context && context.currentUser && context.currentUser.email,
+    action: 'workflow.task_created',
+    definition_kind: 'workflow',
+    definition_id: instance.definition_id,
+    version_id: instance.version_id,
+    after_summary: {
+      instance_id: instance.id,
+      task_id: task.id,
+      mode: resolution.mode,
+      role: assignedRole,
+      user_id: assignedUserId,
+    },
+    meta_json: { related_request_id: instance.related_request_id || null },
+  });
+
+  return { task, resolution, blocked: false };
 }
 
 async function generateDocument(client, instance, node, context) {
@@ -338,6 +444,31 @@ async function advanceInstance(instanceId, { actorEmail, fromNodeKey, outcomeKey
       ...(instance.context_json || {}),
       currentUser: { email: actorEmail },
     };
+    if (instance.related_request_id && !context.request) {
+      try {
+        const reqRes = await client.query(
+          `SELECT id, request_number, title, status, requester_email, requester_name, priority, request_type, form_payload
+           FROM requests WHERE id = $1`,
+          [instance.related_request_id]
+        );
+        if (reqRes.rows[0]) {
+          context.request = reqRes.rows[0];
+          const creator = await findUserByEmail(client, reqRes.rows[0].requester_email);
+          if (creator) {
+            context.request.requester_user_id = creator.id;
+            context.requester_user_id = creator.id;
+          }
+          context.requester_email = reqRes.rows[0].requester_email;
+          if (reqRes.rows[0].form_payload && typeof reqRes.rows[0].form_payload === 'object') {
+            context.formSubmission = context.formSubmission || {
+              values: reqRes.rows[0].form_payload.values || reqRes.rows[0].form_payload,
+            };
+          }
+        }
+      } catch {
+        /* requests table may be unavailable in isolated tests */
+      }
+    }
 
     // If resuming with an outcome, move along that edge first
     if (outcomeKey) {
@@ -364,7 +495,7 @@ async function advanceInstance(instanceId, { actorEmail, fromNodeKey, outcomeKey
       guard += 1;
       const execution = await createNodeExecution(client, instance, current, 1);
       if (isHumanNodeType(current.type)) {
-        await createHumanTask(client, instance, execution, current);
+        await createHumanTask(client, instance, execution, current, context);
         await client.query('COMMIT');
         return getInstance(instanceId);
       }
@@ -446,7 +577,122 @@ async function advanceInstance(instanceId, { actorEmail, fromNodeKey, outcomeKey
   }
 }
 
-async function completeTask({ taskId, actorEmail, outcome, comment, formValues }) {
+async function completeTask({ taskId, actorEmail, actorUserId, roleKeys, outcome, comment, formValues }) {
+  store.assertPostgres();
+  const p = getPool();
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(`SELECT * FROM cfg_workflow_tasks WHERE id = $1 FOR UPDATE`, [taskId]);
+    const task = rows[0];
+    if (!task) {
+      const err = new Error('Task not found');
+      err.status = 404;
+      throw err;
+    }
+    if (!['open', 'claimed', 'in_progress'].includes(task.status)) {
+      const err = new Error('Task is not open');
+      err.status = 409;
+      err.code = 'TASK_NOT_OPEN';
+      throw err;
+    }
+
+    const actor = actorUserId
+      ? (await client.query(`SELECT id, email FROM users WHERE id = $1`, [actorUserId])).rows[0]
+      : await findUserByEmail(client, actorEmail);
+    const email = (actor && actor.email) || actorEmail || '';
+    const roles = Array.isArray(roleKeys) ? roleKeys : [];
+
+    const isAssignee =
+      (task.assigned_user_email && email && task.assigned_user_email.toLowerCase() === email.toLowerCase()) ||
+      (task.assigned_user_id && actor && String(task.assigned_user_id) === String(actor.id));
+    const isClaimer =
+      (task.claimed_by_email && email && task.claimed_by_email.toLowerCase() === email.toLowerCase()) ||
+      (task.claimed_by_user_id && actor && String(task.claimed_by_user_id) === String(actor.id));
+    const isRoleCandidate =
+      task.assigned_role &&
+      !task.assigned_user_id &&
+      roles.includes(task.assigned_role) &&
+      (task.status === 'open' || isClaimer);
+
+    if (!isAssignee && !isClaimer && !isRoleCandidate) {
+      const err = new Error('Not authorized to complete this task');
+      err.status = 403;
+      err.code = 'FORBIDDEN_TASK';
+      throw err;
+    }
+
+    // Shared-role open tasks must be claimed first (atomic)
+    if (task.assigned_role && !task.assigned_user_id && task.status === 'open' && !isClaimer) {
+      const claim = await client.query(
+        `UPDATE cfg_workflow_tasks
+         SET claimed_by_user_id = $2,
+             claimed_by_email = $3,
+             claimed_at = now(),
+             status = 'claimed',
+             updated_at = now()
+         WHERE id = $1
+           AND status = 'open'
+           AND claimed_by_user_id IS NULL
+         RETURNING *`,
+        [taskId, actor && actor.id, email]
+      );
+      if (!claim.rows[0]) {
+        const err = new Error('Task was claimed by another user');
+        err.status = 409;
+        err.code = 'TASK_CLAIMED';
+        throw err;
+      }
+      await dismissRoleCandidateNotifications({
+        client,
+        taskId,
+        exceptUserId: actor && actor.id,
+      });
+    }
+
+    await client.query(
+      `UPDATE cfg_workflow_tasks
+       SET status = 'completed', outcome = $2, comment = $3, form_submission_json = $4::jsonb,
+           completed_by = $5, completed_at = now(), updated_at = now()
+       WHERE id = $1`,
+      [taskId, outcome || 'completed', comment || null, JSON.stringify(formValues || {}), email || null]
+    );
+    await client.query(
+      `UPDATE cfg_node_executions SET state = 'completed', completed_at = now(), updated_at = now(), outputs_json = $2::jsonb WHERE id = $1`,
+      [task.node_execution_id, JSON.stringify({ outcome: outcome || 'completed' })]
+    );
+    const exec = await client.query(`SELECT * FROM cfg_node_executions WHERE id = $1`, [task.node_execution_id]);
+    const nodeKey = exec.rows[0] && exec.rows[0].node_key;
+    await client.query(
+      `UPDATE cfg_workflow_instances
+       SET context_json = jsonb_set(COALESCE(context_json,'{}'::jsonb), '{formSubmission}', COALESCE(context_json->'formSubmission','{}'::jsonb) || $2::jsonb, true),
+           state = 'running',
+           updated_at = now()
+       WHERE id = $1`,
+      [task.instance_id, JSON.stringify({ values: formValues || {} })]
+    );
+    await store.writeAudit(client, {
+      actor_email: email,
+      action: 'workflow.task_completed',
+      definition_kind: 'workflow',
+      after_summary: { task_id: taskId, outcome: outcome || 'completed' },
+      meta_json: { instance_id: task.instance_id, related_request_id: task.related_request_id || null },
+    });
+    await client.query('COMMIT');
+    return advanceInstance(task.instance_id, {
+      actorEmail: email,
+      fromNodeKey: nodeKey,
+      outcomeKey: outcome || 'default',
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function claimTask({ taskId, actorEmail, actorUserId, roleKeys }) {
   store.assertPostgres();
   const p = getPool();
   const client = await p.connect();
@@ -460,45 +706,231 @@ async function completeTask({ taskId, actorEmail, outcome, comment, formValues }
       throw err;
     }
     if (task.status !== 'open') {
-      const err = new Error('Task is not open');
+      const err = new Error('Task is not available to claim');
       err.status = 409;
       err.code = 'TASK_NOT_OPEN';
       throw err;
     }
-    await client.query(
+    const actor = actorUserId
+      ? (await client.query(`SELECT id, email, name FROM users WHERE id = $1`, [actorUserId])).rows[0]
+      : await findUserByEmail(client, actorEmail);
+    if (!actor) {
+      const err = new Error('Actor user not found');
+      err.status = 403;
+      throw err;
+    }
+    const roles = Array.isArray(roleKeys) ? roleKeys : [];
+    const allowed =
+      (task.assigned_role && roles.includes(task.assigned_role)) ||
+      (task.assigned_user_id && String(task.assigned_user_id) === String(actor.id)) ||
+      (task.assigned_user_email && task.assigned_user_email.toLowerCase() === actor.email.toLowerCase());
+    if (!allowed) {
+      const err = new Error('Not authorized to claim this task');
+      err.status = 403;
+      throw err;
+    }
+    const claim = await client.query(
       `UPDATE cfg_workflow_tasks
-       SET status = 'completed', outcome = $2, comment = $3, form_submission_json = $4::jsonb,
-           completed_by = $5, completed_at = now(), updated_at = now()
-       WHERE id = $1`,
-      [taskId, outcome || 'completed', comment || null, JSON.stringify(formValues || {}), actorEmail || null]
-    );
-    await client.query(
-      `UPDATE cfg_node_executions SET state = 'completed', completed_at = now(), updated_at = now(), outputs_json = $2::jsonb WHERE id = $1`,
-      [task.node_execution_id, JSON.stringify({ outcome: outcome || 'completed' })]
-    );
-    const exec = await client.query(`SELECT * FROM cfg_node_executions WHERE id = $1`, [task.node_execution_id]);
-    const nodeKey = exec.rows[0] && exec.rows[0].node_key;
-    // Merge form values into instance context
-    await client.query(
-      `UPDATE cfg_workflow_instances
-       SET context_json = jsonb_set(COALESCE(context_json,'{}'::jsonb), '{formSubmission}', COALESCE(context_json->'formSubmission','{}'::jsonb) || $2::jsonb, true),
-           state = 'running',
+       SET claimed_by_user_id = $2,
+           claimed_by_email = $3,
+           claimed_at = now(),
+           status = 'claimed',
            updated_at = now()
-       WHERE id = $1`,
-      [task.instance_id, JSON.stringify({ values: formValues || {} })]
+       WHERE id = $1
+         AND status = 'open'
+         AND claimed_by_user_id IS NULL
+       RETURNING *`,
+      [taskId, actor.id, actor.email]
     );
-    await client.query('COMMIT');
-    return advanceInstance(task.instance_id, {
-      actorEmail,
-      fromNodeKey: nodeKey,
-      outcomeKey: outcome || 'default',
+    if (!claim.rows[0]) {
+      const err = new Error('Task was claimed by another user');
+      err.status = 409;
+      err.code = 'TASK_CLAIMED';
+      throw err;
+    }
+    await dismissRoleCandidateNotifications({ client, taskId, exceptUserId: actor.id });
+    await store.writeAudit(client, {
+      actor_email: actor.email,
+      action: 'workflow.task_claimed',
+      definition_kind: 'workflow',
+      after_summary: { task_id: taskId, claimed_by: actor.id },
+      meta_json: { instance_id: task.instance_id },
     });
+    await client.query('COMMIT');
+    return claim.rows[0];
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();
   }
+}
+
+async function listTasksForUser({ email, roleKeys, userId }) {
+  store.assertPostgres();
+  const p = getPool();
+  const roles = Array.isArray(roleKeys) ? roleKeys : [];
+  const { rows } = await p.query(
+    `SELECT t.*, i.definition_id, i.related_request_id, i.state AS instance_state, i.version_id,
+            i.current_node_key,
+            r.request_number, r.title AS request_title, r.priority AS request_priority
+     FROM cfg_workflow_tasks t
+     JOIN cfg_workflow_instances i ON i.id = t.instance_id
+     LEFT JOIN requests r ON r.id = COALESCE(t.related_request_id, i.related_request_id)
+     WHERE t.status IN ('open', 'claimed', 'in_progress')
+       AND (
+         ($3::uuid IS NOT NULL AND t.assigned_user_id = $3::uuid)
+         OR ($3::uuid IS NOT NULL AND t.claimed_by_user_id = $3::uuid)
+         OR LOWER(COALESCE(t.assigned_user_email,'')) = LOWER($1)
+         OR LOWER(COALESCE(t.claimed_by_email,'')) = LOWER($1)
+         OR (
+           t.assigned_role IS NOT NULL
+           AND t.assigned_user_id IS NULL
+           AND t.status = 'open'
+           AND t.assigned_role = ANY($2::text[])
+         )
+       )
+     ORDER BY t.created_at DESC
+     LIMIT 200`,
+    [email || '', roles, userId || null]
+  );
+  return rows;
+}
+
+/**
+ * Create a hub request from a published request type and start its pinned workflow version.
+ */
+async function startFromRequestType({
+  requestTypeDefinitionId,
+  actorEmail,
+  title,
+  description,
+  priority,
+  formValues,
+  relatedSubmissionId,
+}) {
+  store.assertPostgres();
+  const def = await store.getDefinition(requestTypeDefinitionId);
+  if (!def || def.kind !== 'request_type' || !def.published_version) {
+    const err = new Error('Published request type not found');
+    err.status = 404;
+    err.code = 'REQUEST_TYPE_NOT_FOUND';
+    throw err;
+  }
+  const payload = def.published_version.payload_json || {};
+  const workflowDefinitionId = payload.workflow_definition_id;
+  if (!workflowDefinitionId) {
+    const err = new Error('Request type has no published workflow attached');
+    err.status = 400;
+    err.code = 'NO_WORKFLOW';
+    throw err;
+  }
+  const wf = await loadPublishedWorkflow(workflowDefinitionId);
+  const hubStore = require('../../hub/store');
+  const actor = await (async () => {
+    const p = getPool();
+    const { rows } = await p.query(`SELECT id, email, name FROM users WHERE lower(email) = lower($1) LIMIT 1`, [
+      actorEmail || '',
+    ]);
+    return rows[0] || null;
+  })();
+
+  const prefix = payload.number_prefix || 'REQ-';
+  const displayName = payload.display_name || def.name;
+  const requestTypeKey = payload.key || def.key || 'general_request';
+
+  const rec = await hubStore.createRequest(
+    {
+      request_type: 'general_request',
+      title: title || displayName,
+      description: description || payload.description || '',
+      priority: priority || payload.default_priority || 'normal',
+      requester_email: actorEmail,
+      requester_name: (actor && actor.name) || actorEmail,
+      form_payload: {
+        values: formValues || {},
+        request_type_definition_id: def.id,
+        request_type_version_id: def.published_version.id,
+        request_type_key: requestTypeKey,
+        workflow_definition_id: wf.id,
+        workflow_version_id: wf.published_version.id,
+        starting_form_template_id: payload.starting_form_template_id || null,
+        number_prefix: prefix,
+      },
+    },
+    actorEmail
+  );
+
+  // Prefer human-readable prefix from request type when possible
+  if (prefix && rec.request_number && !String(rec.request_number).startsWith(String(prefix).replace(/-$/, ''))) {
+    try {
+      const p = getPool();
+      const cleanPrefix = String(prefix).replace(/-?$/, '');
+      const seqKey = `cfg_${requestTypeKey}`;
+      await p.query(
+        `INSERT INTO request_sequences (request_type, seq) VALUES ($1, 0) ON CONFLICT (request_type) DO NOTHING`,
+        [seqKey]
+      );
+      const seq = await p.query(`UPDATE request_sequences SET seq = seq + 1 WHERE request_type=$1 RETURNING seq`, [seqKey]);
+      const n = seq.rows[0]?.seq || 1;
+      const requestNumber = `${cleanPrefix}-${String(n).padStart(4, '0')}`;
+      await p.query(`UPDATE requests SET request_number = $2, updated_at = now() WHERE id = $1`, [rec.id, requestNumber]);
+      rec.request_number = requestNumber;
+    } catch {
+      /* keep default number */
+    }
+  }
+
+  const instance = await startWorkflowInstance({
+    workflowDefinitionId: wf.id,
+    actorEmail,
+    relatedRequestId: rec.id,
+    relatedSubmissionId: relatedSubmissionId || null,
+    context: {
+      request_type_id: def.id,
+      request_type_key: requestTypeKey,
+      request_type_version_id: def.published_version.id,
+      workflow_version_id: wf.published_version.id,
+      form_template_id: payload.starting_form_template_id || null,
+      requester_email: actorEmail,
+      requester_user_id: actor && actor.id,
+      request: {
+        id: rec.id,
+        request_number: rec.request_number,
+        title: rec.title,
+        requester_email: rec.requester_email,
+        requester_user_id: actor && actor.id,
+        priority: rec.priority,
+      },
+      formSubmission: { values: formValues || {} },
+      currentUser: { email: actorEmail, id: actor && actor.id, name: actor && actor.name },
+    },
+  });
+
+  // Pin request-type / form version ids on instance when columns exist
+  try {
+    const p = getPool();
+    await p.query(
+      `UPDATE cfg_workflow_instances
+       SET request_type_definition_id = $2,
+           request_type_version_id = $3,
+           form_template_id = $4,
+           started_by_user_id = $5,
+           updated_at = now()
+       WHERE id = $1`,
+      [
+        instance.id,
+        def.id,
+        def.published_version.id,
+        payload.starting_form_template_id || null,
+        actor && actor.id,
+      ]
+    );
+  } catch {
+    /* pre-migration */
+  }
+
+  return { request: rec, instance: await getInstance(instance.id) };
 }
 
 async function retryFailedNode({ instanceId, actorEmail }) {
@@ -522,33 +954,27 @@ async function retryFailedNode({ instanceId, actorEmail }) {
   return advanceInstance(instanceId, { actorEmail });
 }
 
-async function listTasksForUser({ email, roleKeys }) {
+async function getInstanceByRequestId(requestId) {
   store.assertPostgres();
+  if (!requestId) return null;
   const p = getPool();
-  const roles = Array.isArray(roleKeys) ? roleKeys : [];
   const { rows } = await p.query(
-    `SELECT t.*, i.definition_id, i.related_request_id, i.state AS instance_state
-     FROM cfg_workflow_tasks t
-     JOIN cfg_workflow_instances i ON i.id = t.instance_id
-     WHERE t.status = 'open'
-       AND (
-         LOWER(COALESCE(t.assigned_user_email,'')) = LOWER($1)
-         OR (t.assigned_role IS NOT NULL AND t.assigned_role = ANY($2::text[]))
-         OR (t.assigned_user_email IS NULL AND t.assigned_role IS NULL)
-       )
-     ORDER BY t.created_at DESC
-     LIMIT 200`,
-    [email || '', roles]
+    `SELECT id FROM cfg_workflow_instances WHERE related_request_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [requestId]
   );
-  return rows;
+  if (!rows[0]) return null;
+  return getInstance(rows[0].id);
 }
 
 module.exports = {
   idempotencyKey,
   startWorkflowInstance,
+  startFromRequestType,
   advanceInstance,
   completeTask,
+  claimTask,
   retryFailedNode,
   getInstance,
+  getInstanceByRequestId,
   listTasksForUser,
 };

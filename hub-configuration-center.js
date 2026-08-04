@@ -471,8 +471,8 @@
       return wrap;
     }
 
-    const table = el('div', { className: 'forms-hub-manage' });
-    const header = el('div', { className: 'cfg-row cfg-row-static cfg-row-head' }, [
+    const table = el('div', { className: 'forms-hub-manage cfg-forms-registry' });
+    const header = el('div', { className: 'cfg-row cfg-row-static cfg-row-head cfg-forms-registry-row' }, [
       el('strong', { text: 'Form' }),
       el('span', { text: 'Status' }),
       el('span', { text: 'Updated' }),
@@ -482,17 +482,34 @@
 
     list.forEach((t) => {
       const publishedId = t.current_published_version_id;
-      const draftHint = t.status === 'archived' ? 'archived' : publishedId ? 'published' : 'draft';
-      const row = el('div', { className: 'cfg-row cfg-row-static' });
+      const lifecycle =
+        t.status === 'archived'
+          ? 'archived'
+          : publishedId
+            ? 'published'
+            : 'draft';
+      const statusLabel =
+        lifecycle === 'published' ? 'Published' : lifecycle === 'archived' ? 'Archived' : 'Draft';
+      const row = el('div', { className: 'cfg-row cfg-row-static cfg-forms-registry-row' });
       row.appendChild(
-        el('div', {}, [
+        el('div', { className: 'cfg-forms-registry-name' }, [
           el('strong', { className: 'forms-manage-form-name', text: t.name || t.key }),
           el('div', { className: 'forms-manage-meta', text: t.key || '' }),
         ])
       );
-      row.appendChild(el('span', { className: 'tmpl-badge tmpl-badge-' + draftHint, text: t.status || draftHint }));
-      row.appendChild(el('span', { text: t.updated_at ? String(t.updated_at).slice(0, 19).replace('T', ' ') : '—' }));
-      const actions = el('div', { className: 'tmpl-actions tmpl-actions-compact' });
+      row.appendChild(
+        el('span', {
+          className: 'tmpl-badge tmpl-badge-' + lifecycle + ' cfg-status-badge',
+          text: statusLabel,
+        })
+      );
+      row.appendChild(
+        el('span', {
+          className: 'cfg-forms-registry-updated',
+          text: t.updated_at ? String(t.updated_at).slice(0, 19).replace('T', ' ') : '—',
+        })
+      );
+      const actions = el('div', { className: 'tmpl-actions tmpl-actions-compact cfg-forms-registry-actions' });
       if (publishedId) {
         actions.appendChild(
           el('button', {

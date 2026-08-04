@@ -512,21 +512,33 @@
         sections.push(renderTaskSection('Recently completed', done, 'No recent completions.'));
       }
 
-      // WOS-94 — configurable platform human tasks
+      // WOS-96 — configurable platform human tasks (real assignments + claim)
       try {
         const cfgRes = await hubFetch('/hub/workflow-runtime/tasks');
         if (cfgRes.ok) {
           const cfgData = await cfgRes.json();
           const cfgTasks = cfgData.tasks || [];
-          if (cfgTasks.length && (myTasksFilter === 'all' || myTasksFilter === 'waiting')) {
+          if (cfgTasks.length && (myTasksFilter === 'all' || myTasksFilter === 'waiting' || myTasksFilter === 'review')) {
             const rows = cfgTasks
               .map((task) => {
-                const title = task.task_type || 'Action needed';
-                return `<tr data-cfg-task="${esc(task.id)}"><td class="mono">${esc(task.related_request_id || task.instance_id || '—')}</td><td>${esc(title)}</td><td>Configurable</td><td><span class="hub-chip">${esc(task.assigned_role || task.assigned_user_email || 'queue')}</span></td></tr>`;
+                const title = task.title || task.task_type || 'Action needed';
+                const ref = task.request_number || task.related_request_id || task.instance_id || '—';
+                const assign =
+                  task.claimed_by_email ||
+                  task.assigned_user_email ||
+                  (task.assigned_role ? `Role: ${task.assigned_role}` : 'queue');
+                const needsClaim = task.assigned_role && task.status === 'open' && !task.claimed_by_user_id;
+                return `<tr data-cfg-task="${esc(task.id)}" data-cfg-claim="${needsClaim ? '1' : '0'}" data-open-request="${esc(task.related_request_id || '')}">
+                  <td class="mono">${esc(ref)}</td>
+                  <td>${esc(task.request_title || title)}</td>
+                  <td>${esc(title)}</td>
+                  <td><span class="hub-chip">${esc(assign)}</span></td>
+                  <td>${esc(task.status)}</td>
+                </tr>`;
               })
               .join('');
             sections.push(
-              `<div class="hub-panel"><div class="hub-panel-head"><h2>Configurable workflow tasks</h2><span>${cfgTasks.length}</span></div><div class="hub-panel-body"><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Request / instance</th><th>Action needed</th><th>Type</th><th>Assignment</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`
+              `<div class="hub-panel"><div class="hub-panel-head"><h2>Assigned to me / available to my roles</h2><span>${cfgTasks.length}</span></div><div class="hub-panel-body"><div class="hub-table-wrap"><table class="hub-table"><thead><tr><th>Request</th><th>Title</th><th>Action</th><th>Assignment</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>`
             );
           }
         }
@@ -536,22 +548,54 @@
 
       root.innerHTML = sections.join('');
       root.querySelectorAll('[data-open-request]').forEach((row) => {
-        row.addEventListener('click', () => openRequestDetail(row.dataset.openRequest));
+        row.addEventListener('click', (e) => {
+          if (row.dataset.cfgTask) return;
+          openRequestDetail(row.dataset.openRequest);
+        });
       });
       root.querySelectorAll('[data-cfg-task]').forEach((row) => {
         row.addEventListener('click', async () => {
           const taskId = row.dataset.cfgTask;
           if (!taskId) return;
-          const outcome = prompt('Complete task outcome (default / approved / rejected)', 'default') || 'default';
+          const requestId = row.dataset.openRequest;
           try {
+            if (row.dataset.cfgClaim === '1') {
+              const claimRes = await hubFetch(`/hub/workflow-runtime/tasks/${encodeURIComponent(taskId)}/claim`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+              });
+              if (!claimRes.ok) {
+                const errBody = await claimRes.json().catch(() => ({}));
+                throw new Error(errBody.error || 'Could not claim task');
+              }
+            }
+            const modal = global.streamlineModal;
+            let outcome = 'default';
+            if (modal && typeof modal.prompt === 'function') {
+              const entered = await modal.prompt({
+                title: 'Complete task',
+                body: 'Outcome (default / approved / rejected)',
+                defaultValue: 'default',
+                okLabel: 'Complete',
+              });
+              if (entered == null) return;
+              outcome = entered || 'default';
+            }
             await hubFetch(`/hub/workflow-runtime/tasks/${encodeURIComponent(taskId)}/complete`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ outcome }),
             });
-            initMyTasks();
+            if (typeof refreshNotifications === 'function') refreshNotifications();
+            if (requestId) openRequestDetail(requestId);
+            else initMyTasks();
           } catch (err) {
-            alert(err.message || 'Could not complete task');
+            if (typeof global.streamlineModal?.alert === 'function') {
+              await global.streamlineModal.alert({ title: 'Task action failed', body: err.message || 'Could not complete task' });
+            } else {
+              alert(err.message || 'Could not complete task');
+            }
           }
         });
       });
@@ -567,22 +611,25 @@
     const n = data.unread_count || 0;
     if (badge) {
       badge.hidden = n === 0;
-      badge.textContent = n > 99 ? '99+' : String(n);
+      badge.textContent = n > 9 ? '9+' : String(n);
     }
     if (panel && !panel.hidden) {
       panel.innerHTML = (data.notifications || []).length
         ? data.notifications
-            .map(
-              (x) =>
-                `<button type="button" class="hub-notif-item${x.read_at ? '' : ' is-unread'}" data-notif-id="${esc(x.id)}" data-notif-req="${esc(x.request_id || '')}"><strong>${esc(x.title)}</strong><span>${esc(x.message)}</span><time>${formatDate(x.created_at, true)}</time></button>`
-            )
+            .map((x) => {
+              const action = x.action_url || (x.request_id ? `#/hub/requests/${x.request_id}` : '');
+              return `<button type="button" class="hub-notif-item${x.read_at ? '' : ' is-unread'}" data-notif-id="${esc(x.id)}" data-notif-req="${esc(x.request_id || '')}" data-notif-action="${esc(action)}" data-notif-task="${esc(x.cfg_workflow_task_id || '')}"><strong>${esc(x.title)}</strong><span>${esc(x.message)}</span><time>${formatDate(x.created_at, true)}</time></button>`;
+            })
             .join('')
         : '<p class="hub-empty">No notifications</p>';
       panel.querySelectorAll('.hub-notif-item').forEach((btn) => {
         btn.addEventListener('click', async () => {
           await hubFetch(`/hub/notifications/${btn.dataset.notifId}/read`, { method: 'POST' });
-          if (btn.dataset.notifReq) openRequestDetail(btn.dataset.notifReq);
           panel.hidden = true;
+          if (btn.dataset.notifReq) openRequestDetail(btn.dataset.notifReq);
+          else if (btn.dataset.notifAction && btn.dataset.notifAction.includes('my-tasks')) {
+            if (typeof global.switchTab === 'function') global.switchTab('hub-my-tasks');
+          }
           refreshNotifications();
         });
       });
@@ -2462,6 +2509,17 @@
       const timelineRes = await hubFetch(`/hub/requests/${encodeURIComponent(id)}/timeline`);
       const timelineData = timelineRes.ok ? await timelineRes.json() : { events: [] };
 
+      let cfgInstance = null;
+      try {
+        const cfgRes = await hubFetch(`/hub/workflow-runtime/instances/by-request/${encodeURIComponent(id)}`);
+        if (cfgRes.ok) {
+          const cfgData = await cfgRes.json();
+          cfgInstance = cfgData.instance || null;
+        }
+      } catch {
+        cfgInstance = null;
+      }
+
       const agingLabel = data.aging?.label || 'On track';
       const openDays = data.aging?.ageBizDays != null ? `${data.aging.ageBizDays} business day(s) open` : '';
       const webDoc = data.web_document;
@@ -2469,6 +2527,47 @@
       const myWaitingStep = steps.find(
         (s) => s.status === 'waiting' && (s.assigned_to_email || '').toLowerCase() === myEmail
       );
+
+      const cfgExecs = (cfgInstance && cfgInstance.executions) || [];
+      const cfgTasks = (cfgInstance && cfgInstance.tasks) || [];
+      const cfgTimelineHtml = cfgExecs.length
+        ? cfgExecs
+            .map((ex) => {
+              const task = cfgTasks.find((t) => t.node_execution_id === ex.id);
+              const label = (task && task.title) || ex.node_key;
+              let detail = ex.state;
+              if (task) {
+                if (task.assigned_user_email) detail += ` — ${task.assigned_user_email}`;
+                else if (task.assigned_role) detail += ` — ${task.assigned_role}`;
+                if (task.assignment_summary) detail += ` · ${task.assignment_summary}`;
+              }
+              if (ex.assignment_error) detail += ` · Assignment issue: ${ex.assignment_error}`;
+              return `<li><time>${esc(ex.node_type || '')}</time><strong>${esc(label)}</strong> — ${esc(detail)}</li>`;
+            })
+            .join('')
+        : '';
+
+      const workflowSectionHtml = cfgTimelineHtml
+        ? `<div class="hub-section">
+                <div class="hub-section-head"><h2>Configurable workflow</h2><span>${esc(cfgInstance.state || '')}</span></div>
+                <div class="hub-section-body pad">
+                  <p class="hub-sub">Pinned workflow version remains fixed for this request.</p>
+                  ${cfgInstance.failure_summary ? `<p class="hub-sub" style="color:#b45309">${esc(cfgInstance.failure_summary)}</p>` : ''}
+                  <ul class="hub-timeline">${cfgTimelineHtml}</ul>
+                </div>
+              </div>`
+        : `<div class="hub-section">
+                <div class="hub-section-head"><h2>Workflow</h2><span>${data.progress?.completed ?? 0}/${data.progress?.total ?? 0} steps</span></div>
+                <div class="hub-section-body pad">
+                  <div class="hub-progress" style="height:6px;margin-bottom:12px"><div class="hub-progress-bar ${progClass}" style="width:${pct}%"></div></div>
+                  <ul class="hub-timeline">${steps
+                    .map(
+                      (s) =>
+                        `<li><time>Step ${s.step_order}</time><strong>${esc(s.step_title)}</strong> — ${esc(s.status)}${s.assigned_to_email ? ` (${esc(s.assigned_to_email)})` : ''}</li>`
+                    )
+                    .join('') || '<li>No workflow steps defined.</li>'}</ul>
+                </div>
+              </div>`;
 
       root.innerHTML = `
         <div class="hub-detail-wrap">
@@ -2489,18 +2588,7 @@
           ${hasPerm('hub_admin') && !steps.some((s) => s.status === 'completed') ? `<div class="hub-panel" style="margin-bottom:14px"><div class="hub-panel-head"><h2>Edit workflow</h2></div><div class="hub-panel-body pad" id="hubAdminWorkflowEdit"></div></div>` : ''}
           <div class="hub-detail-layout">
             <div>
-              <div class="hub-section">
-                <div class="hub-section-head"><h2>Workflow</h2><span>${data.progress?.completed ?? 0}/${data.progress?.total ?? 0} steps</span></div>
-                <div class="hub-section-body pad">
-                  <div class="hub-progress" style="height:6px;margin-bottom:12px"><div class="hub-progress-bar ${progClass}" style="width:${pct}%"></div></div>
-                  <ul class="hub-timeline">${steps
-                    .map(
-                      (s, i) =>
-                        `<li><time>Step ${s.step_order}</time><strong>${esc(s.step_title)}</strong> — ${esc(s.status)}${s.assigned_to_email ? ` (${esc(s.assigned_to_email)})` : ''}</li>`
-                    )
-                    .join('') || '<li>No workflow steps defined.</li>'}</ul>
-                </div>
-              </div>
+              ${workflowSectionHtml}
               <div class="hub-tabs" role="tablist">
                 <button type="button" class="hub-tab is-active" data-hub-detail-tab="activity">Activity</button>
                 <button type="button" class="hub-tab" data-hub-detail-tab="audit">Audit</button>
@@ -2828,22 +2916,36 @@
 
           if (render === 'cfg_request_type' && requestTypeId) {
             const item = allTypes.find((t) => t.request_type_id === requestTypeId);
-            if (item && item.workflow_definition_id) {
-              try {
-                await hubFetch('/hub/workflow-runtime/start', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    workflow_definition_id: item.workflow_definition_id,
-                    context: { request_type_id: requestTypeId, request_type_key: item.key },
-                  }),
-                });
-              } catch (err) {
-                console.warn('[hub] configurable workflow start', err);
+            let started = null;
+            try {
+              const startRes = await hubFetch('/hub/workflow-runtime/start-request-type', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  request_type_definition_id: requestTypeId,
+                  title: item && item.label,
+                  priority: 'normal',
+                }),
+              });
+              if (startRes.ok) {
+                started = await startRes.json();
+              } else {
+                const errBody = await startRes.json().catch(() => ({}));
+                throw new Error(errBody.error || 'Could not start request');
               }
+            } catch (err) {
+              console.warn('[hub] configurable request start', err);
+              if (typeof global.streamlineModal?.alert === 'function') {
+                await global.streamlineModal.alert({
+                  title: 'Could not start request',
+                  body: err.message || 'Workflow runtime failed to start.',
+                });
+              } else {
+                alert(err.message || 'Could not start request');
+              }
+              return;
             }
             if (item && item.starting_form_template_id && formEl && global.TemplateRuntimeUI) {
-              // Prefer launch entry matching template when available
               const formCard = publishedForms.find((f) => f.template_id === item.starting_form_template_id);
               if (formCard && formCard.launch_entry_id) {
                 showFormHost();
@@ -2851,6 +2953,10 @@
                 await global.TemplateRuntimeUI.renderLaunchForm(formEl, formCard.launch_entry_id, {
                   onCancel: showTypeList,
                   onSubmitSuccess: (submissionId) => {
+                    if (started && started.request && started.request.id) {
+                      openRequestDetail(started.request.id);
+                      return;
+                    }
                     if (typeof global.switchTab === 'function') {
                       global.switchTab('hub-submission', { submissionId });
                     }
@@ -2859,11 +2965,16 @@
                 return;
               }
             }
-            alert(
-              'Request type "' +
-                (item && item.label ? item.label : key) +
-                '" is published. Attach a starting form in Configuration Center to collect intake data.'
-            );
+            if (started && started.request && started.request.id) {
+              openRequestDetail(started.request.id);
+              return;
+            }
+            if (typeof global.streamlineModal?.alert === 'function') {
+              await global.streamlineModal.alert({
+                title: 'Request started',
+                body: 'Workflow is running. Open My Tasks to continue assigned steps.',
+              });
+            }
             return;
           }
 

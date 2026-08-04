@@ -671,7 +671,9 @@
     if (t.status === 'archived') return 'archived';
     if (t.current_published_version_id && t.latest_draft_id) return 'published';
     if (t.current_published_version_id) return 'published';
+    if (t.status === 'active' && t.current_published_version_id) return 'published';
     if (t.latest_draft_id) return 'draft';
+    if (t.status === 'active') return 'published';
     return 'draft';
   }
 

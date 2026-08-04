@@ -3815,6 +3815,45 @@ html[data-theme="dark"] .hub-start-center-chip {
   border-radius: 6px; padding: 0.65rem 0.75rem; color: inherit; font: inherit; cursor: pointer;
 }
 .cfg-row-static { cursor: default; grid-template-columns: 1.4fr 1fr auto auto; }
+
+/* WOS-96 — Forms registry: compact status under Status header */
+.cfg-forms-registry-row {
+  grid-template-columns: minmax(220px, 1fr) 120px 175px minmax(190px, auto);
+  align-items: center;
+}
+.cfg-forms-registry-name {
+  min-width: 0;
+}
+.cfg-forms-registry-name .forms-manage-form-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfg-status-badge,
+.cfg-forms-registry-row > .tmpl-badge {
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+  align-self: center;
+  white-space: nowrap;
+  display: inline-block;
+}
+.cfg-forms-registry-updated {
+  white-space: nowrap;
+  color: var(--hub-muted);
+  font-size: 0.85rem;
+}
+.cfg-forms-registry-actions {
+  justify-self: end;
+  justify-content: flex-end;
+}
+@media (max-width: 900px) {
+  .cfg-forms-registry-row {
+    grid-template-columns: 1fr;
+  }
+  .cfg-forms-registry-actions { justify-self: start; }
+}
 .cfg-row.is-active, .cfg-row:hover { border-color: var(--hub-teal); }
 .cfg-badge {
   display: inline-flex; align-items: center; border-radius: 4px; padding: 0.1rem 0.45rem;

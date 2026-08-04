@@ -8046,11 +8046,14 @@
   .tmpl-table .tmpl-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .tmpl-badge {
     display: inline-block;
+    width: fit-content;
+    max-width: 100%;
     padding: 2px 8px;
     border-radius: 999px;
     font-size: 0.72rem;
     font-weight: 600;
     text-transform: capitalize;
+    white-space: nowrap;
     background: var(--surface-2, #eef2f6);
     color: var(--ink-soft, #475569);
   }

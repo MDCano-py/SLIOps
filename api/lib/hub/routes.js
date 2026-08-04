@@ -170,6 +170,8 @@ async function handleHubRoute(path, req, res, ctx) {
     actorEmail,
     permissions,
     isAdmin,
+    roleKeys: Array.isArray(ctx.roleKeys) ? ctx.roleKeys : undefined,
+    actorUserId: ctx.actorUserId || null,
   });
   if (configurationHandled) return true;
 

@@ -61,6 +61,18 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
 
   const method = (req.method || 'GET').toUpperCase();
   const { actorEmail, permissions, isAdmin } = ctx;
+  let roleKeys = Array.isArray(ctx.roleKeys) ? ctx.roleKeys.slice() : [];
+  let actorUserId = ctx.actorUserId || null;
+  if ((!roleKeys.length || !actorUserId) && actorEmail) {
+    try {
+      const rbacPg = require('../rbac/postgres');
+      if (!roleKeys.length && rbacPg.isAvailable()) {
+        roleKeys = await rbacPg.getUserRoleKeys(actorEmail);
+      }
+    } catch {
+      /* keep empty */
+    }
+  }
 
   // ----- meta / catalogs (view) -----
   if (path === '/hub/configuration/status' && method === 'GET') {
@@ -382,6 +394,33 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
   }
 
   // ----- workflow runtime -----
+  if (path === '/hub/workflow-runtime/start-request-type' && method === 'POST') {
+    if (!actorEmail) {
+      json(res, 401, { error: 'Authentication required' });
+      return true;
+    }
+    const body = parseBody(req) || {};
+    if (!body.request_type_definition_id) {
+      json(res, 400, { error: 'request_type_definition_id required' });
+      return true;
+    }
+    try {
+      const result = await engine.startFromRequestType({
+        requestTypeDefinitionId: body.request_type_definition_id,
+        actorEmail,
+        title: body.title,
+        description: body.description,
+        priority: body.priority,
+        formValues: body.values || body.form_values || {},
+        relatedSubmissionId: body.related_submission_id || null,
+      });
+      json(res, 201, result);
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
   if (path === '/hub/workflow-runtime/start' && method === 'POST') {
     if (!perms.canExecuteWorkflow(permissions, isAdmin) && !perms.canPublishConfiguration(permissions, isAdmin)) {
       json(res, 403, { error: 'Forbidden' });
@@ -401,6 +440,25 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
         context: body.context || {},
       });
       json(res, 201, { instance });
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  if (path.match(/^\/hub\/workflow-runtime\/instances\/by-request\/[^/]+$/) && method === 'GET') {
+    if (!actorEmail) {
+      json(res, 401, { error: 'Authentication required' });
+      return true;
+    }
+    const requestId = path.split('/').pop();
+    try {
+      const instance = await engine.getInstanceByRequestId(requestId);
+      if (!instance) {
+        json(res, 404, { error: 'Not found' });
+        return true;
+      }
+      json(res, 200, { instance });
     } catch (err) {
       storeError(res, err);
     }
@@ -441,6 +499,26 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
     return true;
   }
 
+  if (path.match(/^\/hub\/workflow-runtime\/tasks\/[^/]+\/claim$/) && method === 'POST') {
+    if (!actorEmail) {
+      json(res, 401, { error: 'Authentication required' });
+      return true;
+    }
+    const taskId = path.split('/')[4];
+    try {
+      const task = await engine.claimTask({
+        taskId,
+        actorEmail,
+        actorUserId,
+        roleKeys,
+      });
+      json(res, 200, { task });
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
   if (path.match(/^\/hub\/workflow-runtime\/tasks\/[^/]+\/complete$/) && method === 'POST') {
     if (!actorEmail && !isAdmin) {
       json(res, 401, { error: 'Authentication required' });
@@ -452,6 +530,8 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
       const instance = await engine.completeTask({
         taskId,
         actorEmail,
+        actorUserId,
+        roleKeys,
         outcome: body.outcome,
         comment: body.comment,
         formValues: body.values || body.form_values,
@@ -471,7 +551,8 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
     try {
       const tasks = await engine.listTasksForUser({
         email: actorEmail,
-        roleKeys: Array.isArray(ctx.roleKeys) ? ctx.roleKeys : [],
+        roleKeys,
+        userId: actorUserId,
       });
       json(res, 200, { tasks });
     } catch (err) {

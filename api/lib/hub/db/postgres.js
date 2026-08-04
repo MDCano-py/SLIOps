@@ -796,35 +796,88 @@ async function saveNotification(input) {
   const id = input.id || uuid();
   const createdAt = input.created_at ? new Date(input.created_at) : new Date();
   return withClient(async (c) => {
-    await c.query(
-      `INSERT INTO notifications
-       (id, recipient_email, recipient_name, type, title, message, request_id, document_id, workflow_step_id, read_at, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       ON CONFLICT (id) DO UPDATE SET
-        recipient_email=EXCLUDED.recipient_email,
-        recipient_name=EXCLUDED.recipient_name,
-        type=EXCLUDED.type,
-        title=EXCLUDED.title,
-        message=EXCLUDED.message,
-        request_id=EXCLUDED.request_id,
-        document_id=EXCLUDED.document_id,
-        workflow_step_id=EXCLUDED.workflow_step_id,
-        read_at=EXCLUDED.read_at,
-        created_at=EXCLUDED.created_at`,
-      [
-        id,
-        (input.recipient_email || '').toLowerCase(),
-        input.recipient_name || null,
-        input.type,
-        input.title,
-        input.message,
-        input.request_id || null,
-        input.document_id || null,
-        input.workflow_step_id || null,
-        input.read_at ? new Date(input.read_at) : null,
-        createdAt,
-      ]
-    );
+    try {
+      await c.query(
+        `INSERT INTO notifications
+         (id, recipient_email, recipient_name, type, title, message, request_id, document_id, workflow_step_id,
+          read_at, created_at, recipient_user_id, cfg_workflow_task_id, cfg_workflow_instance_id,
+          action_url, priority, dedupe_key)
+         VALUES
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+           $10,$11,$12,$13,$14,
+           $15,$16,$17)
+         ON CONFLICT (id) DO UPDATE SET
+          recipient_email=EXCLUDED.recipient_email,
+          recipient_name=EXCLUDED.recipient_name,
+          type=EXCLUDED.type,
+          title=EXCLUDED.title,
+          message=EXCLUDED.message,
+          request_id=EXCLUDED.request_id,
+          document_id=EXCLUDED.document_id,
+          workflow_step_id=EXCLUDED.workflow_step_id,
+          read_at=EXCLUDED.read_at,
+          created_at=EXCLUDED.created_at,
+          recipient_user_id=COALESCE(EXCLUDED.recipient_user_id, notifications.recipient_user_id),
+          cfg_workflow_task_id=COALESCE(EXCLUDED.cfg_workflow_task_id, notifications.cfg_workflow_task_id),
+          cfg_workflow_instance_id=COALESCE(EXCLUDED.cfg_workflow_instance_id, notifications.cfg_workflow_instance_id),
+          action_url=COALESCE(EXCLUDED.action_url, notifications.action_url),
+          priority=COALESCE(EXCLUDED.priority, notifications.priority),
+          dedupe_key=COALESCE(EXCLUDED.dedupe_key, notifications.dedupe_key)`,
+        [
+          id,
+          (input.recipient_email || '').toLowerCase(),
+          input.recipient_name || null,
+          input.type,
+          input.title,
+          input.message,
+          input.request_id || null,
+          input.document_id || null,
+          input.workflow_step_id || null,
+          input.read_at ? new Date(input.read_at) : null,
+          createdAt,
+          input.recipient_user_id || null,
+          input.cfg_workflow_task_id || null,
+          input.cfg_workflow_instance_id || null,
+          input.action_url || null,
+          input.priority || 'normal',
+          input.dedupe_key || null,
+        ]
+      );
+    } catch (err) {
+      if (err && err.code === '42703') {
+        await c.query(
+          `INSERT INTO notifications
+           (id, recipient_email, recipient_name, type, title, message, request_id, document_id, workflow_step_id, read_at, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT (id) DO UPDATE SET
+            recipient_email=EXCLUDED.recipient_email,
+            recipient_name=EXCLUDED.recipient_name,
+            type=EXCLUDED.type,
+            title=EXCLUDED.title,
+            message=EXCLUDED.message,
+            request_id=EXCLUDED.request_id,
+            document_id=EXCLUDED.document_id,
+            workflow_step_id=EXCLUDED.workflow_step_id,
+            read_at=EXCLUDED.read_at,
+            created_at=EXCLUDED.created_at`,
+          [
+            id,
+            (input.recipient_email || '').toLowerCase(),
+            input.recipient_name || null,
+            input.type,
+            input.title,
+            input.message,
+            input.request_id || null,
+            input.document_id || null,
+            input.workflow_step_id || null,
+            input.read_at ? new Date(input.read_at) : null,
+            createdAt,
+          ]
+        );
+      } else {
+        throw err;
+      }
+    }
     return {
       ...input,
       id,
