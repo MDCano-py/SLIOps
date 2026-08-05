@@ -145,7 +145,7 @@ npm run security:wos98-config-vendor-nda-e2e-test
 ## Branch / commit
 
 - Branch: `wos-98-config-vendor-nda-e2e`
-- Commit: $final ($short)
+- Commit: `0499dcfe8125d0161bd3d04acb23451fbc005b6e` (`0499dcf`)
 
 ## Changed files (navigation / bridge acceptance)
 
