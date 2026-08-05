@@ -572,10 +572,78 @@
             }
             const modal = global.streamlineModal;
             let outcome = 'default';
-            if (modal && typeof modal.prompt === 'function') {
+            let formValues = {};
+            const taskType = (row.querySelector('td:nth-child(3)') || {}).textContent || '';
+            if (modal && typeof modal.form === 'function') {
+              const isSign = /sign/i.test(taskType);
+              const isReview = /review|approv/i.test(taskType);
+              const fields = isSign
+                ? [
+                    {
+                      name: 'outcome',
+                      label: 'Outcome',
+                      type: 'select',
+                      defaultValue: 'signed',
+                      options: [
+                        { value: 'signed', label: 'Signed' },
+                        { value: 'declined', label: 'Declined' },
+                      ],
+                    },
+                    { name: 'comment', label: 'Comment (optional)', defaultValue: '' },
+                  ]
+                : isReview
+                  ? [
+                      {
+                        name: 'outcome',
+                        label: 'Outcome',
+                        type: 'select',
+                        defaultValue: 'approved',
+                        options: [
+                          { value: 'approved', label: 'Approved' },
+                          { value: 'rejected', label: 'Rejected' },
+                        ],
+                      },
+                      { name: 'comment', label: 'Comment (optional)', defaultValue: '' },
+                    ]
+                  : [
+                      {
+                        name: 'outcome',
+                        label: 'Outcome',
+                        type: 'select',
+                        defaultValue: 'default',
+                        options: [
+                          { value: 'default', label: 'Continue' },
+                          { value: 'approved', label: 'Approved' },
+                          { value: 'rejected', label: 'Rejected' },
+                        ],
+                      },
+                      { name: 'contact_email', label: 'Contact email (if collecting)', defaultValue: '' },
+                      { name: 'legal_name', label: 'Legal name (if collecting)', defaultValue: '' },
+                      { name: 'contact_name', label: 'Contact name (if collecting)', defaultValue: '' },
+                      { name: 'vendor_ref', label: 'Vendor ref VEN-XXX (optional)', defaultValue: '' },
+                      { name: 'comment', label: 'Comment (optional)', defaultValue: '' },
+                    ];
+              const values = await modal.form({
+                title: isSign ? 'Sign / complete task' : 'Complete task',
+                okLabel: 'Complete',
+                cancelLabel: 'Cancel',
+                fields,
+              });
+              if (!values) return;
+              outcome = values.outcome || 'default';
+              formValues = {
+                contact_email: values.contact_email || undefined,
+                legal_name: values.legal_name || undefined,
+                contact_name: values.contact_name || undefined,
+                vendor_ref: values.vendor_ref || undefined,
+              };
+              Object.keys(formValues).forEach((k) => {
+                if (!formValues[k]) delete formValues[k];
+              });
+            } else if (modal && typeof modal.prompt === 'function') {
               const entered = await modal.prompt({
                 title: 'Complete task',
-                body: 'Outcome (default / approved / rejected)',
+                body: 'Outcome (default / approved / rejected / signed)',
                 defaultValue: 'default',
                 okLabel: 'Complete',
               });
@@ -585,7 +653,7 @@
             await hubFetch(`/hub/workflow-runtime/tasks/${encodeURIComponent(taskId)}/complete`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ outcome }),
+              body: JSON.stringify({ outcome, values: formValues, comment: formValues.comment }),
             });
             if (typeof refreshNotifications === 'function') refreshNotifications();
             if (requestId) openRequestDetail(requestId);

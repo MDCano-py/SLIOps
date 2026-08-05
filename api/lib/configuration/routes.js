@@ -12,7 +12,7 @@ const { listNodeTypes } = require('./nodes/registry');
 const { listWidgetTypes } = require('./widgets/registry');
 const { OPERATORS } = require('./conditions');
 const engine = require('./runtime/engine');
-const { seedDefaultTemplates } = require('./seeds/default-templates');
+const { seedDefaultTemplates, repairNdaOperationalWiring } = require('./seeds/default-templates');
 
 function parseBody(req) {
   if (!req.body) return {};
@@ -197,6 +197,74 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
     try {
       const result = await seedDefaultTemplates(actorEmail);
       json(res, 200, result);
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  if (path === '/hub/configuration/repair-nda-wiring' && method === 'POST') {
+    if (!perms.canPublishConfiguration(permissions, isAdmin)) {
+      json(res, 403, { error: 'Forbidden' });
+      return true;
+    }
+    try {
+      const repaired = await repairNdaOperationalWiring(actorEmail);
+      json(res, 200, { repaired });
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  if (path === '/hub/configuration/published-documents' && method === 'GET') {
+    if (!perms.canViewConfiguration(permissions, isAdmin)) {
+      json(res, 403, { error: 'Forbidden' });
+      return true;
+    }
+    try {
+      const definitions = await store.listDefinitions({ kind: 'document' });
+      const published = definitions
+        .filter((d) => d.status === 'published')
+        .map((d) => ({
+          id: d.id,
+          key: d.key,
+          name: d.name,
+          description: d.description,
+          status: d.status,
+          updated_at: d.updated_at,
+        }));
+      json(res, 200, { documents: published });
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  // Public token routes (SSO allowlisted in maintainx.js)
+  if (path.match(/^\/hub\/configuration\/external-action\/[^/]+$/) && method === 'GET') {
+    const token = decodeURIComponent(path.split('/').pop());
+    try {
+      const payload = await engine.getExternalActionPayload(token);
+      json(res, 200, payload);
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  if (path.match(/^\/hub\/configuration\/external-action\/[^/]+\/complete$/) && method === 'POST') {
+    const token = decodeURIComponent(path.split('/')[4]);
+    const body = parseBody(req) || {};
+    try {
+      const instance = await engine.completeExternalTask({
+        token,
+        outcome: body.outcome || 'signed',
+        signature: body.signature || null,
+        comment: body.comment || null,
+        acknowledged: !!body.acknowledged,
+      });
+      json(res, 200, { ok: true, instance });
     } catch (err) {
       storeError(res, err);
     }

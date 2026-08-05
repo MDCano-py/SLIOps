@@ -974,6 +974,34 @@
       panes.General.appendChild(desc);
       panes.General.appendChild(el('div', { className: 'cfg-hint', text: 'Type: ' + (meta.label || selected.type) }));
 
+      if (selected.type === 'document.generate' || selected.type === 'human.sign') {
+        panes.General.appendChild(el('label', { text: 'Published document template' }));
+        const docSel = el('select', {
+          className: 'cfg-input',
+          'aria-label': 'Document template',
+          disabled: readOnly ? 'disabled' : null,
+        });
+        docSel.appendChild(el('option', { value: '', text: 'Select published document…' }));
+        const docs = (opts.documents || opts.publishedDocuments || []).filter(
+          (d) => d && (d.status === 'published' || !d.status)
+        );
+        docs.forEach((d) => {
+          docSel.appendChild(el('option', { value: d.id, text: d.name || d.key || d.id }));
+        });
+        docSel.value = (selected.config && selected.config.document_definition_id) || '';
+        docSel.addEventListener('change', () => {
+          selected.config.document_definition_id = docSel.value || null;
+          emitDirty();
+        });
+        panes.General.appendChild(docSel);
+        panes.General.appendChild(
+          el('p', {
+            className: 'cfg-hint',
+            text: 'Runtime generates or presents the published version of this template.',
+          })
+        );
+      }
+
       if (selected.type === 'logic.condition' || selected.type === 'logic.multi_branch') {
         panes.General.appendChild(el('h5', { text: 'Branch labels' }));
         const outs = (selected.config.outcomes = selected.config.outcomes || [

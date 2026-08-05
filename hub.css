@@ -4079,6 +4079,23 @@ html[data-theme="dark"] .cfg-doc-page { background: #1a1d21; color: var(--hub-te
   display: flex; flex-direction: column; gap: 0.25rem;
 }
 .wfd-output-missing { color: #b45309; font-weight: 600; font-size: 0.85rem; }
+.cfg-block-row {
+  display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center;
+  border: 1px solid var(--hub-border); border-radius: 8px; padding: 0.45rem 0.55rem; margin-bottom: 0.4rem;
+  background: var(--hub-surface);
+}
+.cfg-block-row.is-dragging { opacity: 0.55; }
+.cfg-block-row.is-drop-target { outline: 2px dashed var(--hub-teal); }
+.cfg-block-drag {
+  border: 0; background: transparent; cursor: grab; color: var(--hub-muted); font-size: 0.85rem; padding: 0.15rem;
+}
+.cfg-block-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-left: auto; }
+.cfg-card-btn {
+  text-align: left; cursor: pointer; font: inherit; color: inherit; width: 100%;
+}
+.cfg-card-btn:hover { border-color: var(--hub-teal); }
+.cfg-save-status { font-size: 0.8rem; color: var(--hub-muted); margin-bottom: 0.35rem; }
+.cfg-published-docs .cfg-row-static { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
 .wfd-footer { display: flex; gap: 0.75rem; align-items: center; margin-top: 0.4rem; font-size: 0.85rem; color: var(--hub-muted); }
 .wfd-footer-warn { color: #b45309; font-weight: 600; }
 .wfd-minimap {

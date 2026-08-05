@@ -376,6 +376,22 @@
       el('button', {
         type: 'button',
         className: 'hub-btn',
+        text: 'Repair NDA wiring',
+        onclick: async () => {
+          try {
+            const res = await hubFetch('/hub/configuration/repair-nda-wiring', { method: 'POST', body: {} });
+            setMsg('Repaired ' + ((res.repaired && res.repaired.length) || 0) + ' NDA definition(s).');
+          } catch (err) {
+            setMsg(err.message || 'Repair failed', true);
+          }
+          refresh();
+        },
+      })
+    );
+    actions.appendChild(
+      el('button', {
+        type: 'button',
+        className: 'hub-btn',
         text: 'Open Workspace Forms',
         onclick: () => openWorkspaceFormBuilder(null, null),
       })
@@ -383,14 +399,69 @@
     wrap.appendChild(actions);
     const grid = el('div', { className: 'cfg-card-grid' });
     [
-      ['Forms', 'Canonical Workspace Forms builder with live preview'],
-      ['Workflows', 'Visual graph with assignments and validation'],
-      ['Request types', 'What users start from New Request'],
-      ['Documents & dashboards', 'Live-preview builders'],
-    ].forEach(([title, desc]) => {
-      grid.appendChild(el('div', { className: 'cfg-card' }, [el('strong', { text: title }), el('span', { text: desc })]));
+      ['forms', 'Forms', 'Canonical Workspace Forms builder with live preview'],
+      ['workflows', 'Workflows', 'Visual graph with assignments and validation'],
+      ['request_types', 'Request types', 'What users start from New Request'],
+      ['documents', 'Published documents', 'Templates available to attach and launch'],
+    ].forEach(([section, title, desc]) => {
+      grid.appendChild(
+        el('button', {
+          type: 'button',
+          className: 'cfg-card cfg-card-btn',
+          onclick: () => {
+            state.section = section;
+            state.selected = null;
+            state.selectedId = null;
+            refresh();
+          },
+        }, [el('strong', { text: title }), el('span', { text: desc })])
+      );
     });
     wrap.appendChild(grid);
+
+    const pub = el('div', { className: 'cfg-published-docs', style: 'margin-top:1.25rem' });
+    pub.appendChild(el('h3', { text: 'Published Documents library' }));
+    pub.appendChild(
+      el('p', {
+        className: 'cfg-hint',
+        text: 'Published templates appear here for attach, preview, and request-type use. Publishing no longer leaves documents stranded.',
+      })
+    );
+    const docs = (state.definitions.documents || []).filter((d) => d.status === 'published');
+    if (!docs.length) {
+      pub.appendChild(el('p', { className: 'cfg-hint', text: 'No published documents yet. Seed defaults or publish a draft.' }));
+    } else {
+      const table = el('div', { className: 'cfg-table' });
+      docs.forEach((d) => {
+        const row = el('div', { className: 'cfg-row cfg-row-static' });
+        row.appendChild(el('strong', { text: d.name || d.key }));
+        row.appendChild(el('span', { className: 'cfg-badge', text: 'Published' }));
+        row.appendChild(
+          el('button', {
+            type: 'button',
+            className: 'hub-link-btn',
+            text: 'Open',
+            onclick: () => openDefinition({ kind: 'document', path: 'documents', label: 'Documents' }, d.id),
+          })
+        );
+        row.appendChild(
+          el('button', {
+            type: 'button',
+            className: 'hub-link-btn',
+            text: 'Use in workflow',
+            onclick: () => {
+              state.section = 'workflows';
+              state.selected = null;
+              setMsg('Open a workflow and select a Generate Document node to attach “' + (d.name || d.key) + '”.');
+              refresh();
+            },
+          })
+        );
+        table.appendChild(row);
+      });
+      pub.appendChild(table);
+    }
+    wrap.appendChild(pub);
     return wrap;
   }
 
@@ -897,7 +968,11 @@
         body: { acknowledge_warnings: true },
       });
       state.selected = res.definition;
-      setMsg('Published successfully');
+      if (meta.kind === 'document') {
+        setMsg('Published successfully — available in Published Documents library on Overview.');
+      } else {
+        setMsg('Published successfully');
+      }
       await loadKind(meta.path);
       refresh();
     } catch (err) {
@@ -948,6 +1023,7 @@
         catalogs: state.catalogs || {},
         roles: state.roles,
         users: state.users,
+        documents: (state.definitions.documents || []).filter((d) => d.status === 'published'),
         selectedNodeKey: state.selectedNodeKey,
         onSelect: (key) => {
           state.selectedNodeKey = key;
@@ -1117,13 +1193,24 @@
         ];
     let sampleMode = true;
     let showAdvanced = false;
+    let autosaveState = 'saved';
+    let blockHistory = [];
+    let blockFuture = [];
     const Designer = root.HubWorkflowDesigner;
+
+    function pushBlockHistory() {
+      blockHistory.push(JSON.parse(JSON.stringify(blocks)));
+      if (blockHistory.length > 40) blockHistory.shift();
+      blockFuture.length = 0;
+    }
 
     return editorChrome(meta, state.selected.name, (wrap) => {
       const layout = el('div', { className: 'cfg-split cfg-doc-split' });
       const left = el('div', { className: 'cfg-split-left' });
       const right = el('div', { className: 'cfg-split-right' });
 
+      const saveStatus = el('div', { className: 'cfg-save-status', text: 'Saved', 'aria-live': 'polite' });
+      left.appendChild(saveStatus);
       left.appendChild(el('h4', { text: 'Document structure' }));
       const title = el('input', {
         type: 'text',
@@ -1134,7 +1221,40 @@
       left.appendChild(el('label', { text: 'Title' }));
       left.appendChild(title);
 
-      const blockList = el('div', { className: 'cfg-block-list' });
+      const blockTools = el('div', { className: 'cfg-toolbar' });
+      blockTools.appendChild(
+        el('button', {
+          type: 'button',
+          className: 'hub-btn hub-btn-sm',
+          text: 'Undo',
+          onclick: () => {
+            if (!blockHistory.length) return;
+            blockFuture.push(JSON.parse(JSON.stringify(blocks)));
+            blocks = blockHistory.pop();
+            markDirty();
+            redrawBlocks();
+            updatePreview();
+          },
+        })
+      );
+      blockTools.appendChild(
+        el('button', {
+          type: 'button',
+          className: 'hub-btn hub-btn-sm',
+          text: 'Redo',
+          onclick: () => {
+            if (!blockFuture.length) return;
+            blockHistory.push(JSON.parse(JSON.stringify(blocks)));
+            blocks = blockFuture.pop();
+            markDirty();
+            redrawBlocks();
+            updatePreview();
+          },
+        })
+      );
+      left.appendChild(blockTools);
+
+      const blockList = el('div', { className: 'cfg-block-list', role: 'list' });
       left.appendChild(blockList);
 
       const addRow = el('div', { className: 'cfg-toolbar' });
@@ -1156,6 +1276,7 @@
             className: 'hub-btn hub-btn-sm',
             text: label,
             onclick: () => {
+              pushBlockHistory();
               blocks.push({
                 type,
                 text: type === 'variable' ? '' : label,
@@ -1275,28 +1396,120 @@
       function redrawBlocks() {
         blockList.innerHTML = '';
         blocks.forEach((b, idx) => {
-          const row = el('div', { className: 'cfg-block-row' });
+          const row = el('div', {
+            className: 'cfg-block-row',
+            draggable: 'true',
+            role: 'listitem',
+            'data-block-index': String(idx),
+            'aria-label': 'Block ' + (idx + 1) + ' ' + b.type,
+          });
+          const handle = el('button', {
+            type: 'button',
+            className: 'cfg-block-drag',
+            text: '⋮⋮',
+            title: 'Drag to reorder',
+            'aria-label': 'Drag handle for block ' + (idx + 1),
+          });
+          handle.addEventListener('mousedown', (e) => e.stopPropagation());
+          row.appendChild(handle);
           row.appendChild(el('span', { className: 'cfg-badge', text: b.type }));
-          const input = el('input', {
-            type: 'text',
-            className: 'cfg-input',
-            value: b.type === 'variable' ? b.key || '' : b.text || '',
-            'aria-label': 'Block ' + (idx + 1),
+
+          const collapsed = !!b._collapsed;
+          const toggle = el('button', {
+            type: 'button',
+            className: 'hub-link-btn',
+            text: collapsed ? 'Expand' : 'Collapse',
+            onclick: () => {
+              b._collapsed = !b._collapsed;
+              redrawBlocks();
+            },
           });
-          input.addEventListener('input', () => {
-            if (b.type === 'variable') b.key = input.value;
-            else b.text = input.value;
-            markDirty();
-            syncHtmlFromBlocks();
-            updatePreview();
-          });
-          row.appendChild(input);
-          row.appendChild(
+          row.appendChild(toggle);
+
+          if (!collapsed) {
+            const input = el('input', {
+              type: 'text',
+              className: 'cfg-input',
+              value: b.type === 'variable' ? b.key || '' : b.text || '',
+              'aria-label': 'Block ' + (idx + 1) + ' content',
+            });
+            input.addEventListener('input', () => {
+              if (b.type === 'variable') b.key = input.value;
+              else b.text = input.value;
+              markDirty();
+              syncHtmlFromBlocks();
+              updatePreview();
+            });
+            row.appendChild(input);
+          } else {
+            row.appendChild(
+              el('span', {
+                className: 'cfg-hint',
+                text: (b.type === 'variable' ? b.key : b.text) || '(empty)',
+              })
+            );
+          }
+
+          const moves = el('div', { className: 'cfg-block-actions' });
+          moves.appendChild(
+            el('button', {
+              type: 'button',
+              className: 'hub-link-btn',
+              text: '↑',
+              'aria-label': 'Move block up',
+              disabled: idx === 0 ? 'disabled' : null,
+              onclick: () => {
+                if (idx === 0) return;
+                pushBlockHistory();
+                const t = blocks[idx - 1];
+                blocks[idx - 1] = blocks[idx];
+                blocks[idx] = t;
+                markDirty();
+                redrawBlocks();
+                updatePreview();
+              },
+            })
+          );
+          moves.appendChild(
+            el('button', {
+              type: 'button',
+              className: 'hub-link-btn',
+              text: '↓',
+              'aria-label': 'Move block down',
+              disabled: idx === blocks.length - 1 ? 'disabled' : null,
+              onclick: () => {
+                if (idx >= blocks.length - 1) return;
+                pushBlockHistory();
+                const t = blocks[idx + 1];
+                blocks[idx + 1] = blocks[idx];
+                blocks[idx] = t;
+                markDirty();
+                redrawBlocks();
+                updatePreview();
+              },
+            })
+          );
+          moves.appendChild(
+            el('button', {
+              type: 'button',
+              className: 'hub-link-btn',
+              text: 'Duplicate',
+              onclick: () => {
+                pushBlockHistory();
+                blocks.splice(idx + 1, 0, JSON.parse(JSON.stringify(b)));
+                markDirty();
+                redrawBlocks();
+                updatePreview();
+              },
+            })
+          );
+          moves.appendChild(
             el('button', {
               type: 'button',
               className: 'hub-link-btn',
               text: 'Remove',
               onclick: () => {
+                pushBlockHistory();
                 blocks.splice(idx, 1);
                 markDirty();
                 redrawBlocks();
@@ -1305,6 +1518,34 @@
               },
             })
           );
+          row.appendChild(moves);
+
+          row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', String(idx));
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('is-dragging');
+          });
+          row.addEventListener('dragend', () => row.classList.remove('is-dragging'));
+          row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            row.classList.add('is-drop-target');
+          });
+          row.addEventListener('dragleave', () => row.classList.remove('is-drop-target'));
+          row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('is-drop-target');
+            const from = Number(e.dataTransfer.getData('text/plain'));
+            const to = idx;
+            if (!Number.isFinite(from) || from === to) return;
+            pushBlockHistory();
+            const [moved] = blocks.splice(from, 1);
+            blocks.splice(to, 0, moved);
+            markDirty();
+            redrawBlocks();
+            syncHtmlFromBlocks();
+            updatePreview();
+          });
+
           blockList.appendChild(row);
         });
         syncHtmlFromBlocks();
@@ -1334,11 +1575,27 @@
       wrap._getPayload = () => ({
         ...payload,
         title: title.value,
-        blocks,
+        blocks: blocks.map((b) => {
+          const copy = { ...b };
+          delete copy._collapsed;
+          return copy;
+        }),
         body_html: showAdvanced ? body.value : Designer ? Designer.blocksToHtml(blocks) : body.value,
         pdf_status: 'unavailable',
         pdf_message: 'Final sealed PDF generation is not available in this release.',
       });
+      wrap._validateBlocks = () => {
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          if (b.type === 'variable' && !(b.key || '').trim()) {
+            return { index: i, message: 'Variable block is missing a key' };
+          }
+          if ((b.type === 'heading' || b.type === 'paragraph') && !(b.text || '').trim()) {
+            return { index: i, message: b.type + ' block is empty' };
+          }
+        }
+        return null;
+      };
     });
   }
 

@@ -2192,6 +2192,7 @@ module.exports = async function handler(req, res) {
       pathOnly === '/swp-number' ||
       pathOnly.startsWith('/archive-wipe-orphans') ||
       pathOnly.startsWith('/hub/action/') ||
+      pathOnly.startsWith('/hub/configuration/external-action/') ||
       pathOnly === '/hub/inbound-email' ||
       pathOnly.startsWith('/sso/');
     // WOS-80 — a missing Origin header is only treated as trusted

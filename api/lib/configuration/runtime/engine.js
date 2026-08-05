@@ -17,6 +17,11 @@ const {
   dismissRoleCandidateNotifications,
   notifyWorkflowCompleted,
 } = require('./task-notifications');
+const {
+  createExternalParticipant,
+  getExternalParticipantByToken,
+  listGeneratedDocsForInstance,
+} = require('./external-participants');
 
 let pool = null;
 function getPool() {
@@ -271,6 +276,34 @@ async function createHumanTask(client, instance, execution, node, context) {
     (context && context.request && context.request.request_number) ||
     (instance.context_json && instance.context_json.request && instance.context_json.request.request_number) ||
     null;
+
+  let externalLink = null;
+  if (resolution.assignmentKind === 'external' && resolution.email) {
+    try {
+      const minted = await createExternalParticipant(client, {
+        taskId: task.id,
+        instanceId: instance.id,
+        relatedRequestId: instance.related_request_id,
+        email: resolution.email,
+        displayName: (resolution.external && resolution.external.name) || null,
+        meta: { node_key: node.key, task_type: taskType },
+      });
+      externalLink = { actionUrl: minted.actionUrl, expires_at: minted.participant.expires_at };
+      resolution.externalActionUrl = minted.actionUrl;
+      await client.query(
+        `UPDATE cfg_workflow_tasks
+         SET assignment_summary = COALESCE(assignment_summary,'') || $2,
+             updated_at = now()
+         WHERE id = $1`,
+        [task.id, ' · Secure link issued']
+      );
+    } catch (err) {
+      if (!(err && err.code === '42P01')) {
+        console.warn('[cfg-runtime] external participant mint failed', err.message || err);
+      }
+    }
+  }
+
   await notifyTaskAssigned({
     client,
     task,
@@ -279,6 +312,7 @@ async function createHumanTask(client, instance, execution, node, context) {
     node,
     requestNumber,
   });
+
   await store.writeAudit(client, {
     actor_email: context && context.currentUser && context.currentUser.email,
     action: 'workflow.task_created',
@@ -291,11 +325,12 @@ async function createHumanTask(client, instance, execution, node, context) {
       mode: resolution.mode,
       role: assignedRole,
       user_id: assignedUserId,
+      external_link: !!externalLink,
     },
     meta_json: { related_request_id: instance.related_request_id || null },
   });
 
-  return { task, resolution, blocked: false };
+  return { task, resolution, blocked: false, externalLink };
 }
 
 async function generateDocument(client, instance, node, context) {
@@ -307,6 +342,25 @@ async function generateDocument(client, instance, node, context) {
     if (docDef && docDef.published_version && docDef.published_version.payload_json) {
       const payload = docDef.published_version.payload_json;
       body = payload.body_html || body;
+      if (!body && Array.isArray(payload.blocks) && payload.blocks.length) {
+        body = payload.blocks
+          .map((b) => {
+            if (b.type === 'heading') return `<h2>${b.text || ''}</h2>`;
+            if (b.type === 'paragraph') return `<p>${b.text || ''}</p>`;
+            if (b.type === 'list') {
+              const items = b.items || String(b.text || '').split('\n');
+              return `<ul>${items.filter(Boolean).map((i) => `<li>${i}</li>`).join('')}</ul>`;
+            }
+            if (b.type === 'divider') return '<hr>';
+            if (b.type === 'variable') return `<p>{{${b.key || b.text || ''}}}</p>`;
+            if (b.type === 'signature') return '<div class="cfg-doc-sig">Signature: ______________________</div>';
+            if (b.type === 'initial') return '<div class="cfg-doc-sig">Initials: ______</div>';
+            if (b.type === 'acknowledgement') return `<div class="cfg-doc-sig">☐ ${b.text || 'I acknowledge'}</div>`;
+            if (b.type === 'conditional') return `<div>${b.text || ''}</div>`;
+            return `<p>${b.text || ''}</p>`;
+          })
+          .join('\n');
+      }
       title = payload.title || title;
     }
   }
@@ -384,7 +438,7 @@ async function executeAutomaticNode(client, instance, node, context) {
   }
   if (type === 'document.generate') {
     const doc = await generateDocument(client, instance, node, context);
-    return { ok: true, outputs: { document_id: doc.id }, outcome_key: 'success' };
+    return { ok: true, outputs: { document_id: doc.id }, outcome_key: 'default' };
   }
   if (type.startsWith('document.')) {
     return { ok: true, outputs: { document_action: type } };
@@ -533,6 +587,20 @@ async function advanceInstance(instanceId, { actorEmail, fromNodeKey, outcomeKey
            WHERE id = $1`,
           [instanceId, state, current.key]
         );
+        if (state === 'completed') {
+          await syncVendorNdaOnComplete(client, instance).catch((err) => {
+            console.warn('[cfg-runtime] vendor NDA sync failed', err.message || err);
+          });
+          const ctxJson = instance.context_json || {};
+          const requesterEmail = ctxJson.requester_email || (ctxJson.request && ctxJson.request.requester_email);
+          if (requesterEmail) {
+            await notifyWorkflowCompleted({
+              client,
+              instance,
+              recipient: { email: requesterEmail, name: ctxJson.request && ctxJson.request.requester_name },
+            }).catch(() => {});
+          }
+        }
         await client.query('COMMIT');
         return getInstance(instanceId);
       }
@@ -954,6 +1022,145 @@ async function retryFailedNode({ instanceId, actorEmail }) {
   return advanceInstance(instanceId, { actorEmail });
 }
 
+async function syncVendorNdaOnComplete(client, instance) {
+  const ctx = instance.context_json || {};
+  const values = (ctx.formSubmission && ctx.formSubmission.values) || {};
+  const vendorRef = values.vendor_ref || values.vendor_reference || values.vendor_id || null;
+  if (!vendorRef) return null;
+  try {
+    const { readVendorRecord, writeVendorRecord } = require('../../vendor/db/postgres');
+    const { updateDocumentStatus } = require('../../vendor/documents');
+    const found = await readVendorRecord(String(vendorRef).trim());
+    if (!found || !found.record) return null;
+    const actor = { email: 'system@workflow', name: 'Workflow runtime' };
+    const result = updateDocumentStatus(found.record, 'nda', 'approved', actor, {
+      note: `NDA signed via configurable workflow instance ${instance.id}`,
+    });
+    if (!result.ok) return null;
+    await writeVendorRecord(String(vendorRef).trim(), result.record);
+    await store.writeAudit(client, {
+      actor_email: 'system@workflow',
+      action: 'workflow.vendor_nda_synced',
+      definition_kind: 'workflow',
+      after_summary: { vendor_ref: vendorRef, instance_id: instance.id, nda_status: 'approved' },
+      meta_json: { related_request_id: instance.related_request_id || null },
+    });
+    return { vendor_ref: vendorRef, nda_status: 'approved' };
+  } catch (err) {
+    console.warn('[cfg-runtime] syncVendorNdaOnComplete', err.message || err);
+    return null;
+  }
+}
+
+async function completeExternalTask({ token, outcome, signature, comment, acknowledged }) {
+  store.assertPostgres();
+  const p = getPool();
+  const client = await p.connect();
+  let row;
+  try {
+    row = await getExternalParticipantByToken(client, token);
+    if (!row) {
+      const err = new Error('Invalid or unknown action link');
+      err.status = 404;
+      err.code = 'INVALID_TOKEN';
+      throw err;
+    }
+    if (row.completed_at) {
+      const err = new Error('This action link was already used');
+      err.status = 409;
+      err.code = 'ALREADY_COMPLETED';
+      throw err;
+    }
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      const err = new Error('This action link has expired');
+      err.status = 410;
+      err.code = 'EXPIRED_TOKEN';
+      throw err;
+    }
+    if (!['open', 'claimed', 'in_progress'].includes(row.task_status)) {
+      const err = new Error('Task is no longer open');
+      err.status = 409;
+      err.code = 'TASK_NOT_OPEN';
+      throw err;
+    }
+  } finally {
+    client.release();
+  }
+
+  const instance = await completeTask({
+    taskId: row.task_id,
+    actorEmail: row.email,
+    outcome: outcome || 'signed',
+    comment: comment || null,
+    formValues: {
+      external_signature: signature || null,
+      external_acknowledged: !!acknowledged,
+    },
+  });
+
+  const mark = await p.connect();
+  try {
+    await mark.query(
+      `UPDATE cfg_external_participants
+       SET completed_at = now(), updated_at = now(),
+           meta_json = COALESCE(meta_json,'{}'::jsonb) || $2::jsonb
+       WHERE id = $1 AND completed_at IS NULL`,
+      [
+        row.id,
+        JSON.stringify({
+          completed_outcome: outcome || 'signed',
+          signature: signature ? { present: true, length: String(signature).length } : null,
+          comment: comment || null,
+          acknowledged: !!acknowledged,
+        }),
+      ]
+    );
+  } finally {
+    mark.release();
+  }
+  return instance;
+}
+
+async function getExternalActionPayload(token) {
+  store.assertPostgres();
+  const p = getPool();
+  const client = await p.connect();
+  try {
+    const row = await getExternalParticipantByToken(client, token);
+    if (!row) {
+      const err = new Error('Invalid or unknown action link');
+      err.status = 404;
+      err.code = 'INVALID_TOKEN';
+      throw err;
+    }
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      const err = new Error('This action link has expired');
+      err.status = 410;
+      err.code = 'EXPIRED_TOKEN';
+      throw err;
+    }
+    const docs = await listGeneratedDocsForInstance(client, row.instance_id);
+    return {
+      email: row.email,
+      display_name: row.display_name,
+      task_title: row.task_title,
+      task_type: row.task_type,
+      instructions: row.instructions,
+      expires_at: row.expires_at,
+      completed: !!row.completed_at,
+      related_request_id: row.related_request_id || row.task_request_id,
+      documents: docs.map((d) => ({
+        id: d.id,
+        title: d.title,
+        body_html: d.body_html,
+        status: d.status,
+      })),
+    };
+  } finally {
+    client.release();
+  }
+}
+
 async function getInstanceByRequestId(requestId) {
   store.assertPostgres();
   if (!requestId) return null;
@@ -977,4 +1184,7 @@ module.exports = {
   getInstance,
   getInstanceByRequestId,
   listTasksForUser,
+  completeExternalTask,
+  getExternalActionPayload,
+  syncVendorNdaOnComplete,
 };

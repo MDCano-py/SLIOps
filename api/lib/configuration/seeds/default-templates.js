@@ -32,6 +32,14 @@ function ndaFormPayload() {
         section_key: 'terms',
         order: 4,
       },
+      {
+        key: 'vendor_ref',
+        type: 'short_text',
+        label: 'Vendor reference (VEN-XXX)',
+        section_key: 'counterparty',
+        order: 5,
+        help_text: 'Optional. When set, completed NDA updates Vendor Management nda_status.',
+      },
     ],
   };
 }
@@ -116,14 +124,36 @@ function vendorFormPayload() {
 }
 
 function ndaDocumentPayload() {
+  const blocks = [
+    { type: 'heading', text: 'Mutual Non-Disclosure Agreement' },
+    {
+      type: 'paragraph',
+      text:
+        'This Mutual Non-Disclosure Agreement is entered into as of {{request.effective_date}} between {{organization.legal_name}} and {{form.legal_name}}.',
+    },
+    {
+      type: 'paragraph',
+      text: 'Contact: {{form.contact_name}} <{{form.contact_email}}>. Term: {{form.nda_term_months}} months.',
+    },
+    { type: 'divider', text: '' },
+    { type: 'signature', text: 'Counterparty signature' },
+    { type: 'acknowledgement', text: 'I agree to the terms of this Mutual NDA.' },
+  ];
+  const body_html = blocks
+    .map((b) => {
+      if (b.type === 'heading') return `<h1>${b.text}</h1>`;
+      if (b.type === 'paragraph') return `<p>${b.text}</p>`;
+      if (b.type === 'divider') return '<hr>';
+      if (b.type === 'signature') return `<div class="cfg-doc-sig">Signature: ______________________ (${b.text || ''})</div>`;
+      if (b.type === 'acknowledgement') return `<div class="cfg-doc-sig">☐ ${b.text || 'I acknowledge'}</div>`;
+      return `<p>${b.text || ''}</p>`;
+    })
+    .join('\n');
   return {
     title: 'Mutual Non-Disclosure Agreement',
     document_type: 'nda',
-    body_html: `<h1>Mutual Non-Disclosure Agreement</h1>
-<p>This Mutual Non-Disclosure Agreement is entered into as of {{request.effective_date}} between {{organization.legal_name}} and {{form.legal_name}}.</p>
-<p>Contact: {{form.contact_name}} &lt;{{form.contact_email}}&gt;</p>
-<p>Term: {{form.nda_term_months}} months.</p>
-<p>Organization: {{organization.name}}</p>`,
+    blocks,
+    body_html,
     footer_text: 'Confidential — Streamline Operations',
     signers: [
       { key: 'internal', role: 'legal', order: 1, allow_typed: true, require_review: true },
@@ -135,12 +165,32 @@ function ndaDocumentPayload() {
   };
 }
 
-function ndaWorkflowPayload() {
+function ndaWorkflowPayload(documentDefinitionId) {
   return {
     nodes: [
       { key: 'start', type: 'trigger.request_created', name: 'NDA request created', x: 80, y: 40 },
-      { key: 'fill', type: 'human.fill', name: 'Counterparty form', x: 80, y: 140, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'legal_review', type: 'human.review', name: 'Legal reviews NDA', x: 80, y: 240, config: { assignee_role: 'legal', assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      {
+        key: 'fill',
+        type: 'human.fill',
+        name: 'Counterparty form',
+        x: 80,
+        y: 140,
+        config: {
+          assignee_role: 'requester',
+          assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
+      {
+        key: 'legal_review',
+        type: 'human.review',
+        name: 'Legal reviews NDA',
+        x: 80,
+        y: 240,
+        config: {
+          assignee_role: 'legal',
+          assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
       {
         key: 'legal_decision',
         type: 'logic.condition',
@@ -148,6 +198,10 @@ function ndaWorkflowPayload() {
         x: 80,
         y: 340,
         config: {
+          outcomes: [
+            { key: 'yes', label: 'Yes' },
+            { key: 'no', label: 'No' },
+          ],
           condition: {
             all: [
               {
@@ -159,25 +213,157 @@ function ndaWorkflowPayload() {
           },
         },
       },
-      { key: 'corrections', type: 'human.provide_info', name: 'Return for corrections', x: 300, y: 340, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'generate', type: 'document.generate', name: 'Generate NDA', x: 80, y: 440, config: {} },
-      { key: 'sign_internal', type: 'human.sign', name: 'Internal signature', x: 80, y: 540, config: { assignee_role: 'legal', assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'sign_external', type: 'human.sign', name: 'External signature', x: 80, y: 640, config: { assignee_role: 'client', assignment: { mode: 'external_participant', form_field_key: 'contact_email', fallback: 'hub_admin', strategy: 'shared_queue' } } },
+      {
+        key: 'corrections',
+        type: 'human.provide_info',
+        name: 'Return for corrections',
+        x: 300,
+        y: 340,
+        config: {
+          assignee_role: 'requester',
+          assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
+      {
+        key: 'generate',
+        type: 'document.generate',
+        name: 'Generate NDA',
+        x: 80,
+        y: 440,
+        config: documentDefinitionId ? { document_definition_id: documentDefinitionId } : {},
+      },
+      {
+        key: 'sign_internal',
+        type: 'human.sign',
+        name: 'Internal signature',
+        x: 80,
+        y: 540,
+        config: {
+          assignee_role: 'legal',
+          assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' },
+          document_definition_id: documentDefinitionId || null,
+        },
+      },
+      {
+        key: 'sign_external',
+        type: 'human.sign',
+        name: 'External signature',
+        x: 80,
+        y: 640,
+        config: {
+          assignee_role: 'client',
+          assignment: {
+            mode: 'external_participant',
+            form_field_key: 'contact_email',
+            fallback: 'hub_admin',
+            strategy: 'shared_queue',
+          },
+          document_definition_id: documentDefinitionId || null,
+        },
+      },
       { key: 'archive_doc', type: 'document.archive', name: 'Archive document', x: 80, y: 740 },
       { key: 'complete', type: 'terminal.complete', name: 'Complete request', x: 80, y: 840 },
+      { key: 'revision_wait', type: 'terminal.cancel', name: 'Await revised request', x: 300, y: 440 },
+      { key: 'declined_end', type: 'terminal.reject', name: 'Signature declined', x: 300, y: 640 },
     ],
     connections: [
-      { key: 'c1', source: 'start', target: 'fill', outcome_key: 'default', sort_order: 0 },
-      { key: 'c2', source: 'fill', target: 'legal_review', outcome_key: 'default', sort_order: 0 },
-      { key: 'c3', source: 'legal_review', target: 'legal_decision', outcome_key: 'approved', sort_order: 0 },
-      { key: 'c4', source: 'legal_review', target: 'corrections', outcome_key: 'rejected', label: 'No', sort_order: 1 },
-      { key: 'c5', source: 'legal_decision', target: 'generate', outcome_key: 'yes', label: 'Yes', sort_order: 0 },
-      { key: 'c6', source: 'legal_decision', target: 'corrections', outcome_key: 'no', label: 'No', sort_order: 1 },
-      { key: 'c7', source: 'corrections', target: 'fill', outcome_key: 'default', sort_order: 0 },
-      { key: 'c8', source: 'generate', target: 'sign_internal', outcome_key: 'success', sort_order: 0 },
-      { key: 'c9', source: 'sign_internal', target: 'sign_external', outcome_key: 'default', sort_order: 0 },
-      { key: 'c10', source: 'sign_external', target: 'archive_doc', outcome_key: 'default', sort_order: 0 },
-      { key: 'c11', source: 'archive_doc', target: 'complete', outcome_key: 'default', sort_order: 0 },
+      { key: 'c1', source: 'start', target: 'fill', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      { key: 'c2', source: 'fill', target: 'legal_review', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      {
+        key: 'c3',
+        source: 'legal_review',
+        target: 'legal_decision',
+        source_handle: 'approved',
+        outcome_key: 'approved',
+        sort_order: 0,
+      },
+      {
+        key: 'c4',
+        source: 'legal_review',
+        target: 'corrections',
+        source_handle: 'rejected',
+        outcome_key: 'rejected',
+        label: 'Rejected',
+        sort_order: 1,
+      },
+      {
+        key: 'c5',
+        source: 'legal_decision',
+        target: 'generate',
+        source_handle: 'yes',
+        outcome_key: 'yes',
+        label: 'Yes',
+        sort_order: 0,
+      },
+      {
+        key: 'c6',
+        source: 'legal_decision',
+        target: 'corrections',
+        source_handle: 'no',
+        outcome_key: 'no',
+        label: 'No',
+        sort_order: 1,
+      },
+      {
+        key: 'c7b',
+        source: 'corrections',
+        target: 'revision_wait',
+        source_handle: 'out',
+        outcome_key: 'default',
+        sort_order: 0,
+      },
+      {
+        key: 'c8',
+        source: 'generate',
+        target: 'sign_internal',
+        source_handle: 'out',
+        outcome_key: 'default',
+        sort_order: 0,
+      },
+      {
+        key: 'c9',
+        source: 'sign_internal',
+        target: 'sign_external',
+        source_handle: 'signed',
+        outcome_key: 'signed',
+        label: 'Signed',
+        sort_order: 0,
+      },
+      {
+        key: 'c9b',
+        source: 'sign_internal',
+        target: 'declined_end',
+        source_handle: 'declined',
+        outcome_key: 'declined',
+        label: 'Declined',
+        sort_order: 1,
+      },
+      {
+        key: 'c10',
+        source: 'sign_external',
+        target: 'archive_doc',
+        source_handle: 'signed',
+        outcome_key: 'signed',
+        label: 'Signed',
+        sort_order: 0,
+      },
+      {
+        key: 'c10b',
+        source: 'sign_external',
+        target: 'declined_end',
+        source_handle: 'declined',
+        outcome_key: 'declined',
+        label: 'Declined',
+        sort_order: 1,
+      },
+      {
+        key: 'c11',
+        source: 'archive_doc',
+        target: 'complete',
+        source_handle: 'out',
+        outcome_key: 'default',
+        sort_order: 0,
+      },
     ],
   };
 }
@@ -339,27 +525,17 @@ async function seedDefaultTemplates(actorEmail) {
     })
   );
 
-  // Fix NDA workflow cycle: corrections -> fill creates a cycle which validator rejects.
-  // Seed a publishable acyclic variant: corrections ends at fill only via controlled human path
-  // by removing the return edge and using a terminal revision path instead for the seed.
-  const ndaWf = ndaWorkflowPayload();
-  ndaWf.connections = ndaWf.connections.filter((c) => !(c.source === 'corrections' && c.target === 'fill'));
-  ndaWf.nodes.push({ key: 'revision_wait', type: 'terminal.cancel', name: 'Await revised request', x: 300, y: 440 });
-  ndaWf.connections.push({
-    key: 'c7b',
-    source: 'corrections',
-    target: 'revision_wait',
-    outcome_key: 'default',
-    sort_order: 0,
-  });
+  const ndaDoc = (await store.listDefinitions({ kind: 'document' })).find((d) => d.key === 'mutual_nda_template');
+  const ndaForm = (await store.listDefinitions({ kind: 'form' })).find((d) => d.key === 'nda_counterparty_form');
+  const ndaWfPayload = ndaWorkflowPayload(ndaDoc && ndaDoc.id);
 
   results.push(
     await ensureDefinition({
       kind: 'workflow',
       key: 'nda_request_workflow',
       name: 'NDA request workflow',
-      description: 'NDA create → review → sign → archive (acyclic seed; revision modeled without unbounded loop)',
-      payload: ndaWf,
+      description: 'NDA create → review → generate → sign → archive',
+      payload: ndaWfPayload,
       actorEmail,
       publish: true,
     })
@@ -397,6 +573,8 @@ async function seedDefaultTemplates(actorEmail) {
       publish: true,
     })
   );
+
+  const ndaWorkflow = (await store.listDefinitions({ kind: 'workflow' })).find((d) => d.key === 'nda_request_workflow');
   results.push(
     await ensureDefinition({
       kind: 'request_type',
@@ -413,6 +591,9 @@ async function seedDefaultTemplates(actorEmail) {
         available_priorities: ['low', 'normal', 'high'],
         initiating_roles: ['requester', 'hub_admin'],
         participant_roles: ['legal', 'client', 'requester'],
+        workflow_definition_id: ndaWorkflow ? ndaWorkflow.id : null,
+        form_definition_id: ndaForm ? ndaForm.id : null,
+        starting_form_definition_id: ndaForm ? ndaForm.id : null,
       },
       actorEmail,
       publish: true,
@@ -440,11 +621,87 @@ async function seedDefaultTemplates(actorEmail) {
     })
   );
 
-  return { seeded: results };
+  const repaired = await repairNdaOperationalWiring(actorEmail);
+  return { seeded: results, repaired };
+}
+
+/**
+ * Patch existing published seeds so NDA publish → workflow → request type is wired.
+ * Safe to call repeatedly (idempotent).
+ */
+async function repairNdaOperationalWiring(actorEmail) {
+  const docs = await store.listDefinitions({ kind: 'document' });
+  const forms = await store.listDefinitions({ kind: 'form' });
+  const workflows = await store.listDefinitions({ kind: 'workflow' });
+  const requestTypes = await store.listDefinitions({ kind: 'request_type' });
+  const ndaDoc = docs.find((d) => d.key === 'mutual_nda_template');
+  const ndaForm = forms.find((d) => d.key === 'nda_counterparty_form');
+  const ndaWf = workflows.find((d) => d.key === 'nda_request_workflow');
+  const ndaRt = requestTypes.find((d) => d.key === 'nda_request');
+  const actions = [];
+
+  async function publishPatched(def, payload) {
+    if (!def || !def.id) return;
+    const full = await store.getDefinition(def.id);
+    if (!full || !full.draft_version) return;
+    await store.updateDraftVersion({
+      definitionId: def.id,
+      expectedRevision: full.draft_version.revision,
+      payload,
+      actorEmail,
+    });
+    await store.publishDefinition({
+      definitionId: def.id,
+      actorEmail,
+      acknowledgeWarnings: true,
+    });
+    actions.push({ key: def.key, status: 'repaired' });
+  }
+
+  if (ndaWf && ndaDoc) {
+    const full = await store.getDefinition(ndaWf.id);
+    const current = (full.published_version && full.published_version.payload_json) || {};
+    const generate = (current.nodes || []).find((n) => n.key === 'generate' || n.type === 'document.generate');
+    const needsDoc =
+      !generate || !(generate.config && generate.config.document_definition_id === ndaDoc.id);
+    const needsSignedEdge = !(current.connections || []).some(
+      (c) => c.source === 'sign_external' && (c.outcome_key === 'signed' || c.source_handle === 'signed')
+    );
+    if (needsDoc || needsSignedEdge) {
+      await publishPatched(ndaWf, ndaWorkflowPayload(ndaDoc.id));
+    }
+  }
+
+  if (ndaRt && ndaWf) {
+    const full = await store.getDefinition(ndaRt.id);
+    const payload = {
+      ...((full.published_version && full.published_version.payload_json) || {}),
+      workflow_definition_id: ndaWf.id,
+      form_definition_id: ndaForm ? ndaForm.id : null,
+      starting_form_definition_id: ndaForm ? ndaForm.id : null,
+      key: 'nda_request',
+      display_name: 'NDA Request',
+      number_prefix: 'NDA-',
+    };
+    if (payload.workflow_definition_id !== ndaWf.id || !payload.form_definition_id) {
+      await publishPatched(ndaRt, payload);
+    }
+  }
+
+  if (ndaDoc) {
+    const full = await store.getDefinition(ndaDoc.id);
+    const payload = (full.published_version && full.published_version.payload_json) || {};
+    if (!Array.isArray(payload.blocks) || !payload.blocks.length) {
+      await publishPatched(ndaDoc, ndaDocumentPayload());
+    }
+  }
+
+  return actions;
 }
 
 module.exports = {
   seedDefaultTemplates,
+  repairNdaOperationalWiring,
   ndaFormPayload,
   purchaseFormPayload,
   vendorFormPayload,

@@ -4,6 +4,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { hubAdminUsers } = require('./resolve-assignment');
 
 async function insertNotification(client, input) {
   const id = input.id || crypto.randomUUID();
@@ -116,8 +117,30 @@ async function notifyTaskAssigned({ client, task, instance, resolution, node, re
   }
 
   if (resolution.assignmentKind === 'external' && resolution.email) {
-    // External participants use secure links; still record an admin-facing note via hub_admin if needed.
-    // In-app bell is for internal users only.
+    // Notify hub admins with the secure action URL so they can forward it.
+    // Email delivery to the external party uses the same URL when PUBLIC_BASE_URL is set.
+    const admins = await hubAdminUsers(client).catch(() => []);
+    const actionUrl = resolution.externalActionUrl || null;
+    for (const u of admins.slice(0, 8)) {
+      const dedupe = `external_link:${task.id}:${u.id}`;
+      await insertNotification(client, {
+        recipient_email: u.email,
+        recipient_name: u.name || u.email,
+        recipient_user_id: u.id,
+        type: 'external_action_link',
+        title: `External action link for ${resolution.email}`,
+        message: actionUrl
+          ? `${title} assigned to ${resolution.email}. Secure link: ${actionUrl}`
+          : `${title} assigned to ${resolution.email}. Secure link minting pending.`,
+        request_id: instance.related_request_id || null,
+        cfg_workflow_task_id: task.id,
+        cfg_workflow_instance_id: instance.id,
+        action_url: actionUrl || '#/hub/my-tasks',
+        dedupe_key: dedupe,
+        priority: 'high',
+      });
+      created.push({ user_id: u.id, email: u.email, type: 'external_action_link' });
+    }
   }
 
   return created;
