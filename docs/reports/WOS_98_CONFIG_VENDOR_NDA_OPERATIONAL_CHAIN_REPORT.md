@@ -61,7 +61,7 @@ No new migration. Uses existing:
 ## Permission / navigation
 
 - Configuration Center unchanged (admin roles via existing config perms).
-- Vendor Management nav was already present (`mgmt:vendor`); not hidden.
+- Vendor Management is an explicit Hub Admin sidebar item (`mgmt:vendor`); previously only on the legacy Management menu (hidden in hub-mode).
 - External vendors use **secure link** (`cfg-action.html`), not Hub Configuration.
 
 ## Manual test (NDA acceptance)
@@ -145,7 +145,7 @@ npm run security:wos98-config-vendor-nda-e2e-test
 ## Branch / commit
 
 - Branch: `wos-98-config-vendor-nda-e2e`
-- Commit: `0499dcfe8125d0161bd3d04acb23451fbc005b6e` (`0499dcf`)
+- Commit: `a4c370f9baaf994b843e3ad69b373625b8392549` (`a4c370f`) — tip after nav/Documents bridge acceptance fixes
 
 ## Changed files (navigation / bridge acceptance)
 
