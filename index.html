@@ -14038,9 +14038,20 @@ function goBack() {
             const rows = fields.map((f, i) => {
               const id = 'slModalField_' + i;
               const inputType = f.type || 'text';
-              const control = f.multiline
-                ? `<textarea class="input" id="${id}" rows="3" placeholder="${escapeAttr(f.placeholder || '')}">${escapeHtml(f.defaultValue || '')}</textarea>`
-                : `<input class="input" type="${escapeAttr(inputType)}" id="${id}" placeholder="${escapeAttr(f.placeholder || '')}" value="${escapeAttr(f.defaultValue || '')}" autocomplete="off">`;
+              let control;
+              if (f.multiline) {
+                control = `<textarea class="input" id="${id}" rows="3" placeholder="${escapeAttr(f.placeholder || '')}">${escapeHtml(f.defaultValue || '')}</textarea>`;
+              } else if (inputType === 'select' && Array.isArray(f.options)) {
+                const optsHtml = f.options.map((o) => {
+                  const val = o && typeof o === 'object' ? String(o.value ?? '') : String(o);
+                  const lab = o && typeof o === 'object' ? String(o.label ?? o.value ?? '') : String(o);
+                  const sel = String(f.defaultValue ?? '') === val ? ' selected' : '';
+                  return `<option value="${escapeAttr(val)}"${sel}>${escapeHtml(lab)}</option>`;
+                }).join('');
+                control = `<select class="input" id="${id}">${optsHtml}</select>`;
+              } else {
+                control = `<input class="input" type="${escapeAttr(inputType)}" id="${id}" placeholder="${escapeAttr(f.placeholder || '')}" value="${escapeAttr(f.defaultValue || '')}" autocomplete="off">`;
+              }
               return `<label class="sl-modal-field-label" for="${id}">${escapeHtml(f.label || f.name)}</label>${control}${f.hint ? `<div class="sl-modal-hint">${escapeHtml(f.hint)}</div>` : ''}`;
             }).join('');
             bodyEl.innerHTML = `

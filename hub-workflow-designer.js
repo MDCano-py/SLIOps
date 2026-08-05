@@ -128,7 +128,10 @@
 
   function nodeHandles(node) {
     const handles = [];
-    if (!isStartType(node.type)) handles.push({ id: 'in', side: 'left', label: 'In', y: 0.5 });
+    if (!isStartType(node.type)) handles.push({ id: 'in', side: 'left', label: 'Input', y: 0.5 });
+    if (isTerminalType(node.type)) {
+      return handles;
+    }
     if (node.type === 'logic.condition' || node.type === 'logic.multi_branch') {
       const outs = (node.config && node.config.outcomes) || [
         { key: 'yes', label: 'Yes' },
@@ -142,15 +145,28 @@
           y: (i + 1) / (outs.length + 1),
         });
       });
-    } else if (isTerminalType(node.type)) {
-      /* input only */
+    } else if (node.type === 'human.approve' || node.type === 'human.review') {
+      handles.push({ id: 'approved', side: 'right', label: 'Approved', y: 0.35 });
+      handles.push({ id: 'rejected', side: 'right', label: 'Rejected', y: 0.7 });
+    } else if (node.type === 'human.sign') {
+      handles.push({ id: 'signed', side: 'right', label: 'Signed', y: 0.35 });
+      handles.push({ id: 'declined', side: 'right', label: 'Declined', y: 0.7 });
+    } else if (isStartType(node.type)) {
+      handles.push({ id: 'out', side: 'right', label: 'Continue', y: 0.5 });
     } else {
-      handles.push({ id: 'out', side: 'right', label: 'Done', y: 0.42 });
-      if (isHumanType(node.type)) {
-        handles.push({ id: 'reject', side: 'right', label: 'Rejected', y: 0.72 });
-      }
+      handles.push({ id: 'out', side: 'right', label: 'Continue', y: 0.5 });
     }
     return handles;
+  }
+
+  function outcomeKeyForHandle(handleId) {
+    if (!handleId || handleId === 'out') return 'default';
+    return handleId;
+  }
+
+  function displayLabelForHandle(node, handleId) {
+    const h = nodeHandles(node).find((x) => x.id === handleId);
+    return (h && h.label) || handleId || 'Continue';
   }
 
   function handlePoint(node, handleId) {
@@ -292,6 +308,7 @@
       catalogByType[n.type] = n;
     });
     let selectedKey = opts.selectedNodeKey || null;
+    let selectedEdgeKey = null;
     let panX = 0;
     let panY = 0;
     let zoom = 1;
@@ -300,6 +317,35 @@
     let inspectorCollapsed = false;
     let outlineOpen = true;
     let recentTypes = [];
+    const history = [];
+    const future = [];
+
+    function snapshotGraph() {
+      return JSON.parse(JSON.stringify(graph));
+    }
+    function pushHistory() {
+      history.push(snapshotGraph());
+      if (history.length > 40) history.shift();
+      future.length = 0;
+    }
+    function restoreGraph(snap) {
+      graph.nodes = snap.nodes || [];
+      graph.connections = snap.connections || [];
+      ensureGraph(graph);
+      selectedEdgeKey = null;
+      emitDirty();
+      render();
+    }
+    function undo() {
+      if (!history.length) return;
+      future.push(snapshotGraph());
+      restoreGraph(history.pop());
+    }
+    function redo() {
+      if (!future.length) return;
+      history.push(snapshotGraph());
+      restoreGraph(future.pop());
+    }
 
     const rootEl = el('div', { className: 'wfd-root' + (readOnly ? ' is-readonly' : '') });
     host.innerHTML = '';
@@ -346,6 +392,7 @@
     function placeNode(type, at) {
       const meta = catalogByType[type] || { type, label: type };
       const key = 'node_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      pushHistory();
       const node = {
         key,
         type,
@@ -363,40 +410,235 @@
 
     function removeNode(key) {
       if (readOnly) return;
+      pushHistory();
       graph.nodes = graph.nodes.filter((n) => n.key !== key);
       graph.connections = graph.connections.filter((c) => c.source !== key && c.target !== key);
       if (selectedKey === key) selectedKey = null;
+      selectedEdgeKey = null;
       emitDirty();
       render();
     }
 
     function removeConnection(ckey) {
       if (readOnly) return;
+      pushHistory();
       graph.connections = graph.connections.filter((c) => c.key !== ckey);
+      if (selectedEdgeKey === ckey) selectedEdgeKey = null;
       emitDirty();
       render();
     }
 
-    function connect(source, sourceHandle, target, targetHandle) {
+    function connect(source, sourceHandle, target, targetHandle, optsConnect) {
       if (readOnly || source === target) return false;
+      const targetNode = graph.nodes.find((n) => n.key === target);
+      if (!targetNode || isStartType(targetNode.type)) return false;
       const exists = graph.connections.some(
-        (c) => c.source === source && c.target === target && (c.source_handle || 'out') === sourceHandle
+        (c) => c.source === source && (c.source_handle || 'out') === sourceHandle
       );
-      if (exists) return false;
-      if (isStartType((graph.nodes.find((n) => n.key === target) || {}).type)) return false;
-      const outcome = sourceHandle === 'out' ? 'default' : sourceHandle;
+      if (exists && !(optsConnect && optsConnect.replace)) return false;
+      if (!optsConnect || !optsConnect.skipHistory) pushHistory();
+      if (exists && optsConnect && optsConnect.replace) {
+        graph.connections = graph.connections.filter(
+          (c) => !(c.source === source && (c.source_handle || 'out') === sourceHandle)
+        );
+      }
+      const sourceNode = graph.nodes.find((n) => n.key === source);
+      const outcome = outcomeKeyForHandle(sourceHandle);
+      let label =
+        (optsConnect && optsConnect.label) ||
+        (outcome === 'default' ? '' : displayLabelForHandle(sourceNode || { type: '' }, sourceHandle));
+      let isRevision = !!(optsConnect && optsConnect.is_revision);
+      if (!isRevision && wouldCreateCycleLocal(source, target)) {
+        // Controlled revision loop: only when returning into a human/fill step
+        if (targetNode && isHumanType(targetNode.type)) {
+          isRevision = true;
+          if (!label) label = 'Revision';
+        } else {
+          return false;
+        }
+      }
       graph.connections.push({
         key: 'c_' + Date.now().toString(36),
         source,
         target,
         source_handle: sourceHandle,
         target_handle: targetHandle || 'in',
-        label: outcome === 'default' ? '' : outcome,
+        label,
         outcome_key: outcome,
+        is_revision: isRevision,
         sort_order: graph.connections.length,
       });
       emitDirty();
       return true;
+    }
+
+    function wouldCreateCycleLocal(source, target) {
+      const adj = {};
+      graph.nodes.forEach((n) => {
+        adj[n.key] = [];
+      });
+      graph.connections.forEach((c) => {
+        if (c.is_revision) return;
+        if (adj[c.source]) adj[c.source].push(c.target);
+      });
+      if (adj[source]) adj[source].push(target);
+      const visiting = new Set();
+      const visited = new Set();
+      function dfs(node) {
+        if (visiting.has(node)) return true;
+        if (visited.has(node)) return false;
+        visiting.add(node);
+        for (const next of adj[node] || []) {
+          if (dfs(next)) return true;
+        }
+        visiting.delete(node);
+        visited.add(node);
+        return false;
+      }
+      return dfs(source);
+    }
+
+    function canAcceptTarget(targetKey) {
+      if (!linking || !targetKey || linking.source === targetKey) return false;
+      const targetNode = graph.nodes.find((n) => n.key === targetKey);
+      if (!targetNode || isStartType(targetNode.type)) return false;
+      return true;
+    }
+
+    async function openConnectDialog(prefill) {
+      const modal = root.streamlineModal;
+      if (!modal || typeof modal.form !== 'function') return;
+      const sources = graph.nodes.filter((n) => !isTerminalType(n.type));
+      const targets = graph.nodes.filter((n) => !isStartType(n.type));
+      if (!sources.length || !targets.length) {
+        await modal.alert({ title: 'Connect steps', body: 'Add at least two compatible steps first.' });
+        return;
+      }
+      const sourceDefault = (prefill && prefill.source) || selectedKey || sources[0].key;
+      const sourceNode = graph.nodes.find((n) => n.key === sourceDefault) || sources[0];
+      function outcomeOptionsFor(srcKey) {
+        const sn = graph.nodes.find((n) => n.key === srcKey) || sourceNode;
+        return nodeHandles(sn)
+          .filter((h) => h.side === 'right')
+          .map((h) => ({ value: h.id, label: h.label }));
+      }
+      const outs = outcomeOptionsFor(sourceNode.key);
+      const values = await modal.form({
+        title: 'Connect workflow steps',
+        body: 'Choose steps by name. Dragging handles on the canvas is the primary way to connect.',
+        okLabel: 'Create connection',
+        cancelLabel: 'Cancel',
+        fields: [
+          {
+            name: 'source',
+            label: 'From',
+            type: 'select',
+            defaultValue: sourceNode.key,
+            options: sources.map((n) => ({ value: n.key, label: n.name || n.key })),
+          },
+          {
+            name: 'outcome',
+            label: 'Outcome',
+            type: 'select',
+            defaultValue: (prefill && prefill.handle) || (outs[0] && outs[0].value) || 'out',
+            options: outs.length ? outs : [{ value: 'out', label: 'Continue' }],
+          },
+          {
+            name: 'target',
+            label: 'To',
+            type: 'select',
+            defaultValue: (prefill && prefill.target) || (targets.find((t) => t.key !== sourceNode.key) || targets[0]).key,
+            options: targets.map((n) => ({ value: n.key, label: n.name || n.key })),
+          },
+        ],
+        onFieldInput(name, value, readValues, helpers) {
+          if (name !== 'source') return;
+          const nextOuts = outcomeOptionsFor(value);
+          const first = (nextOuts[0] && nextOuts[0].value) || 'out';
+          helpers.setField('outcome', first);
+          const outcomeEl = document.getElementById(
+            'slModalField_' +
+              ['source', 'outcome', 'target'].indexOf('outcome')
+          );
+          if (outcomeEl && outcomeEl.tagName === 'SELECT') {
+            outcomeEl.innerHTML = nextOuts
+              .map((o) => '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>')
+              .join('');
+            outcomeEl.value = first;
+          }
+        },
+        validate(v) {
+          const src = graph.nodes.find((n) => n.key === v.source);
+          const tgt = graph.nodes.find((n) => n.key === v.target);
+          if (!src) return 'Choose a valid source step.';
+          if (!tgt) return 'Choose a valid target step.';
+          if (src.key === tgt.key) return 'Source and target must differ.';
+          if (isStartType(tgt.type)) return 'Start nodes cannot receive connections.';
+          const handle = String(v.outcome || 'out').trim();
+          if (!nodeHandles(src).some((h) => h.side === 'right' && h.id === handle)) {
+            return 'Outcome must match a source output handle.';
+          }
+          return null;
+        },
+      });
+      if (!values) return;
+      const src = graph.nodes.find((n) => n.key === values.source);
+      const tgt = graph.nodes.find((n) => n.key === values.target);
+      const ok = connect(src.key, String(values.outcome || 'out').trim(), tgt.key, 'in', { replace: true });
+      if (!ok) {
+        await modal.alert({ title: 'Could not connect', body: 'That connection is not permitted.' });
+        return;
+      }
+      render();
+    }
+
+    async function offerAddNextStep(worldPoint, sourceKey, sourceHandle) {
+      const modal = root.streamlineModal;
+      if (!modal || typeof modal.form !== 'function') return;
+      const suggestions = [
+        'human.review',
+        'human.approve',
+        'logic.condition',
+        'document.generate',
+        'notify.in_app',
+        'terminal.complete',
+        'human.fill',
+      ];
+      const pick = await modal.form({
+        title: 'Add next step',
+        okLabel: 'Add and connect',
+        fields: [
+          {
+            name: 'type',
+            label: 'Node type',
+            defaultValue: 'human.review',
+            hint: suggestions.join(' · '),
+          },
+          {
+            name: 'name',
+            label: 'Display name',
+            defaultValue: '',
+            placeholder: 'Optional',
+          },
+        ],
+      });
+      if (!pick) return;
+      const type = String(pick.type || '').trim();
+      if (!catalogByType[type] && !type.includes('.')) return;
+      pushHistory();
+      const meta = catalogByType[type] || { type, label: type };
+      const key = 'node_' + Date.now().toString(36);
+      graph.nodes.push({
+        key,
+        type,
+        name: pick.name || meta.label || type,
+        x: worldPoint.x,
+        y: worldPoint.y,
+        config: {},
+      });
+      ensureGraph(graph);
+      connect(sourceKey, sourceHandle, key, 'in', { skipHistory: true });
+      emitSelect(key);
     }
 
     function fitToView() {
@@ -444,16 +686,32 @@
         const a = graph.nodes.find((n) => n.key === c.source);
         const b = graph.nodes.find((n) => n.key === c.target);
         if (!a || !b) return;
-        const srcH = c.source_handle || (c.outcome_key === 'yes' || c.outcome_key === 'no' || c.outcome_key === 'reject' ? c.outcome_key : 'out');
-        const p1 = handlePoint(a, srcH);
+        const srcH =
+          c.source_handle ||
+          (c.outcome_key === 'yes' ||
+          c.outcome_key === 'no' ||
+          c.outcome_key === 'reject' ||
+          c.outcome_key === 'rejected' ||
+          c.outcome_key === 'approved'
+            ? c.outcome_key
+            : 'out');
+        const p1 = handlePoint(a, srcH === 'rejected' && !nodeHandles(a).some((h) => h.id === 'rejected') ? 'reject' : srcH);
         const p2 = handlePoint(b, c.target_handle || 'in');
         const midX = (p1.x + p2.x) / 2;
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.setAttribute('class', 'wfd-edge-group' + (selectedEdgeKey === c.key ? ' is-selected' : ''));
+        group.setAttribute('data-edge-key', c.key);
+        const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hit.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' C ' + midX + ' ' + p1.y + ', ' + midX + ' ' + p2.y + ', ' + p2.x + ' ' + p2.y);
+        hit.setAttribute('class', 'wfd-edge-hit');
+        hit.setAttribute('fill', 'none');
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M ' + p1.x + ' ' + p1.y + ' C ' + midX + ' ' + p1.y + ', ' + midX + ' ' + p2.y + ', ' + p2.x + ' ' + p2.y);
-        path.setAttribute('class', 'wfd-edge');
+        path.setAttribute('d', hit.getAttribute('d'));
+        path.setAttribute('class', 'wfd-edge' + (selectedEdgeKey === c.key ? ' is-selected' : ''));
         path.setAttribute('fill', 'none');
         path.setAttribute('marker-end', 'url(#wfdArrow)');
-        svg.appendChild(path);
+        group.appendChild(hit);
+        group.appendChild(path);
         if (c.label || (c.outcome_key && c.outcome_key !== 'default')) {
           const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           text.setAttribute('x', String(midX));
@@ -461,8 +719,18 @@
           text.setAttribute('class', 'wfd-edge-label');
           text.setAttribute('text-anchor', 'middle');
           text.textContent = c.label || c.outcome_key;
-          svg.appendChild(text);
+          group.appendChild(text);
         }
+        if (!readOnly) {
+          hit.style.pointerEvents = 'stroke';
+          group.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectedEdgeKey = c.key;
+            selectedKey = null;
+            render();
+          });
+        }
+        svg.appendChild(group);
       });
 
       if (preview && preview.from && preview.to) {
@@ -580,14 +848,76 @@
     function buildInspector(aside) {
       aside.innerHTML = '';
       aside.appendChild(el('div', { className: 'wfd-panel-head' }, [el('strong', { text: 'Node inspector' })]));
+
+      if (selectedEdgeKey) {
+        const edge = graph.connections.find((c) => c.key === selectedEdgeKey);
+        if (edge) {
+          const src = graph.nodes.find((n) => n.key === edge.source);
+          const tgt = graph.nodes.find((n) => n.key === edge.target);
+          aside.appendChild(el('h4', { text: 'Connection' }));
+          aside.appendChild(el('div', { className: 'cfg-hint', text: 'From' }));
+          aside.appendChild(el('strong', { text: (src && src.name) || edge.source }));
+          aside.appendChild(el('div', { className: 'cfg-hint', text: 'Outcome' }));
+          aside.appendChild(el('strong', { text: edge.label || edge.outcome_key || 'Continue' }));
+          aside.appendChild(el('div', { className: 'cfg-hint', text: 'To' }));
+          aside.appendChild(el('strong', { text: (tgt && tgt.name) || edge.target }));
+          if (!readOnly) {
+            aside.appendChild(
+              el('button', {
+                type: 'button',
+                className: 'hub-btn hub-btn-sm',
+                text: 'Change destination',
+                onclick: () =>
+                  openConnectDialog({
+                    source: edge.source,
+                    handle: edge.source_handle || 'out',
+                    target: edge.target,
+                  }),
+              })
+            );
+            aside.appendChild(
+              el('button', {
+                type: 'button',
+                className: 'hub-btn hub-btn-sm',
+                text: 'Remove connection',
+                onclick: async () => {
+                  const modal = root.streamlineModal;
+                  const ok = modal
+                    ? await modal.confirm({
+                        title: 'Remove connection?',
+                        body: 'This disconnects the two steps in the draft.',
+                        confirmLabel: 'Remove',
+                        cancelLabel: 'Cancel',
+                      })
+                    : true;
+                  if (ok) removeConnection(edge.key);
+                },
+              })
+            );
+          }
+          return;
+        }
+        selectedEdgeKey = null;
+      }
+
       const selected = graph.nodes.find((n) => n.key === selectedKey);
       if (!selected) {
-        aside.appendChild(el('p', { className: 'cfg-hint', text: 'Select a node to configure its behavior.' }));
+        aside.appendChild(
+          el('p', {
+            className: 'cfg-hint',
+            text: 'Select a node to configure its behavior, or select a connection to edit it.',
+          })
+        );
         return;
       }
       const meta = catalogByType[selected.type] || {};
       const tabs = el('div', { className: 'wfd-tabs', role: 'tablist' });
-      const panes = { General: el('div', { className: 'wfd-tab-pane' }), Assignment: el('div', { className: 'wfd-tab-pane' }), Advanced: el('div', { className: 'wfd-tab-pane' }) };
+      const panes = {
+        General: el('div', { className: 'wfd-tab-pane' }),
+        Outputs: el('div', { className: 'wfd-tab-pane' }),
+        Assignment: el('div', { className: 'wfd-tab-pane' }),
+        Advanced: el('div', { className: 'wfd-tab-pane' }),
+      };
       let active = 'General';
       if (isHumanType(selected.type)) active = 'Assignment';
 
@@ -599,7 +929,7 @@
         tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('is-active', b.dataset.tab === name));
       }
 
-      ['General', 'Assignment', 'Advanced'].forEach((name) => {
+      ['General', 'Outputs', 'Assignment', 'Advanced'].forEach((name) => {
         if (name === 'Assignment' && !isHumanType(selected.type)) return;
         tabs.appendChild(
           el('button', {
@@ -668,6 +998,69 @@
           panes.General.appendChild(row);
         });
       }
+
+      // Outputs
+      panes.Outputs.appendChild(
+        el('p', { className: 'cfg-hint', text: 'Connect each required outcome to the next step.' })
+      );
+      const outHandles = nodeHandles(selected).filter((h) => h.side === 'right');
+      if (!outHandles.length) {
+        panes.Outputs.appendChild(el('p', { className: 'cfg-hint', text: 'This node has no outputs (terminal).' }));
+      }
+      outHandles.forEach((h) => {
+        const conn = graph.connections.find(
+          (c) => c.source === selected.key && (c.source_handle || 'out') === h.id
+        );
+        const box = el('div', { className: 'wfd-output-card' });
+        box.appendChild(el('strong', { text: h.label }));
+        box.appendChild(
+          el('div', { className: 'cfg-hint', text: 'Stable outcome key: ' + outcomeKeyForHandle(h.id) })
+        );
+        if (conn) {
+          const tgt = graph.nodes.find((n) => n.key === conn.target);
+          box.appendChild(el('div', { text: 'Connected to: ' + ((tgt && tgt.name) || conn.target) }));
+          if (!readOnly) {
+            box.appendChild(
+              el('button', {
+                type: 'button',
+                className: 'hub-link-btn',
+                text: 'Change destination',
+                onclick: () => openConnectDialog({ source: selected.key, handle: h.id, target: conn.target }),
+              })
+            );
+            box.appendChild(
+              el('button', {
+                type: 'button',
+                className: 'hub-link-btn',
+                text: 'Remove connection',
+                onclick: () => removeConnection(conn.key),
+              })
+            );
+          }
+        } else {
+          box.appendChild(el('div', { className: 'wfd-output-missing', text: 'Not connected' }));
+          if (!readOnly) {
+            box.appendChild(
+              el('button', {
+                type: 'button',
+                className: 'hub-btn hub-btn-sm',
+                text: 'Connect step',
+                onclick: () => openConnectDialog({ source: selected.key, handle: h.id }),
+              })
+            );
+            box.appendChild(
+              el('button', {
+                type: 'button',
+                className: 'hub-btn hub-btn-sm',
+                text: 'Add next step',
+                onclick: () =>
+                  offerAddNextStep({ x: selected.x + NODE_W + 80, y: selected.y }, selected.key, h.id),
+              })
+            );
+          }
+        }
+        panes.Outputs.appendChild(box);
+      });
 
       // Assignment (mode-specific)
       if (isHumanType(selected.type)) {
@@ -881,34 +1274,28 @@
 
       const conns = graph.connections.filter((c) => c.source === selected.key || c.target === selected.key);
       if (conns.length) {
-        panes.Advanced.appendChild(el('h5', { text: 'Connections' }));
+        panes.Advanced.appendChild(el('h5', { text: 'Connections (reference)' }));
         const ul = el('ul', { className: 'cfg-conn-list' });
         conns.forEach((c) => {
-          const li = el('li', { text: c.source + ' → ' + c.target + (c.label ? ' (' + c.label + ')' : '') });
-          if (!readOnly) {
-            li.appendChild(
-              el('button', {
-                type: 'button',
-                className: 'hub-link-btn',
-                text: 'Remove',
-                onclick: async () => {
-                  const modal = root.streamlineModal;
-                  const ok = modal
-                    ? await modal.confirm({
-                        title: 'Remove connection?',
-                        body: 'This disconnects the two nodes in the draft.',
-                        confirmLabel: 'Remove',
-                        cancelLabel: 'Cancel',
-                      })
-                    : true;
-                  if (ok) removeConnection(c.key);
-                },
-              })
-            );
-          }
-          ul.appendChild(li);
+          const src = graph.nodes.find((n) => n.key === c.source);
+          const tgt = graph.nodes.find((n) => n.key === c.target);
+          ul.appendChild(
+            el('li', {
+              text:
+                ((src && src.name) || c.source) +
+                ' → ' +
+                ((tgt && tgt.name) || c.target) +
+                (c.label ? ' (' + c.label + ')' : ''),
+            })
+          );
         });
         panes.Advanced.appendChild(ul);
+        panes.Advanced.appendChild(
+          el('p', {
+            className: 'cfg-hint',
+            text: 'Select a connection on the canvas or use the Outputs tab to edit links.',
+          })
+        );
       }
 
       Object.keys(panes).forEach((k) => aside.appendChild(panes[k]));
@@ -976,6 +1363,14 @@
       paintMinimap();
     }
 
+    function clearLinkingUi() {
+      const canvas = rootEl.querySelector('.wfd-canvas');
+      if (canvas) canvas.classList.remove('is-linking');
+      rootEl.querySelectorAll('.wfd-node').forEach((nodeEl) => {
+        nodeEl.classList.remove('is-compatible-target', 'is-incompatible-target', 'is-drop-hover');
+      });
+    }
+
     function render() {
       const scrollLib = libraryCollapsed;
       const scrollIns = inspectorCollapsed;
@@ -999,11 +1394,36 @@
             className: 'hub-btn hub-btn-sm',
             text: 'Auto-layout',
             onclick: () => {
+              pushHistory();
               autoLayout(graph);
               emitDirty();
               render();
               fitToView();
             },
+          })
+        );
+        tools.appendChild(
+          el('button', {
+            type: 'button',
+            className: 'hub-btn hub-btn-sm',
+            text: 'Connect nodes',
+            onclick: () => openConnectDialog({ source: selectedKey }),
+          })
+        );
+        tools.appendChild(
+          el('button', {
+            type: 'button',
+            className: 'hub-btn hub-btn-sm',
+            text: 'Undo',
+            onclick: () => undo(),
+          })
+        );
+        tools.appendChild(
+          el('button', {
+            type: 'button',
+            className: 'hub-btn hub-btn-sm',
+            text: 'Redo',
+            onclick: () => redo(),
           })
         );
       }
@@ -1139,52 +1559,61 @@
         nodeHandles(n).forEach((h) => {
           const handle = el('button', {
             type: 'button',
-            className: 'wfd-handle wfd-handle-' + h.side,
+            className: 'wfd-handle wfd-handle-' + h.side + (linking && linking.source === n.key && linking.handle === h.id ? ' is-active' : ''),
             'data-handle': h.id,
             'data-side': h.side,
+            'data-node-key': n.key,
             style: 'top:' + h.y * 100 + '%',
             title: h.label,
-            'aria-label': h.label + ' handle',
+            'aria-label':
+              h.side === 'right'
+                ? 'Connect from ' + (n.name || n.key) + ' using ' + h.label + ' outcome'
+                : 'Connect to ' + (n.name || n.key) + ' input',
             text: h.side === 'right' ? h.label : '',
           });
-          if (!readOnly) {
+          if (!readOnly && h.side === 'right') {
             handle.addEventListener('pointerdown', (e) => {
               e.stopPropagation();
               e.preventDefault();
-              if (h.side !== 'right') return;
-              linking = { source: n.key, handle: h.id, from: handlePoint(n, h.id) };
-              canvas.setPointerCapture(e.pointerId);
-            });
-            handle.addEventListener('pointerup', (e) => {
-              if (!linking) return;
-              const targetEl = document.elementFromPoint(e.clientX, e.clientY);
-              const targetNode = targetEl && targetEl.closest && targetEl.closest('.wfd-node');
-              const targetHandle = targetEl && targetEl.closest && targetEl.closest('.wfd-handle-left');
-              if (targetNode) {
-                const tkey = targetNode.getAttribute('data-node-key');
-                const th = targetHandle ? targetHandle.getAttribute('data-handle') : 'in';
-                connect(linking.source, linking.handle, tkey, th);
+              linking = { source: n.key, handle: h.id, from: handlePoint(n, h.id), pointerId: e.pointerId };
+              selectedEdgeKey = null;
+              canvas.classList.add('is-linking');
+              try {
+                canvas.setPointerCapture(e.pointerId);
+              } catch (_) {
+                /* ignore */
               }
-              linking = null;
-              paintEdges(svg, null);
+              rootEl.querySelectorAll('.wfd-node').forEach((nodeEl) => {
+                const key = nodeEl.getAttribute('data-node-key');
+                nodeEl.classList.toggle('is-compatible-target', canAcceptTarget(key));
+                nodeEl.classList.toggle('is-incompatible-target', linking && key !== linking.source && !canAcceptTarget(key));
+              });
             });
           }
           node.appendChild(handle);
         });
-        node.addEventListener('click', () => emitSelect(n.key));
+        node.addEventListener('click', () => {
+          selectedEdgeKey = null;
+          emitSelect(n.key);
+        });
         node.addEventListener('keydown', (e) => {
           if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
-            if (!readOnly) removeNode(n.key);
+            if (!readOnly) {
+              if (selectedEdgeKey) removeConnection(selectedEdgeKey);
+              else removeNode(n.key);
+            }
           }
         });
         if (!readOnly) {
           let dragging = false;
+          let dragMoved = false;
           let ox = 0;
           let oy = 0;
           node.addEventListener('pointerdown', (e) => {
             if (e.target.closest('.wfd-handle') || e.target.closest('.wfd-node-more')) return;
             dragging = true;
+            dragMoved = false;
             const rect = canvas.getBoundingClientRect();
             ox = (e.clientX - rect.left - panX) / zoom - n.x;
             oy = (e.clientY - rect.top - panY) / zoom - n.y;
@@ -1194,8 +1623,14 @@
           node.addEventListener('pointermove', (e) => {
             if (!dragging) return;
             const rect = canvas.getBoundingClientRect();
-            n.x = Math.max(0, (e.clientX - rect.left - panX) / zoom - ox);
-            n.y = Math.max(0, (e.clientY - rect.top - panY) / zoom - oy);
+            const nx = Math.max(0, (e.clientX - rect.left - panX) / zoom - ox);
+            const ny = Math.max(0, (e.clientY - rect.top - panY) / zoom - oy);
+            if (!dragMoved && (Math.abs(nx - n.x) > 1 || Math.abs(ny - n.y) > 1)) {
+              pushHistory();
+              dragMoved = true;
+            }
+            n.x = nx;
+            n.y = ny;
             node.style.left = n.x + 'px';
             node.style.top = n.y + 'px';
             paintEdges(svg, null);
@@ -1204,7 +1639,7 @@
           node.addEventListener('pointerup', () => {
             if (dragging) {
               dragging = false;
-              emitDirty();
+              if (dragMoved) emitDirty();
             }
           });
         }
@@ -1243,10 +1678,42 @@
       applyTransform();
       paintMinimap();
 
-      // Pan / zoom
+      // Pan / zoom / connection drag (WOS-97: finish link on canvas pointerup)
       let panning = false;
       let panOx = 0;
       let panOy = 0;
+      function worldFromClient(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (clientX - rect.left - panX) / zoom,
+          y: (clientY - rect.top - panY) / zoom,
+        };
+      }
+      function finishLinking(e) {
+        if (!linking) return;
+        const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+        const targetHandle = targetEl && targetEl.closest && targetEl.closest('.wfd-handle-left');
+        const targetNode = targetEl && targetEl.closest && targetEl.closest('.wfd-node');
+        const tkey = targetNode && targetNode.getAttribute('data-node-key');
+        if (tkey && canAcceptTarget(tkey)) {
+          const th = targetHandle ? targetHandle.getAttribute('data-handle') : 'in';
+          connect(linking.source, linking.handle, tkey, th, { replace: true });
+          linking = null;
+          clearLinkingUi();
+          render();
+          return;
+        }
+        const overEmpty = !targetNode || targetEl === canvas || (targetEl && targetEl.classList && targetEl.classList.contains('wfd-world'));
+        const src = linking.source;
+        const handle = linking.handle;
+        const pt = worldFromClient(e.clientX, e.clientY);
+        linking = null;
+        clearLinkingUi();
+        paintEdges(svg, null);
+        if (overEmpty && !readOnly) {
+          offerAddNextStep(pt, src, handle);
+        }
+      }
       canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         const delta = e.deltaY > 0 ? 0.92 : 1.08;
@@ -1255,7 +1722,15 @@
         paintMinimap();
       }, { passive: false });
       canvas.addEventListener('pointerdown', (e) => {
-        if (e.button === 1 || e.shiftKey || e.target === canvas || e.target === world || e.target === svg) {
+        if (linking) return;
+        if (
+          e.button === 1 ||
+          e.shiftKey ||
+          e.target === canvas ||
+          e.target === world ||
+          e.target === svg ||
+          (e.target && e.target.classList && e.target.classList.contains('wfd-svg'))
+        ) {
           panning = true;
           panOx = e.clientX - panX;
           panOy = e.clientY - panY;
@@ -1264,12 +1739,17 @@
       });
       canvas.addEventListener('pointermove', (e) => {
         if (linking) {
-          const rect = canvas.getBoundingClientRect();
-          const to = {
-            x: (e.clientX - rect.left - panX) / zoom,
-            y: (e.clientY - rect.top - panY) / zoom,
-          };
+          const to = worldFromClient(e.clientX, e.clientY);
           paintEdges(svg, { from: linking.from, to });
+          const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+          const targetNode = targetEl && targetEl.closest && targetEl.closest('.wfd-node');
+          rootEl.querySelectorAll('.wfd-node').forEach((nodeEl) => {
+            const key = nodeEl.getAttribute('data-node-key');
+            const ok = canAcceptTarget(key);
+            nodeEl.classList.toggle('is-compatible-target', ok);
+            nodeEl.classList.toggle('is-incompatible-target', key !== linking.source && !ok);
+            nodeEl.classList.toggle('is-drop-hover', !!(targetNode && targetNode === nodeEl && ok));
+          });
           return;
         }
         if (!panning) return;
@@ -1278,12 +1758,18 @@
         applyTransform();
         paintMinimap();
       });
-      canvas.addEventListener('pointerup', () => {
-        panning = false;
+      canvas.addEventListener('pointerup', (e) => {
         if (linking) {
-          linking = null;
-          paintEdges(svg, null);
+          finishLinking(e);
+          return;
         }
+        panning = false;
+      });
+      canvas.addEventListener('pointercancel', () => {
+        linking = null;
+        clearLinkingUi();
+        paintEdges(svg, null);
+        panning = false;
       });
       canvas.addEventListener('dragover', (e) => {
         if (readOnly) return;
@@ -1294,10 +1780,10 @@
         e.preventDefault();
         const type = e.dataTransfer.getData('application/wos-node-type');
         if (!type) return;
-        const rect = canvas.getBoundingClientRect();
+        const pt = worldFromClient(e.clientX, e.clientY);
         addNode(type, {
-          x: (e.clientX - rect.left - panX) / zoom - NODE_W / 2,
-          y: (e.clientY - rect.top - panY) / zoom - NODE_H / 2,
+          x: pt.x - NODE_W / 2,
+          y: pt.y - NODE_H / 2,
         });
       });
 
@@ -1306,12 +1792,46 @@
       }
     }
 
+    function onDesignerKeydown(e) {
+      if (!rootEl.isConnected) {
+        document.removeEventListener('keydown', onDesignerKeydown);
+        return;
+      }
+      if (e.key === 'Escape' && linking) {
+        linking = null;
+        clearLinkingUi();
+        const svg = rootEl.querySelector('.wfd-svg');
+        if (svg) paintEdges(svg, null);
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEdgeKey && !readOnly) {
+        const tag = (e.target && e.target.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        e.preventDefault();
+        removeConnection(selectedEdgeKey);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+    }
+    document.addEventListener('keydown', onDesignerKeydown);
+
     render();
 
     return {
       getGraph: () => graph,
+      connect,
+      removeConnection,
+      openConnectDialog,
+      undo,
+      redo,
       fitToView,
       autoLayout: () => {
+        pushHistory();
         autoLayout(graph);
         emitDirty();
         render();
@@ -1319,6 +1839,10 @@
       },
       select: emitSelect,
       refresh: render,
+      destroy() {
+        document.removeEventListener('keydown', onDesignerKeydown);
+        host.innerHTML = '';
+      },
     };
   }
 

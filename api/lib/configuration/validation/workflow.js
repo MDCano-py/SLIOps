@@ -25,9 +25,16 @@ function normalizeWorkflowGraph(payload) {
       key: safeKey(c.key || `conn_${i + 1}`) || `conn_${i + 1}`,
       source: safeKey(c.source || ''),
       target: safeKey(c.target || ''),
+      source_handle: safeKey(c.source_handle || (c.outcome_key === 'default' ? 'out' : c.outcome_key) || 'out') || 'out',
+      target_handle: safeKey(c.target_handle || 'in') || 'in',
       label: stripControlChars(c.label || '').slice(0, 80),
-      outcome_key: safeKey(c.outcome_key || c.label || 'default') || 'default',
+      outcome_key: (() => {
+        const raw = c.outcome_key || c.source_handle || c.label || 'default';
+        const key = safeKey(raw === 'out' ? 'default' : raw) || 'default';
+        return key === 'out' ? 'default' : key;
+      })(),
       condition: c.condition || null,
+      is_revision: !!(c.is_revision || /revision/i.test(String(c.label || ''))),
       sort_order: Number.isFinite(c.sort_order) ? c.sort_order : i,
     })),
   };
@@ -37,6 +44,7 @@ function detectCycle(nodes, connections) {
   const adj = {};
   for (const n of nodes) adj[n.key] = [];
   for (const c of connections) {
+    if (c.is_revision) continue;
     if (adj[c.source]) adj[c.source].push(c.target);
   }
   const visiting = new Set();
@@ -56,6 +64,11 @@ function detectCycle(nodes, connections) {
     if (dfs(n.key)) return true;
   }
   return false;
+}
+
+function wouldCreateCycle(nodes, connections, source, target) {
+  const probe = connections.concat([{ source, target, is_revision: false }]);
+  return detectCycle(nodes, probe);
 }
 
 function validateWorkflowDefinition(payload) {
@@ -164,17 +177,126 @@ function validateWorkflowDefinition(payload) {
         entity: 'connection',
         affected: c.key,
       });
+      continue;
+    }
+    if (c.source === c.target) {
+      issues.push({
+        severity: 'error',
+        code: 'SELF_CONNECTION',
+        message: `Connection ${c.key} cannot connect a node to itself`,
+        entity: 'connection',
+        affected: c.key,
+      });
+    }
+    const targetNode = nodes.find((n) => n.key === c.target);
+    if (targetNode && isStartNodeType(targetNode.type)) {
+      issues.push({
+        severity: 'error',
+        code: 'START_HAS_INBOUND',
+        message: `Start node "${targetNode.name || targetNode.key}" cannot have an incoming connection`,
+        entity: 'connection',
+        affected: c.key,
+      });
     }
     if (c.condition) issues.push(...validateConditionShape(c.condition));
+  }
+
+  // Required outcomes must be connected
+  function outcomeHandlesFor(node) {
+    if (node.type === 'logic.condition' || node.type === 'logic.multi_branch') {
+      const outs = (node.config && node.config.outcomes) || [
+        { key: 'yes', label: 'Yes' },
+        { key: 'no', label: 'No' },
+      ];
+      return outs.map((o) => ({ key: o.key || o.id, label: o.label || o.key }));
+    }
+    if (node.type === 'human.approve' || node.type === 'human.review') {
+      return [
+        { key: 'approved', label: 'Approved' },
+        { key: 'rejected', label: 'Rejected' },
+      ];
+    }
+    if (node.type === 'human.sign') {
+      return [
+        { key: 'signed', label: 'Signed' },
+        { key: 'declined', label: 'Declined' },
+      ];
+    }
+    if (isTerminalNodeType(node.type)) return [];
+    if (isStartNodeType(node.type)) return [{ key: 'out', label: 'Continue' }];
+    return [{ key: 'out', label: 'Continue' }];
+  }
+
+  function isDecisionNode(n) {
+    return (
+      n.type === 'logic.condition' ||
+      n.type === 'logic.multi_branch' ||
+      n.type === 'human.approve' ||
+      n.type === 'human.review' ||
+      n.type === 'human.sign'
+    );
+  }
+
+  for (const n of nodes) {
+    if (isTerminalNodeType(n.type)) continue;
+    const outs = outcomeHandlesFor(n);
+    // Start nodes still need outbound
+    for (const o of outs) {
+      const outcomeKey = o.key === 'out' ? 'default' : o.key;
+      const has = connections.some(
+        (c) =>
+          c.source === n.key &&
+          (c.source_handle === o.key ||
+            c.outcome_key === outcomeKey ||
+            c.outcome_key === o.key ||
+            (o.key === 'out' && (!c.source_handle || c.source_handle === 'out') && (c.outcome_key === 'default' || !c.outcome_key)))
+      );
+      if (!has && (isDecisionNode(n) || isStartNodeType(n.type))) {
+        issues.push({
+          severity: 'error',
+          code: 'MISSING_OUTCOME_CONNECTION',
+          message: `The “${o.label}” output from “${n.name || n.key}” is not connected.`,
+          entity: 'node',
+          affected: n.key,
+          suggested_correction: 'Connect this output handle to the next step',
+        });
+      } else if (!has && !isStartNodeType(n.type) && !isTerminalNodeType(n.type)) {
+        issues.push({
+          severity: 'error',
+          code: 'MISSING_SEQUENTIAL_OUTPUT',
+          message: `“${n.name || n.key}” has no outgoing connection.`,
+          entity: 'node',
+          affected: n.key,
+          suggested_correction: 'Drag from the output handle to the next step',
+        });
+      }
+    }
+  }
+
+  // Duplicate source+outcome pairs
+  const seenOutcomes = new Set();
+  for (const c of connections) {
+    const handle = c.source_handle || c.outcome_key || 'out';
+    const sig = `${c.source}::${handle}`;
+    if (seenOutcomes.has(sig)) {
+      issues.push({
+        severity: 'error',
+        code: 'DUPLICATE_OUTCOME_CONNECTION',
+        message: `Node ${c.source} already has a connection from outcome “${handle}”`,
+        entity: 'connection',
+        affected: c.key,
+      });
+    }
+    seenOutcomes.add(sig);
   }
 
   if (detectCycle(nodes, connections)) {
     issues.push({
       severity: 'error',
       code: 'CYCLE_REJECTED',
-      message: 'Workflow cycles are not allowed in this version',
+      message: 'Unsupported workflow cycle detected. Mark intentional return paths as revision connections.',
       entity: 'workflow',
-      suggested_correction: 'Remove loops or model revisions as a return edge that ends in a controlled human step without unbounded cycling',
+      suggested_correction: 'Remove loops or use a controlled revision edge back to a human step',
     });
   }
 
@@ -229,4 +351,5 @@ module.exports = {
   validateWorkflowDefinition,
   normalizeWorkflowGraph,
   detectCycle,
+  wouldCreateCycle,
 };

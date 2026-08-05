@@ -77,6 +77,7 @@
     "security:unified-builders-runtime-ux-test": "node scripts/security/unified-builders-runtime-ux-test.js",
     "security:wos95-curated-workflow-designer-ui-test": "node scripts/security/wos95-curated-workflow-designer-ui-test.js",
     "security:wos96-production-workflow-runtime-test": "node scripts/security/wos96-production-workflow-runtime-test.js",
+    "security:wos97-functional-workflow-connection-authoring-test": "node scripts/security/wos97-functional-workflow-connection-authoring-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",
     "vendor-master:test": "node scripts/vendor-master-test.js",
