@@ -70,4 +70,5 @@ npm run security:wos98-config-vendor-nda-e2e-test
 
 ## Branch / commit
 
-See `git rev-parse HEAD` on `wos-98-config-vendor-nda-e2e`.
+- Branch: `wos-98-config-vendor-nda-e2e`
+- Commit: `e503c4a87326a7babfe904d1f47d20f92744f5c9` (`e503c4a`)
