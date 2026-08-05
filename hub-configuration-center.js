@@ -10,7 +10,7 @@
     { id: 'overview', label: 'Overview' },
     { id: 'request_types', label: 'Request Types', kind: 'request_type', path: 'request-types' },
     { id: 'forms', label: 'Forms', canonical: 'workspace_forms' },
-    { id: 'documents', label: 'Documents', kind: 'document', path: 'documents' },
+    { id: 'documents', label: 'Documents (templates)', kind: 'document', path: 'documents' },
     { id: 'workflows', label: 'Workflows', kind: 'workflow', path: 'workflows' },
     { id: 'dashboards', label: 'Dashboards', kind: 'dashboard', path: 'dashboards' },
     { id: 'variables', label: 'Variables' },
@@ -1862,6 +1862,10 @@
     const mount = document.getElementById('hubConfigurationRoot');
     if (!mount) return;
     setMsg('');
+    if (root._hubOpenCfgSection) {
+      state.section = root._hubOpenCfgSection;
+      root._hubOpenCfgSection = null;
+    }
     const status = await loadStatus();
     if (status && status.enabled) {
       try {
@@ -1876,11 +1880,25 @@
       }
     }
     renderShell(mount);
+    const openDocId = root._hubOpenCfgDocumentId;
+    if (openDocId) {
+      root._hubOpenCfgDocumentId = null;
+      await openDefinition({ kind: 'document', path: 'documents', label: 'Documents (templates)' }, openDocId);
+    }
+  }
+
+  async function openDocument(id) {
+    root._hubOpenCfgSection = 'documents';
+    root._hubOpenCfgDocumentId = id;
+    state.section = 'documents';
+    if (id) await openDefinition({ kind: 'document', path: 'documents', label: 'Documents (templates)' }, id);
+    else refresh();
   }
 
   root.HubConfigurationCenter = {
     init: initHubConfigurationCenter,
     openWorkspaceFormBuilder,
+    openDocument,
     SECTIONS,
     slugifyKey,
     _test: {

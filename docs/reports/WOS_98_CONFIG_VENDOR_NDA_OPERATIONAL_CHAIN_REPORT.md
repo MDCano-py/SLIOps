@@ -17,8 +17,11 @@ It is **not** a full rewrite of every Configuration Center surface. It wires the
 | Sign edges | Used `default` while designer/runtime expect `signed`/`declined` | Wired signed → next / declined → reject |
 | External vendor sign | `cfg_external_participants` schema only; no mint/page | Mint on assign; `cfg-action.html`; public complete API |
 | Notify external | Empty branch in task-notifications | Hub-admin notification with secure URL |
+| Vendor Management sidebar | Missing from `#hubSidebarNav` (legacy Management menu hidden in hub-mode) | Explicit **Vendor Management** Admin sidebar item (`mgmt:vendor`) |
+| Notify external | Empty branch in task-notifications | Hub-admin notification with secure URL |
 | Vendor Management NDA status | Separate file/status system | On workflow complete, if `vendor_ref` in form values → `nda` status `approved` |
 | Overview cards | Static non-clickable | Navigate to Forms / Workflows / Request types / Documents |
+| Documents highlights Forms | `initTemplateAuthoring` hard-coded `setSidebarForTab('hub-forms')` | Documents sets `hub-documents`; Forms/workflows set `hub-forms` |
 | Workflow canvas | Partially addressed in WOS-97 | Document picker added; connection authoring retained |
 
 ## Changed files (primary)
@@ -87,15 +90,79 @@ npm run security:wos97-functional-workflow-connection-authoring-test
 npm run security:wos96-production-workflow-runtime-test
 ```
 
+## Exact URLs (Hub Admin navigable)
+
+| Screen | URL hash |
+|--------|----------|
+| Configuration Center | `#/configuration` |
+| Configuration → Documents (template design) | `#/configuration` then sidebar **Documents (templates)** |
+| Main Documents (operational) | `#/documents/templates` |
+| Forms | `#/forms` |
+| Vendor Management dashboard/list | `#/management/vendors` |
+| Vendor profile | `#/management/vendors/{VEN-XXX}` |
+| External sign page | `/cfg-action.html?token=…` (absolute when `PUBLIC_BASE_URL` set) |
+
+## Feature flags
+
+| Flag | Effect |
+|------|--------|
+| `CONFIGURABLE_PLATFORM_ENABLED=1` | Required for Configuration APIs, published cfg documents on main Documents, external-action, NDA request types |
+| Without flag | Main Documents workspace drafts still load; cfg Mutual NDA section is empty/omitted; Configuration APIs return 503 |
+
+## RBAC permissions
+
+| Surface | Client rule | Hub Admin |
+|---------|-------------|-----------|
+| Documents sidebar / page | `HUB_TAB_RULES['hub-documents']` → `hub_admin` or `admin` | Visible |
+| Forms | No hub-tab rule (always allowed client-side); manage needs template perms | Visible |
+| Configuration | `hub:configuration-admin` → `configuration.view\|edit\|publish` or hub_admin/admin | Visible when platform enabled |
+| Vendor Management | `mgmt:vendor` → vendor section perms (`view_management`, `view_vendor_list`, …) or hub_admin/admin bypass | **Visible in `#hubSidebarNav`** |
+
+External vendors must not receive `mgmt:vendor` / configuration admin permissions — they use secure links only.
+
+## Why Vendor Management was missing (corrected)
+
+Earlier WOS-98 report incorrectly claimed Vendor Management was “already navigable.” It existed only on the **legacy** top-tab Management menu, which hub-mode CSS hides. It was **absent** from `#hubSidebarNav`. It is now an explicit Admin sidebar item with `data-portal-tab="management"` + `data-mgmt-section="vendor"` + `data-rbac-key="mgmt:vendor"`.
+
+## Why Forms highlighted on Documents (fixed)
+
+`initTemplateAuthoring` hard-coded `setSidebarForTab('hub-forms')` after Documents navigation. It now sets `hub-documents` when `pageTab === 'hub-documents'`.
+
+## Same document identity
+
+- Authoritative store: `cfg_definitions` (`kind='document'`, e.g. key `mutual_nda_template`)
+- Main Documents **Published configuration documents** section calls `GET /hub/configuration/published-documents` and renders those rows
+- Does **not** INSERT into `form_templates`
+- Workflow nodes store `config.document_definition_id` pointing at the same cfg id
+
+## Automated nav / bridge tests
+
+```bash
+npm run security:wos98-nav-documents-bridge-test
+npm run security:wos98-config-vendor-nda-e2e-test
+```
+
+## Branch / commit
+
+- Branch: `wos-98-config-vendor-nda-e2e`
+- Commit: update after final push with `git rev-parse HEAD`
+
+## Changed files (navigation / bridge acceptance)
+
+- `index.html` — Vendor Management sidebar item; Documents/Forms subtitles
+- `hub.js` — Documents active sidebar; exact `setSidebarForTab`; Configuration openDocument handoff
+- `hub-configuration-center.js` — Documents (templates) label; openDocument; Overview library
+- `template-registry-ui.js` — Published cfg documents section on main Documents (same cfg identity)
+- `scripts/security/wos98-nav-documents-bridge-test.js`
+- `docs/reports/WOS_98_CONFIG_VENDOR_NDA_OPERATIONAL_CHAIN_REPORT.md`
 ## Remaining mocked / deferred behavior
 
 - Full email SMTP to external parties (admins get the link in-app; SMTP optional via existing mail stack).
 - PDF sealed output still unavailable (honest `pdf_status`).
 - `notify.*` / many `integration.*` nodes remain recorded no-ops.
-- Document “usage” page (which request types/workflows reference a template) is partial — library + picker exist; deep usage graph not fully built.
+- Deep usage graph is best-effort (scans workflow payloads for `document_definition_id`).
 - Vendor onboarding cfg workflow still does not auto-create `vendor_master` rows (use Vendor Management create + `vendor_ref` bridge).
-- Multi-select on canvas, SLA/escalation inspectors, and full autosave indicators are incomplete vs the full prompt wishlist.
-- Browser E2E against a live stack is manual; automated test covers wiring/validation, not a live Postgres run.
+- Live browser screenshot proof must be captured against a running Hub with the flag on; unit/nav tests alone are not acceptance.
 
 ## Deployment
 
@@ -103,7 +170,7 @@ npm run security:wos96-production-workflow-runtime-test
 2. Ensure `CONFIGURABLE_PLATFORM_ENABLED=1` and `PUBLIC_BASE_URL` set for absolute external links.
 3. Run migrations through `014` if not already.
 4. Call **Seed defaults** or **Repair NDA wiring**.
-5. Smoke the manual NDA path above.
+5. Smoke: Configuration → publish Mutual NDA → Overview library → sidebar Documents → sidebar Vendor Management → assign/sign → vendor NDA approved → refresh with correct nav highlight.
 
 ## Rollback
 
@@ -112,5 +179,5 @@ Redeploy previous artifact / revert this branch. Existing `cfg_*` data remains; 
 ## Suggested commit
 
 ```text
-WOS-98 wire NDA publish-to-vendor sign operational chain
+WOS-98 expose published documents and Vendor Management in Hub navigation
 ```

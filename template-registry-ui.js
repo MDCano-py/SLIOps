@@ -262,25 +262,26 @@
   };
 
   const SPACE_META = {
+    documents: {
+      title: 'Documents',
+      subtitle:
+        'Operational documents: published configuration templates (same cfg identity) plus workspace document record drafts. Design and publish templates in Configuration → Documents.',
+      breadcrumb: ['Documents'],
+      bannerClass: 'tmpl-context-banner-document',
+      bannerHtml: `<strong>Operational Documents</strong> — published configuration templates (e.g. Mutual NDA) and workspace document records. Template design and versioning live in <em>Configuration → Documents</em>. Forms (data-entry templates) live under <em>Forms</em>.`,
+      newLabel: 'New Document Record Template',
+      newKeyPrefix: 'doc_',
+      defaultName: 'Document Template',
+    },
     forms: {
       title: 'Forms',
-      subtitle: 'Create reusable forms, publish for your team, and fill out published forms from one place.',
+      subtitle: 'Data-entry form templates and active form records. Document templates are under Documents / Configuration.',
       breadcrumb: ['Forms'],
       bannerClass: 'tmpl-context-banner-forms',
       bannerHtml: '',
       newLabel: 'New Form',
       newKeyPrefix: 'form_',
       defaultName: 'New Form',
-    },
-    documents: {
-      title: 'Documents',
-      subtitle: 'Manage document-backed templates and document record types. Workflow routing is optional.',
-      breadcrumb: ['Settings', 'Documents'],
-      bannerClass: 'tmpl-context-banner-document',
-      bannerHtml: `<strong>Documents</strong> — document record templates (${DOCUMENT_TAG}). Upload/review steps are optional after publish.`,
-      newLabel: 'New Document Template',
-      newKeyPrefix: 'doc_',
-      defaultName: 'Document Template',
     },
     workflows: {
       title: 'Workflows',
@@ -2178,6 +2179,192 @@
     return buildPayloadFromState();
   }
 
+  async function apiListPublishedCfgDocuments() {
+    try {
+      const path = '/hub/configuration/published-documents';
+      const res = await hubFetch(path);
+      if (!res.ok) return [];
+      const data = await parseHubResponse(res, path);
+      return data.documents || [];
+    } catch {
+      return [];
+    }
+  }
+
+  function cfgPublishedDocsSectionHtml(docs) {
+    if (!docs || !docs.length) {
+      return `
+        <div class="hub-panel tmpl-panel tmpl-cfg-docs-panel" style="margin-top:1rem">
+          <div class="hub-panel-head">
+            <div>
+              <h2>Published configuration documents</h2>
+              <p class="hub-sub" style="margin:4px 0 0">Same <code>cfg_definitions</code> identity as Configuration → Documents. Enable the configurable platform and publish a template (e.g. Mutual NDA) to see it here.</p>
+            </div>
+            <div class="hub-settings-actions">
+              <button type="button" class="hub-btn hub-btn-ghost" id="tmplOpenCfgDocuments">Open Configuration → Documents</button>
+            </div>
+          </div>
+          <div class="hub-panel-body"><p class="hub-empty">No published configuration documents yet.</p></div>
+        </div>`;
+    }
+    const rows = docs
+      .map((d) => {
+        return `<tr data-cfg-doc-id="${esc(d.id)}" data-cfg-doc-key="${esc(d.key || '')}">
+          <td>
+            <strong>${esc(d.name || d.key)}</strong>
+            <div class="hub-sub" style="margin-top:2px">Key: ${esc(d.key || '—')} · cfg identity (not a form_templates copy)</div>
+          </td>
+          <td><span class="hub-chip status-completed">Published</span></td>
+          <td>${esc(d.updated_at ? fmtDate(d.updated_at) : '—')}</td>
+          <td><div class="tmpl-actions">
+            <button type="button" class="hub-btn hub-btn-ghost tmpl-act-cfg-preview" data-cfg-doc-id="${esc(d.id)}">Preview</button>
+            <button type="button" class="hub-btn hub-btn-primary tmpl-act-cfg-launch" data-cfg-doc-id="${esc(d.id)}" data-cfg-doc-key="${esc(d.key || '')}" data-cfg-doc-name="${esc(d.name || d.key || '')}">Create request</button>
+            <button type="button" class="hub-btn hub-btn-ghost tmpl-act-cfg-workflow" data-cfg-doc-id="${esc(d.id)}" data-cfg-doc-name="${esc(d.name || '')}">Add to workflow</button>
+            <button type="button" class="hub-btn hub-btn-ghost tmpl-act-cfg-request-type" data-cfg-doc-id="${esc(d.id)}">Add to request type</button>
+            <button type="button" class="hub-btn hub-btn-ghost tmpl-act-cfg-usage" data-cfg-doc-id="${esc(d.id)}" data-cfg-doc-key="${esc(d.key || '')}">View usage</button>
+            <button type="button" class="hub-btn hub-btn-ghost tmpl-act-cfg-open" data-cfg-doc-id="${esc(d.id)}">Open configuration</button>
+          </div></td>
+        </tr>`;
+      })
+      .join('');
+    return `
+      <div class="hub-panel tmpl-panel tmpl-cfg-docs-panel" style="margin-top:1rem">
+        <div class="hub-panel-head">
+          <div>
+            <h2>Published configuration documents</h2>
+            <p class="hub-sub" style="margin:4px 0 0">Authoritative templates from <strong>Configuration → Documents</strong> (<code>cfg_definitions</code>). Not duplicated into workspace <code>form_templates</code>.</p>
+          </div>
+          <div class="hub-settings-actions">
+            <button type="button" class="hub-btn hub-btn-ghost" id="tmplOpenCfgDocuments">Design templates in Configuration</button>
+          </div>
+        </div>
+        <div class="hub-panel-body">
+          <div class="hub-table-wrap">
+            <table class="hub-table tmpl-table">
+              <thead><tr>
+                <th>Template</th><th>Status</th><th>Updated</th><th>Actions</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function wireCfgPublishedDocActions() {
+    if (!_root) return;
+    const openCfgDocuments = () => {
+      global._hubOpenCfgSection = 'documents';
+      if (typeof global.switchTab === 'function') global.switchTab('hub-configuration');
+    };
+    _root.querySelector('#tmplOpenCfgDocuments')?.addEventListener('click', openCfgDocuments);
+    _root.querySelectorAll('.tmpl-act-cfg-open, .tmpl-act-cfg-preview').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.cfgDocId;
+        if (!id) return;
+        global._hubOpenCfgDocumentId = id;
+        global._hubOpenCfgSection = 'documents';
+        if (typeof global.switchTab === 'function') global.switchTab('hub-configuration');
+        if (global.HubConfigurationCenter && typeof global.HubConfigurationCenter.openDocument === 'function') {
+          global.HubConfigurationCenter.openDocument(id);
+        }
+      });
+    });
+    _root.querySelectorAll('.tmpl-act-cfg-workflow').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        global._hubOpenCfgSection = 'workflows';
+        if (typeof global.switchTab === 'function') global.switchTab('hub-configuration');
+        if (typeof global.streamlineModal?.alert === 'function') {
+          await global.streamlineModal.alert({
+            title: 'Add to workflow',
+            body:
+              'Open a workflow draft, select a Generate Document or Sign node, and choose “' +
+              (btn.dataset.cfgDocName || 'this template') +
+              '” in the Document template picker. The same cfg document id is stored on the node — nothing is copied into form_templates.',
+          });
+        }
+      });
+    });
+    _root.querySelectorAll('.tmpl-act-cfg-request-type').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        global._hubOpenCfgSection = 'request_types';
+        if (typeof global.switchTab === 'function') global.switchTab('hub-configuration');
+        if (typeof global.streamlineModal?.alert === 'function') {
+          await global.streamlineModal.alert({
+            title: 'Add to request type',
+            body: 'Open a request type draft and attach the NDA workflow that references this published document. Document identity stays in cfg_definitions.',
+          });
+        }
+      });
+    });
+    _root.querySelectorAll('.tmpl-act-cfg-launch').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (typeof global.switchTab === 'function') global.switchTab('hub-new-request');
+        if (typeof global.streamlineModal?.alert === 'function') {
+          await global.streamlineModal.alert({
+            title: 'Create request',
+            body:
+              'Choose the NDA Request (or a request type whose workflow uses “' +
+              (btn.dataset.cfgDocName || 'this template') +
+              '”). The published cfg document id is used at generate/sign time.',
+          });
+        }
+      });
+    });
+    _root.querySelectorAll('.tmpl-act-cfg-usage').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const key = btn.dataset.cfgDocKey || '';
+        const id = btn.dataset.cfgDocId || '';
+        async function listKind(kindPath) {
+          try {
+            const res = await hubFetch('/hub/configuration/' + kindPath);
+            if (!res.ok) return [];
+            const data = await res.json().catch(() => ({}));
+            return data.definitions || [];
+          } catch {
+            return [];
+          }
+        }
+        const workflows = await listKind('workflows');
+        const requestTypes = await listKind('request-types');
+        const usedInWf = [];
+        for (const w of workflows) {
+          try {
+            const detailRes = await hubFetch('/hub/configuration/workflows/' + encodeURIComponent(w.id));
+            if (!detailRes.ok) continue;
+            const detail = await detailRes.json().catch(() => ({}));
+            const def = detail.definition || {};
+            const payload =
+              (def.published_version && def.published_version.payload_json) ||
+              (def.draft_version && def.draft_version.payload_json) ||
+              {};
+            const nodes = payload.nodes || [];
+            if (nodes.some((n) => n.config && String(n.config.document_definition_id) === String(id))) {
+              usedInWf.push(w.name || w.key);
+            }
+          } catch {
+            /* skip */
+          }
+        }
+        const usedInRt = requestTypes
+          .filter((r) => r.status === 'published')
+          .map((r) => r.name || r.key);
+        const body =
+          'Document: ' +
+          (key || id) +
+          '\n\nWorkflows referencing this template:\n' +
+          (usedInWf.length ? usedInWf.map((n) => '• ' + n).join('\n') : '• None detected yet') +
+          '\n\nPublished request types (use via attached NDA workflow):\n' +
+          (usedInRt.length ? usedInRt.map((n) => '• ' + n).join('\n') : '• None');
+        if (typeof global.streamlineModal?.alert === 'function') {
+          await global.streamlineModal.alert({ title: 'Document usage', body });
+        } else {
+          alert(body);
+        }
+      });
+    });
+  }
+
   async function renderRegistry() {
     if (!_root) return;
     updateWorkflowPageHead();
@@ -2188,13 +2375,16 @@
     try {
       const allTemplates = await apiListTemplates();
       const templates = filterTemplatesForContext(allTemplates);
+      const cfgDocs = space === 'documents' ? await apiListPublishedCfgDocuments() : [];
       const emptyHint =
-        templates.length === 0
+        templates.length === 0 && !(space === 'documents' && cfgDocs.length)
           ? `No ${meta.title.toLowerCase()} templates yet. ${manage ? `Create one with "${meta.newLabel}".` : 'Ask an admin to create templates.'}`
           : '';
       const rows =
         templates.length === 0
-          ? `<tr><td colspan="8" class="hub-empty">${emptyHint}</td></tr>`
+          ? space === 'documents' && cfgDocs.length
+            ? `<tr><td colspan="8" class="hub-sub">No workspace document-record drafts in form_templates. Published configuration templates are listed below.</td></tr>`
+            : `<tr><td colspan="8" class="hub-empty">${emptyHint}</td></tr>`
           : templates
               .map((t) => {
                 const pub = t.published_version_number ? `v${t.published_version_number}` : '—';
@@ -2231,13 +2421,26 @@
               })
               .join('');
 
+      const workspaceHeading =
+        space === 'documents'
+          ? 'Workspace document record templates'
+          : space === 'forms'
+            ? 'Form templates'
+            : `${esc(meta.title)} templates`;
+      const workspaceSub =
+        space === 'documents'
+          ? 'Optional workspace drafts stored in <code>form_templates</code> (document records). Authoritative published templates are listed in the section below.'
+          : space === 'forms'
+            ? 'Data-entry form templates and active form records for this space.'
+            : `Showing templates assigned to the <strong>${esc(space)}</strong> space only.`;
+
       _root.innerHTML = `
         ${renderContextBanner()}
         <div class="hub-panel tmpl-panel">
           <div class="hub-panel-head">
             <div>
-              <h2>${esc(meta.title)} templates</h2>
-              <p class="hub-sub" style="margin:4px 0 0">Showing templates assigned to the <strong>${esc(space)}</strong> space only.</p>
+              <h2>${workspaceHeading}</h2>
+              <p class="hub-sub" style="margin:4px 0 0">${workspaceSub}</p>
             </div>
             <div class="hub-settings-actions">
               ${manage ? `<button type="button" class="hub-btn hub-btn-primary" id="tmplNewBtn">${esc(meta.newLabel)}</button>` : '<span class="hub-sub">View only — admin required to edit</span>'}
@@ -2254,10 +2457,12 @@
             </div>
           </div>
         </div>
+        ${space === 'documents' ? cfgPublishedDocsSectionHtml(cfgDocs) : ''}
         <div id="tmplModalHost"></div>`;
 
       if (manage) _root.querySelector('#tmplNewBtn')?.addEventListener('click', () => openNewTemplateModal());
       wireRegistryActions();
+      if (space === 'documents') await wireCfgPublishedDocActions();
     } catch (err) {
       _root.innerHTML = renderApiErrorPanel(err, 'Form & workflow templates');
       _root.querySelector('#tmplRetryBtn')?.addEventListener('click', () => renderRegistry());

@@ -819,15 +819,19 @@
       const portalTab = el.dataset.portalTab;
       const mgmt = el.dataset.mgmtSection;
       let active = false;
+      // Exact hub-tab match only (avoids Forms staying active on Documents).
       if (hubTab && hubTab === tabName) active = true;
+      // Request detail keeps Request Queue highlighted.
+      if (tabName === 'hub-request-detail' && hubTab === 'hub-requests') active = true;
+      // Nested Forms approval-routes still highlight Forms (callers pass hub-forms).
+      // Portal/legacy tabs: exact portal tab; management requires matching section.
       if (portalTab && portalTab === tabName) {
-        if (tabName === 'management' && mgmt) {
-          active = (opts.mgmtSection || 'vendor') === mgmt;
-        } else if (tabName !== 'management') {
+        if (tabName === 'management') {
+          active = !!mgmt && (opts.mgmtSection || 'vendor') === mgmt;
+        } else {
           active = true;
         }
       }
-      if (tabName === 'hub-request-detail' && hubTab === 'hub-requests') active = true;
       el.classList.toggle('is-active', active);
     });
   }
@@ -2088,6 +2092,14 @@
     if (navBtn) navBtn.hidden = false;
     if (global.HubConfigurationCenter && typeof global.HubConfigurationCenter.init === 'function') {
       await global.HubConfigurationCenter.init();
+      if (global._hubOpenCfgDocumentId && typeof global.HubConfigurationCenter.openDocument === 'function') {
+        const id = global._hubOpenCfgDocumentId;
+        global._hubOpenCfgDocumentId = null;
+        await global.HubConfigurationCenter.openDocument(id);
+      } else if (global._hubOpenCfgSection && typeof global.HubConfigurationCenter.openDocument === 'function') {
+        // Section-only navigation already applied inside init via root._hubOpenCfgSection
+        global._hubOpenCfgSection = null;
+      }
     } else {
       root.innerHTML = '<div class="hub-empty">Configuration Center failed to load.</div>';
     }
@@ -2131,7 +2143,8 @@
     }
     const pageTab = tabName === 'hub-workflows' ? 'hub-forms' : tabName;
     showHubPage(pageTab);
-    setSidebarForTab('hub-forms');
+    // Documents must highlight Documents; workflows share Forms; Forms highlights Forms.
+    setSidebarForTab(pageTab === 'hub-documents' ? 'hub-documents' : 'hub-forms');
     updateTopbarUser();
     await loadPermissionsFromMe();
     applyHubNavPermissions();
