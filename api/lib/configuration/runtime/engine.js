@@ -417,6 +417,8 @@ async function executeAutomaticNode(client, instance, node, context) {
     const result = evaluateCondition(condition, {
       formSubmission: context.formSubmission,
       request: context.request,
+      vendor: context.vendor,
+      organization: context.organization,
       workflowInstance: instance,
       currentUser: context.currentUser,
       customVariables: context.customVariables,
@@ -428,6 +430,14 @@ async function executeAutomaticNode(client, instance, node, context) {
       outcome_key: result.value ? 'yes' : 'no',
       condition_result: result,
       error: result.ok ? null : result.error,
+    };
+  }
+  if (type === 'logic.update_vendor') {
+    const updated = await applyUpdateVendor(client, instance, node, context);
+    return {
+      ok: true,
+      outputs: updated || { applied: false },
+      outcome_key: 'default',
     };
   }
   if (type.startsWith('logic.')) {
@@ -613,6 +623,8 @@ async function advanceInstance(instanceId, { actorEmail, fromNodeKey, outcomeKey
         const cond = evaluateCondition(e.condition, {
           formSubmission: context.formSubmission,
           request: context.request,
+          vendor: context.vendor,
+          organization: context.organization,
           runtimeValues: { ...(context.runtimeValues || {}), ...(result.outputs || {}) },
         });
         if (cond.ok && cond.value) {
@@ -1025,7 +1037,12 @@ async function retryFailedNode({ instanceId, actorEmail }) {
 async function syncVendorNdaOnComplete(client, instance) {
   const ctx = instance.context_json || {};
   const values = (ctx.formSubmission && ctx.formSubmission.values) || {};
-  const vendorRef = values.vendor_ref || values.vendor_reference || values.vendor_id || null;
+  const vendorRef =
+    (ctx.vendor && ctx.vendor.vendor_ref) ||
+    values.vendor_ref ||
+    values.vendor_reference ||
+    values.vendor_id ||
+    null;
   if (!vendorRef) return null;
   try {
     const { readVendorRecord, writeVendorRecord } = require('../../vendor/db/postgres');
@@ -1049,6 +1066,63 @@ async function syncVendorNdaOnComplete(client, instance) {
   } catch (err) {
     console.warn('[cfg-runtime] syncVendorNdaOnComplete', err.message || err);
     return null;
+  }
+}
+
+async function applyUpdateVendor(client, instance, node, context) {
+  const cfg = node.config || {};
+  const { resolveValue } = require('../variables/resolver');
+  const vendorRef =
+    resolveValue(cfg.vendor_ref_source || 'vendor.vendor_ref', {
+      vendor: context.vendor,
+      formSubmission: context.formSubmission,
+      request: context.request,
+      runtimeValues: context.runtimeValues,
+    }) ||
+    (context.vendor && context.vendor.vendor_ref) ||
+    (context.formSubmission && context.formSubmission.values && context.formSubmission.values.vendor_ref);
+  if (!vendorRef) {
+    return { applied: false, reason: 'missing_vendor_ref' };
+  }
+  const field = String(cfg.field || 'nda_status').toLowerCase();
+  const value = cfg.value != null ? String(cfg.value) : 'approved';
+  const docType = field === 'msa_status' || field === 'msa' ? 'msa' : field === 'nda_status' || field === 'nda' ? 'nda' : null;
+  if (!docType) {
+    return { applied: false, reason: 'unsupported_field', field };
+  }
+  try {
+    const { readVendorRecord, writeVendorRecord } = require('../../vendor/db/postgres');
+    const { updateDocumentStatus } = require('../../vendor/documents');
+    const found = await readVendorRecord(String(vendorRef).trim());
+    if (!found || !found.record) return { applied: false, reason: 'vendor_not_found', vendor_ref: vendorRef };
+    const actor = { email: 'system@workflow', name: 'Workflow runtime' };
+    const status = value === 'approved' || value === 'complete' ? 'approved' : value;
+    const result = updateDocumentStatus(found.record, docType, status, actor, {
+      note: cfg.audit_note || `${docType.toUpperCase()} updated via workflow node ${node.key}`,
+    });
+    if (!result.ok) return { applied: false, reason: result.error || 'update_failed' };
+    await writeVendorRecord(String(vendorRef).trim(), result.record);
+    await store.writeAudit(client, {
+      actor_email: 'system@workflow',
+      action: 'workflow.vendor_field_updated',
+      definition_kind: 'workflow',
+      after_summary: {
+        vendor_ref: vendorRef,
+        instance_id: instance.id,
+        field,
+        value: status,
+        node_key: node.key,
+      },
+      meta_json: { related_request_id: instance.related_request_id || null },
+    });
+    if (context.vendor) {
+      if (docType === 'nda') context.vendor.nda_status = status;
+      if (docType === 'msa') context.vendor.msa_status = status;
+    }
+    return { applied: true, vendor_ref: vendorRef, field, value: status };
+  } catch (err) {
+    console.warn('[cfg-runtime] applyUpdateVendor', err.message || err);
+    return { applied: false, reason: String(err.message || err).slice(0, 200) };
   }
 }
 

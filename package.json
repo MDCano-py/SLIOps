@@ -80,6 +80,7 @@
     "security:wos97-functional-workflow-connection-authoring-test": "node scripts/security/wos97-functional-workflow-connection-authoring-test.js",
     "security:wos98-config-vendor-nda-e2e-test": "node scripts/security/wos98-config-vendor-nda-e2e-test.js",
     "security:wos98-nav-documents-bridge-test": "node scripts/security/wos98-nav-documents-bridge-test.js",
+    "security:wos98-vendor-contract-automation-test": "node scripts/security/wos98-vendor-contract-automation-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",
     "vendor-master:test": "node scripts/vendor-master-test.js",

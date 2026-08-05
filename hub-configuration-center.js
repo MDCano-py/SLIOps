@@ -377,12 +377,20 @@
         type: 'button',
         className: 'hub-btn',
         text: 'Repair NDA wiring',
-        onclick: async () => {
+        title: 'Diagnostic recovery — POST /hub/configuration/repair-nda-wiring (does not navigate)',
+        'data-cfg-action': 'repair-nda-wiring',
+        onclick: async (ev) => {
+          if (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+          }
           try {
             const res = await hubFetch('/hub/configuration/repair-nda-wiring', { method: 'POST', body: {} });
-            setMsg('Repaired ' + ((res.repaired && res.repaired.length) || 0) + ' NDA definition(s).');
+            const items = (res && res.repaired) || [];
+            const summary = items.map((r) => (r.key || '?') + ':' + (r.status || 'ok')).join(', ') || 'nothing to repair';
+            setMsg('Repair complete (API POST). ' + summary);
           } catch (err) {
-            setMsg(err.message || 'Repair failed', true);
+            setMsg((err && err.message) || 'Repair failed', true);
           }
           refresh();
         },
@@ -1135,40 +1143,54 @@
           } else if (key === 'vendor_onboarding') {
             payload = {
               nodes: [
-                { key: 'start', type: 'trigger.request_created', name: 'Vendor onboarding started', x: 60, y: 80 },
+                { key: 'start', type: 'trigger.vendor_request_submitted', name: 'Vendor request submitted', x: 60, y: 80 },
                 {
-                  key: 'fill',
-                  type: 'human.fill',
-                  name: 'Vendor information',
+                  key: 'check_nda',
+                  type: 'logic.condition',
+                  name: 'NDA required?',
                   x: 300,
                   y: 80,
-                  config: { assignment: { mode: 'request_creator', fallback: 'hub_admin' } },
+                  config: {
+                    outcomes: [
+                      { key: 'yes', label: 'Yes' },
+                      { key: 'no', label: 'No' },
+                    ],
+                    condition: {
+                      all: [{ left: { type: 'variable', key: 'vendor.nda_required' }, operator: 'is_true' }],
+                    },
+                  },
+                },
+                {
+                  key: 'check_msa',
+                  type: 'logic.condition',
+                  name: 'MSA required?',
+                  x: 540,
+                  y: 80,
+                  config: {
+                    outcomes: [
+                      { key: 'yes', label: 'Yes' },
+                      { key: 'no', label: 'No' },
+                    ],
+                    condition: {
+                      all: [{ left: { type: 'variable', key: 'vendor.msa_required' }, operator: 'is_true' }],
+                    },
+                  },
                 },
                 {
                   key: 'ops',
                   type: 'human.review',
                   name: 'Operations review',
-                  x: 540,
+                  x: 780,
                   y: 80,
                   config: { assignment: { mode: 'role', role_key: 'manager', strategy: 'shared_queue', fallback: 'hub_admin' } },
                 },
-                {
-                  key: 'acct',
-                  type: 'human.review',
-                  name: 'Accounting review',
-                  x: 780,
-                  y: 80,
-                  config: { assignment: { mode: 'role', role_key: 'ap', strategy: 'shared_queue', fallback: 'hub_admin' } },
-                },
                 { key: 'done', type: 'terminal.complete', name: 'Complete', x: 1020, y: 80 },
-                { key: 'reject', type: 'terminal.reject', name: 'Rejected', x: 780, y: 220 },
               ],
               connections: [
-                { key: 'c1', source: 'start', target: 'fill', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 0 },
-                { key: 'c2', source: 'fill', target: 'ops', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 1 },
-                { key: 'c3', source: 'ops', target: 'acct', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 2 },
-                { key: 'c4', source: 'acct', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 3 },
-                { key: 'c5', source: 'acct', target: 'reject', source_handle: 'reject', target_handle: 'in', outcome_key: 'reject', label: 'Rejected', sort_order: 4 },
+                { key: 'c1', source: 'start', target: 'check_nda', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 0 },
+                { key: 'c2', source: 'check_nda', target: 'check_msa', source_handle: 'no', target_handle: 'in', outcome_key: 'no', label: 'No', sort_order: 1 },
+                { key: 'c3', source: 'check_msa', target: 'ops', source_handle: 'no', target_handle: 'in', outcome_key: 'no', label: 'No', sort_order: 2 },
+                { key: 'c4', source: 'ops', target: 'done', source_handle: 'out', target_handle: 'in', outcome_key: 'default', sort_order: 3 },
               ],
             };
           }

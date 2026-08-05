@@ -95,11 +95,25 @@ function vendorFormPayload() {
         ],
       },
       {
+        key: 'nda_required',
+        type: 'checkbox',
+        label: 'NDA required',
+        section_key: 'vendor',
+        order: 3,
+      },
+      {
+        key: 'msa_required',
+        type: 'checkbox',
+        label: 'MSA required',
+        section_key: 'vendor',
+        order: 4,
+      },
+      {
         key: 'insurance_certificate',
         type: 'file_upload',
         label: 'Insurance certificate',
         section_key: 'docs',
-        order: 3,
+        order: 5,
         visibility_condition: {
           all: [
             {
@@ -412,28 +426,392 @@ function purchaseWorkflowPayload() {
   };
 }
 
-function vendorWorkflowPayload() {
+function msaDocumentPayload() {
+  const blocks = [
+    { type: 'heading', text: 'Master Service Agreement' },
+    {
+      type: 'paragraph',
+      text:
+        'This Master Service Agreement is entered into as of {{date.today}} between {{organization.legal_name}} and {{vendor.company_name}} ({{vendor.vendor_ref}}).',
+    },
+    {
+      type: 'paragraph',
+      text: 'Primary contact: {{vendor.contact_name}} <{{vendor.contact_email}}>.',
+    },
+    { type: 'divider', text: '' },
+    { type: 'signature', text: 'Vendor signature' },
+    { type: 'acknowledgement', text: 'I agree to the terms of this Master Service Agreement.' },
+  ];
+  const body_html = blocks
+    .map((b) => {
+      if (b.type === 'heading') return `<h1>${b.text}</h1>`;
+      if (b.type === 'paragraph') return `<p>${b.text}</p>`;
+      if (b.type === 'divider') return '<hr>';
+      if (b.type === 'signature') return `<div class="cfg-doc-sig">Signature: ______________________ (${b.text || ''})</div>`;
+      if (b.type === 'acknowledgement') return `<div class="cfg-doc-sig">☐ ${b.text || 'I acknowledge'}</div>`;
+      return `<p>${b.text || ''}</p>`;
+    })
+    .join('\n');
   return {
+    title: 'Master Service Agreement',
+    document_type: 'msa',
+    blocks,
+    body_html,
+    footer_text: 'Confidential — Streamline Operations',
+    signers: [
+      { key: 'internal', role: 'legal', order: 1, allow_typed: true, require_review: true },
+      { key: 'external', role: 'client', order: 2, allow_typed: true, require_drawn: false, require_review: true },
+    ],
+    signing_mode: 'sequential',
+    pdf_status: 'unavailable',
+    pdf_message: 'Final sealed PDF generation is not available in this release.',
+  };
+}
+
+function boolCondition(variableKey) {
+  return {
+    all: [
+      {
+        left: { type: 'variable', key: variableKey },
+        operator: 'is_true',
+        right: { type: 'literal', value: true },
+      },
+    ],
+  };
+}
+
+/**
+ * Vendor onboarding with MSA/NDA as workflow conditions (not hardcoded).
+ * Sequence: trigger → NDA branch? → MSA branch? → docs/ops → complete.
+ * Both true runs NDA then MSA (administrator can reconnect for parallel later).
+ */
+function vendorWorkflowPayload(ndaDocumentId, msaDocumentId) {
+  const ndaCfg = ndaDocumentId ? { document_definition_id: ndaDocumentId } : {};
+  const msaCfg = msaDocumentId ? { document_definition_id: msaDocumentId } : {};
+  return {
+    trigger: 'vendor.request.submitted',
     nodes: [
-      { key: 'start', type: 'trigger.request_created', name: 'Vendor onboarding started', x: 80, y: 40 },
-      { key: 'fill', type: 'human.fill', name: 'Vendor information', x: 80, y: 140, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'upload', type: 'human.upload', name: 'Required document upload', x: 80, y: 240, config: { assignee_role: 'requester', assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'ops', type: 'human.review', name: 'Operations review', x: 80, y: 340, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'acct', type: 'human.review', name: 'Accounting review', x: 80, y: 440, config: { assignee_role: 'ap', assignment: { mode: 'role', role_key: 'ap', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'decision', type: 'human.approve', name: 'Approve or reject', x: 80, y: 540, config: { assignee_role: 'manager', assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' } } },
-      { key: 'activate', type: 'logic.update_request', name: 'Vendor activation', x: 80, y: 640 },
-      { key: 'complete', type: 'terminal.complete', name: 'Completion', x: 80, y: 740 },
-      { key: 'reject', type: 'terminal.reject', name: 'Rejected', x: 280, y: 640 },
+      {
+        key: 'start',
+        type: 'trigger.vendor_request_submitted',
+        name: 'Vendor request submitted',
+        x: 80,
+        y: 40,
+      },
+      {
+        key: 'check_nda',
+        type: 'logic.condition',
+        name: 'NDA required?',
+        x: 80,
+        y: 140,
+        config: {
+          outcomes: [
+            { key: 'yes', label: 'Yes' },
+            { key: 'no', label: 'No' },
+          ],
+          condition: boolCondition('vendor.nda_required'),
+        },
+      },
+      {
+        key: 'gen_nda',
+        type: 'document.generate',
+        name: 'Generate Mutual NDA',
+        x: 320,
+        y: 80,
+        config: ndaCfg,
+      },
+      {
+        key: 'sign_nda_int',
+        type: 'human.sign',
+        name: 'Internal NDA signature',
+        x: 520,
+        y: 80,
+        config: {
+          assignee_role: 'legal',
+          assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' },
+          ...ndaCfg,
+        },
+      },
+      {
+        key: 'sign_nda_ext',
+        type: 'human.sign',
+        name: 'Vendor NDA signature',
+        x: 720,
+        y: 80,
+        config: {
+          assignee_role: 'client',
+          assignment: {
+            mode: 'external_participant',
+            form_field_key: 'contact_email',
+            fallback: 'hub_admin',
+            strategy: 'shared_queue',
+          },
+          ...ndaCfg,
+        },
+      },
+      {
+        key: 'update_nda',
+        type: 'logic.update_vendor',
+        name: 'Set NDA approved',
+        x: 920,
+        y: 80,
+        config: {
+          vendor_ref_source: 'vendor.vendor_ref',
+          field: 'nda_status',
+          value: 'approved',
+          audit_note: 'NDA completed via vendor onboarding workflow',
+        },
+      },
+      {
+        key: 'check_msa',
+        type: 'logic.condition',
+        name: 'MSA required?',
+        x: 80,
+        y: 280,
+        config: {
+          outcomes: [
+            { key: 'yes', label: 'Yes' },
+            { key: 'no', label: 'No' },
+          ],
+          condition: boolCondition('vendor.msa_required'),
+        },
+      },
+      {
+        key: 'gen_msa',
+        type: 'document.generate',
+        name: 'Generate MSA',
+        x: 320,
+        y: 280,
+        config: msaCfg,
+      },
+      {
+        key: 'sign_msa_int',
+        type: 'human.sign',
+        name: 'Internal MSA signature',
+        x: 520,
+        y: 280,
+        config: {
+          assignee_role: 'legal',
+          assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin', strategy: 'shared_queue' },
+          ...msaCfg,
+        },
+      },
+      {
+        key: 'sign_msa_ext',
+        type: 'human.sign',
+        name: 'Vendor MSA signature',
+        x: 720,
+        y: 280,
+        config: {
+          assignee_role: 'client',
+          assignment: {
+            mode: 'external_participant',
+            form_field_key: 'contact_email',
+            fallback: 'hub_admin',
+            strategy: 'shared_queue',
+          },
+          ...msaCfg,
+        },
+      },
+      {
+        key: 'update_msa',
+        type: 'logic.update_vendor',
+        name: 'Set MSA approved',
+        x: 920,
+        y: 280,
+        config: {
+          vendor_ref_source: 'vendor.vendor_ref',
+          field: 'msa_status',
+          value: 'approved',
+          audit_note: 'MSA completed via vendor onboarding workflow',
+        },
+      },
+      {
+        key: 'upload',
+        type: 'human.upload',
+        name: 'Required document upload',
+        x: 80,
+        y: 420,
+        config: {
+          assignee_role: 'requester',
+          assignment: { mode: 'request_creator', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
+      {
+        key: 'ops',
+        type: 'human.review',
+        name: 'Operations review',
+        x: 80,
+        y: 520,
+        config: {
+          assignee_role: 'manager',
+          assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
+      {
+        key: 'acct',
+        type: 'human.review',
+        name: 'Accounting review',
+        x: 80,
+        y: 620,
+        config: {
+          assignee_role: 'ap',
+          assignment: { mode: 'role', role_key: 'ap', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
+      {
+        key: 'decision',
+        type: 'human.approve',
+        name: 'Approve or reject',
+        x: 80,
+        y: 720,
+        config: {
+          assignee_role: 'manager',
+          assignment: { mode: 'role', role_key: 'manager', fallback: 'hub_admin', strategy: 'shared_queue' },
+        },
+      },
+      { key: 'activate', type: 'logic.update_request', name: 'Vendor activation', x: 80, y: 820 },
+      { key: 'complete', type: 'terminal.complete', name: 'Completion', x: 80, y: 920 },
+      { key: 'reject', type: 'terminal.reject', name: 'Rejected', x: 320, y: 820 },
+      { key: 'nda_declined', type: 'terminal.reject', name: 'NDA declined', x: 720, y: 200 },
+      { key: 'msa_declined', type: 'terminal.reject', name: 'MSA declined', x: 720, y: 400 },
     ],
     connections: [
-      { key: 'c1', source: 'start', target: 'fill', outcome_key: 'default', sort_order: 0 },
-      { key: 'c2', source: 'fill', target: 'upload', outcome_key: 'default', sort_order: 0 },
-      { key: 'c3', source: 'upload', target: 'ops', outcome_key: 'default', sort_order: 0 },
-      { key: 'c4', source: 'ops', target: 'acct', outcome_key: 'default', sort_order: 0 },
-      { key: 'c5', source: 'acct', target: 'decision', outcome_key: 'default', sort_order: 0 },
-      { key: 'c6', source: 'decision', target: 'activate', outcome_key: 'approved', label: 'Approved', sort_order: 0 },
-      { key: 'c7', source: 'decision', target: 'reject', outcome_key: 'rejected', label: 'Rejected', sort_order: 1 },
-      { key: 'c8', source: 'activate', target: 'complete', outcome_key: 'default', sort_order: 0 },
+      { key: 'c_start', source: 'start', target: 'check_nda', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      {
+        key: 'c_nda_yes',
+        source: 'check_nda',
+        target: 'gen_nda',
+        source_handle: 'yes',
+        outcome_key: 'yes',
+        label: 'Yes',
+        sort_order: 0,
+      },
+      {
+        key: 'c_nda_no',
+        source: 'check_nda',
+        target: 'check_msa',
+        source_handle: 'no',
+        outcome_key: 'no',
+        label: 'No',
+        sort_order: 1,
+      },
+      { key: 'c_gen_nda', source: 'gen_nda', target: 'sign_nda_int', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      {
+        key: 'c_nda_int_ok',
+        source: 'sign_nda_int',
+        target: 'sign_nda_ext',
+        source_handle: 'signed',
+        outcome_key: 'signed',
+        label: 'Signed',
+        sort_order: 0,
+      },
+      {
+        key: 'c_nda_int_no',
+        source: 'sign_nda_int',
+        target: 'nda_declined',
+        source_handle: 'declined',
+        outcome_key: 'declined',
+        label: 'Declined',
+        sort_order: 1,
+      },
+      {
+        key: 'c_nda_ext_ok',
+        source: 'sign_nda_ext',
+        target: 'update_nda',
+        source_handle: 'signed',
+        outcome_key: 'signed',
+        label: 'Signed',
+        sort_order: 0,
+      },
+      {
+        key: 'c_nda_ext_no',
+        source: 'sign_nda_ext',
+        target: 'nda_declined',
+        source_handle: 'declined',
+        outcome_key: 'declined',
+        label: 'Declined',
+        sort_order: 1,
+      },
+      { key: 'c_nda_done', source: 'update_nda', target: 'check_msa', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      {
+        key: 'c_msa_yes',
+        source: 'check_msa',
+        target: 'gen_msa',
+        source_handle: 'yes',
+        outcome_key: 'yes',
+        label: 'Yes',
+        sort_order: 0,
+      },
+      {
+        key: 'c_msa_no',
+        source: 'check_msa',
+        target: 'upload',
+        source_handle: 'no',
+        outcome_key: 'no',
+        label: 'No',
+        sort_order: 1,
+      },
+      { key: 'c_gen_msa', source: 'gen_msa', target: 'sign_msa_int', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      {
+        key: 'c_msa_int_ok',
+        source: 'sign_msa_int',
+        target: 'sign_msa_ext',
+        source_handle: 'signed',
+        outcome_key: 'signed',
+        label: 'Signed',
+        sort_order: 0,
+      },
+      {
+        key: 'c_msa_int_no',
+        source: 'sign_msa_int',
+        target: 'msa_declined',
+        source_handle: 'declined',
+        outcome_key: 'declined',
+        label: 'Declined',
+        sort_order: 1,
+      },
+      {
+        key: 'c_msa_ext_ok',
+        source: 'sign_msa_ext',
+        target: 'update_msa',
+        source_handle: 'signed',
+        outcome_key: 'signed',
+        label: 'Signed',
+        sort_order: 0,
+      },
+      {
+        key: 'c_msa_ext_no',
+        source: 'sign_msa_ext',
+        target: 'msa_declined',
+        source_handle: 'declined',
+        outcome_key: 'declined',
+        label: 'Declined',
+        sort_order: 1,
+      },
+      { key: 'c_msa_done', source: 'update_msa', target: 'upload', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      { key: 'c_up', source: 'upload', target: 'ops', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      { key: 'c_ops', source: 'ops', target: 'acct', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      { key: 'c_acct', source: 'acct', target: 'decision', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
+      {
+        key: 'c_ok',
+        source: 'decision',
+        target: 'activate',
+        source_handle: 'approved',
+        outcome_key: 'approved',
+        label: 'Approved',
+        sort_order: 0,
+      },
+      {
+        key: 'c_no',
+        source: 'decision',
+        target: 'reject',
+        source_handle: 'rejected',
+        outcome_key: 'rejected',
+        label: 'Rejected',
+        sort_order: 1,
+      },
+      { key: 'c_act', source: 'activate', target: 'complete', source_handle: 'out', outcome_key: 'default', sort_order: 0 },
     ],
   };
 }
@@ -524,10 +902,24 @@ async function seedDefaultTemplates(actorEmail) {
       publish: true,
     })
   );
+  results.push(
+    await ensureDefinition({
+      kind: 'document',
+      key: 'msa_template',
+      name: 'Master Service Agreement template',
+      description: 'Web MSA with variables and signature blocks',
+      payload: msaDocumentPayload(),
+      actorEmail,
+      publish: true,
+    })
+  );
 
-  const ndaDoc = (await store.listDefinitions({ kind: 'document' })).find((d) => d.key === 'mutual_nda_template');
+  const docs = await store.listDefinitions({ kind: 'document' });
+  const ndaDoc = docs.find((d) => d.key === 'mutual_nda_template');
+  const msaDoc = docs.find((d) => d.key === 'msa_template');
   const ndaForm = (await store.listDefinitions({ kind: 'form' })).find((d) => d.key === 'nda_counterparty_form');
   const ndaWfPayload = ndaWorkflowPayload(ndaDoc && ndaDoc.id);
+  const vendorWfPayload = vendorWorkflowPayload(ndaDoc && ndaDoc.id, msaDoc && msaDoc.id);
 
   results.push(
     await ensureDefinition({
@@ -556,8 +948,8 @@ async function seedDefaultTemplates(actorEmail) {
       kind: 'workflow',
       key: 'vendor_onboarding_workflow',
       name: 'Vendor onboarding workflow',
-      description: 'Vendor info → docs → ops/AP review → activation',
-      payload: vendorWorkflowPayload(),
+      description: 'Vendor request → NDA/MSA conditions → docs → ops/AP → activation',
+      payload: vendorWfPayload,
       actorEmail,
       publish: true,
     })
@@ -626,17 +1018,20 @@ async function seedDefaultTemplates(actorEmail) {
 }
 
 /**
- * Patch existing published seeds so NDA publish → workflow → request type is wired.
- * Safe to call repeatedly (idempotent).
+ * Patch existing published seeds so NDA/MSA → vendor onboarding workflow is wired.
+ * Diagnostic recovery only — seedDefaults should already create valid relationships.
+ * Safe to call repeatedly (idempotent); does not duplicate definitions.
  */
 async function repairNdaOperationalWiring(actorEmail) {
   const docs = await store.listDefinitions({ kind: 'document' });
   const forms = await store.listDefinitions({ kind: 'form' });
   const workflows = await store.listDefinitions({ kind: 'workflow' });
   const requestTypes = await store.listDefinitions({ kind: 'request_type' });
-  const ndaDoc = docs.find((d) => d.key === 'mutual_nda_template');
+  let ndaDoc = docs.find((d) => d.key === 'mutual_nda_template');
+  let msaDoc = docs.find((d) => d.key === 'msa_template');
   const ndaForm = forms.find((d) => d.key === 'nda_counterparty_form');
   const ndaWf = workflows.find((d) => d.key === 'nda_request_workflow');
+  const vendorWf = workflows.find((d) => d.key === 'vendor_onboarding_workflow');
   const ndaRt = requestTypes.find((d) => d.key === 'nda_request');
   const actions = [];
 
@@ -656,6 +1051,20 @@ async function repairNdaOperationalWiring(actorEmail) {
       acknowledgeWarnings: true,
     });
     actions.push({ key: def.key, status: 'repaired' });
+  }
+
+  if (!msaDoc) {
+    const created = await ensureDefinition({
+      kind: 'document',
+      key: 'msa_template',
+      name: 'Master Service Agreement template',
+      description: 'Web MSA with variables and signature blocks',
+      payload: msaDocumentPayload(),
+      actorEmail,
+      publish: true,
+    });
+    actions.push({ key: 'msa_template', status: created.status });
+    msaDoc = (await store.listDefinitions({ kind: 'document' })).find((d) => d.key === 'msa_template');
   }
 
   if (ndaWf && ndaDoc) {
@@ -696,6 +1105,44 @@ async function repairNdaOperationalWiring(actorEmail) {
     }
   }
 
+  if (msaDoc) {
+    const full = await store.getDefinition(msaDoc.id);
+    const payload = (full.published_version && full.published_version.payload_json) || {};
+    if (!Array.isArray(payload.blocks) || !payload.blocks.length) {
+      await publishPatched(msaDoc, msaDocumentPayload());
+    }
+  }
+
+  if (vendorWf && (ndaDoc || msaDoc)) {
+    const full = await store.getDefinition(vendorWf.id);
+    const current = (full.published_version && full.published_version.payload_json) || {};
+    const hasNdaCheck = (current.nodes || []).some((n) => n.key === 'check_nda');
+    const hasMsaCheck = (current.nodes || []).some((n) => n.key === 'check_msa');
+    const hasUpdateVendor = (current.nodes || []).some((n) => n.type === 'logic.update_vendor');
+    const genNda = (current.nodes || []).find((n) => n.key === 'gen_nda');
+    const needsNdaDoc =
+      ndaDoc &&
+      (!genNda || !(genNda.config && genNda.config.document_definition_id === ndaDoc.id));
+    if (!hasNdaCheck || !hasMsaCheck || !hasUpdateVendor || needsNdaDoc) {
+      await publishPatched(vendorWf, vendorWorkflowPayload(ndaDoc && ndaDoc.id, msaDoc && msaDoc.id));
+    }
+  } else if (!vendorWf && (ndaDoc || msaDoc)) {
+    const created = await ensureDefinition({
+      kind: 'workflow',
+      key: 'vendor_onboarding_workflow',
+      name: 'Vendor onboarding workflow',
+      description: 'Vendor request → NDA/MSA conditions → docs → ops/AP → activation',
+      payload: vendorWorkflowPayload(ndaDoc && ndaDoc.id, msaDoc && msaDoc.id),
+      actorEmail,
+      publish: true,
+    });
+    actions.push({ key: 'vendor_onboarding_workflow', status: created.status });
+  }
+
+  if (!actions.length) {
+    actions.push({ key: '_noop', status: 'already_wired' });
+  }
+
   return actions;
 }
 
@@ -706,7 +1153,9 @@ module.exports = {
   purchaseFormPayload,
   vendorFormPayload,
   ndaDocumentPayload,
+  msaDocumentPayload,
   ndaWorkflowPayload,
-  purchaseWorkflowPayload,
   vendorWorkflowPayload,
+  purchaseWorkflowPayload,
+  opsDashboardPayload,
 };

@@ -53,10 +53,16 @@ function resolveOne(key, ctx) {
     if (key.startsWith('current_user.')) {
       return getPath(context.currentUser || {}, key.slice('current_user.'.length));
     }
+    if (key.startsWith('vendor.')) {
+      return getPath(context.vendor || {}, key.slice('vendor.'.length));
+    }
     if (key === 'date.today') return new Date().toISOString().slice(0, 10);
     if (key === 'date.now') return new Date().toISOString();
     if (key === 'date.year') return new Date().getFullYear();
     if (key === 'date.month') return new Date().getMonth() + 1;
+  }
+  if (key.startsWith('vendor.')) {
+    return getPath(context.vendor || {}, key.slice('vendor.'.length));
   }
   if (isFormVariableKey(key)) return formValue(context.formSubmission, key);
   if (isCustomVariableKey(key)) {

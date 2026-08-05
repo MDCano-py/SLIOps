@@ -12589,14 +12589,14 @@ function goBack() {
                     <input type="checkbox" id="ven-msa">
                     <span class="vendor-check-label">
                       <strong>MSA Required</strong>
-                      <small>Master Service Agreement to be executed</small>
+                      <small>Starts the MSA branch in the vendor onboarding workflow when submitted</small>
                     </span>
                   </label>
                   <label class="vendor-check">
                     <input type="checkbox" id="ven-nda">
                     <span class="vendor-check-label">
                       <strong>NDA Required</strong>
-                      <small>Non-Disclosure Agreement to be executed</small>
+                      <small>Starts the Mutual NDA branch in the vendor onboarding workflow when submitted</small>
                     </span>
                   </label>
                 </div>
@@ -23974,7 +23974,17 @@ function goBack() {
     if (!records || records.length === 0) {
       try {
         const res = await mgmtFetch(proxyUrl('/vendors'));
-        if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          const detail = errBody.error || errBody.detail || errBody.code || '';
+          const isLocal =
+            (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ||
+            (window.__WOS_ENV__ && window.__WOS_ENV__.dev);
+          const msg = isLocal && detail
+            ? `Load failed: ${res.status} — ${detail}`
+            : `Load failed: ${res.status}`;
+          throw new Error(msg);
+        }
         const data = await res.json();
         records = data.records || [];
         vendorListCache = records;
@@ -25707,9 +25717,20 @@ function goBack() {
       }
       const data = await res.json();
       vendorListCache = [];
+      const docs = Array.isArray(data.documentsRequired) ? data.documentsRequired : [];
+      const wfLine = data.workflowStarted
+        ? `<div style="margin-top:10px;font-size:12px;color:var(--ink-soft);">Workflow started${data.workflow && data.workflow.workflow_instance_id ? ` · ${escapeHtml(String(data.workflow.workflow_instance_id).slice(0, 8))}…` : ''}</div>`
+        : `<div style="margin-top:10px;font-size:12px;color:var(--ink-mute);">Workflow not started${data.workflow && data.workflow.reason ? ` (${escapeHtml(data.workflow.reason)})` : ''}</div>`;
       document.getElementById('venReceipt').innerHTML = `
         <div style="font-size:11px;color:var(--ink-mute);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Reference Number</div>
         <div style="font-size:18px;font-weight:600;color:var(--teal-700);">${escapeHtml(data.refNumber)}</div>
+        <div style="margin-top:12px;font-size:12px;text-align:left;">
+          <div><strong>Request created</strong></div>
+          <div>NDA required: ${data.ndaRequired ? 'Yes' : 'No'} · MSA required: ${data.msaRequired ? 'Yes' : 'No'}</div>
+          <div>Documents: ${docs.length ? escapeHtml(docs.join(', ')) : 'None from checkboxes'}</div>
+          <div>Next action: ${escapeHtml(data.nextAction || data.actionRequired || '—')}</div>
+        </div>
+        ${wfLine}
       `;
       document.getElementById('mgmtNewView').style.display = 'none';
       document.getElementById('mgmtNewSuccess').style.display = '';

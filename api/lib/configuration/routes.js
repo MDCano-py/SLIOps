@@ -210,7 +210,50 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
     }
     try {
       const repaired = await repairNdaOperationalWiring(actorEmail);
-      json(res, 200, { repaired });
+      json(res, 200, { repaired, message: 'Diagnostic repair complete (idempotent).' });
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  if (path === '/hub/configuration/validate-wiring' && method === 'GET') {
+    if (!perms.canViewConfiguration(permissions, isAdmin)) {
+      json(res, 403, { error: 'Forbidden' });
+      return true;
+    }
+    try {
+      const docs = await store.listDefinitions({ kind: 'document' });
+      const workflows = await store.listDefinitions({ kind: 'workflow' });
+      const requestTypes = await store.listDefinitions({ kind: 'request_type' });
+      const ndaDoc = docs.find((d) => d.key === 'mutual_nda_template' && d.status === 'published');
+      const msaDoc = docs.find((d) => d.key === 'msa_template' && d.status === 'published');
+      const vendorWf = workflows.find((d) => d.key === 'vendor_onboarding_workflow' && d.status === 'published');
+      const ndaRt = requestTypes.find((d) => d.key === 'nda_request' && d.status === 'published');
+      const issues = [];
+      if (!ndaDoc) issues.push({ code: 'MISSING_NDA_DOC', severity: 'error', message: 'Published Mutual NDA template missing' });
+      if (!msaDoc) issues.push({ code: 'MISSING_MSA_DOC', severity: 'warning', message: 'Published MSA template missing' });
+      if (!vendorWf) {
+        issues.push({ code: 'MISSING_VENDOR_WORKFLOW', severity: 'error', message: 'Published vendor onboarding workflow missing' });
+      } else {
+        const full = await store.getDefinition(vendorWf.id);
+        const payload = (full.published_version && full.published_version.payload_json) || {};
+        const nodes = payload.nodes || [];
+        if (!nodes.some((n) => n.key === 'check_nda')) {
+          issues.push({ code: 'VENDOR_WF_NO_NDA_CONDITION', severity: 'error', message: 'Vendor workflow missing NDA condition node' });
+        }
+        if (!nodes.some((n) => n.key === 'check_msa')) {
+          issues.push({ code: 'VENDOR_WF_NO_MSA_CONDITION', severity: 'error', message: 'Vendor workflow missing MSA condition node' });
+        }
+      }
+      if (ndaRt) {
+        const full = await store.getDefinition(ndaRt.id);
+        const payload = (full.published_version && full.published_version.payload_json) || {};
+        if (!payload.workflow_definition_id) {
+          issues.push({ code: 'NDA_RT_NO_WORKFLOW', severity: 'error', message: 'NDA request type has no workflow_definition_id' });
+        }
+      }
+      json(res, 200, { ok: issues.filter((i) => i.severity === 'error').length === 0, issues });
     } catch (err) {
       storeError(res, err);
     }

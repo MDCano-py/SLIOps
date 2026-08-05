@@ -2939,13 +2939,19 @@ module.exports = async function handler(req, res) {
   const vendorDocFetchMatch = path.match(/^\/vendor-doc(?:\?.*)?$/);
 
   if (vendorMatch || vendorWorkflowMatch || vendorDocStatusMatch || vendorZipMatch || vendorRecordMatch || vendorDocMatch || vendorDocFetchMatch) {
-    // RBAC (production): enforce authenticated user permissions server-side.
-    // Vendor passcode sessions are dev-only and no longer the production security model.
+    // Prefer Hub SSO RBAC for Management UI (local/staging/production).
+    // Legacy vendor passcode sessions remain only when X-Vendor-Session is present.
     let ctx = null;
     const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
     const isWorkflowPost = vendorWorkflowMatch && req.method === 'POST';
     const isDocStatusPost = vendorDocStatusMatch && req.method === 'POST';
-    if (isProd && !isWorkflowPost && !isDocStatusPost) {
+    const vendorSessionHeader = req.headers['x-vendor-session'] || '';
+    const useLegacyVendorPasscode =
+      !!vendorSessionHeader && !!process.env.VENDOR_ACCESS_CODE && !auth.getActorEmail(req) && !isPortalAuthRelaxed(req);
+
+    if (useLegacyVendorPasscode) {
+      if (!requireVendorAuth(req, res)) return;
+    } else {
       const isRead =
         (vendorMatch && req.method === 'GET') ||
         (vendorZipMatch && req.method === 'GET') ||
@@ -2953,7 +2959,7 @@ module.exports = async function handler(req, res) {
         (vendorDocFetchMatch && req.method === 'GET');
       const needed = ['view_management'];
       if (isRead) {
-        needed.push('view_vendor_list', 'view_vendor_documents');
+        needed.push('view_vendor_list', 'view_vendor_documents', 'view_vendor_dashboard');
       }
       if (vendorMatch && req.method === 'POST' && !vendorMatch[1]) needed.push('submit_new_vendor');
       if (vendorMatch && req.method === 'PUT' && vendorMatch[1]) {
@@ -2962,16 +2968,13 @@ module.exports = async function handler(req, res) {
       if (vendorDocMatch && (req.method === 'POST' || req.method === 'DELETE')) needed.push('manage_vendor_documents');
       ctx = await requirePermissions(req, res, needed);
       if (!ctx) return;
-    } else {
-      if (!requireVendorAuth(req, res)) return;
     }
 
     const needsObjectStorage =
       (vendorDocMatch && (req.method === 'POST' || req.method === 'DELETE')) ||
       (vendorDocFetchMatch && req.method === 'GET') ||
-      (vendorZipMatch && req.method === 'GET') ||
-      (vendorMatch && req.method === 'GET') ||
-      (vendorRecordMatch && req.method === 'GET');
+      (vendorZipMatch && req.method === 'GET');
+    // Metadata list/detail must work without object storage (dashboard / All Vendors).
     if (needsObjectStorage && !objectStorage.isConfigured() && objectStorage.getStorageConfig().deployed) {
       return res.status(503).json({
         error: 'Object storage not configured',
@@ -2987,8 +2990,9 @@ module.exports = async function handler(req, res) {
           return res.status(400).json({ error: 'Invalid body' });
         }
 
+        const actorEmail = (ctx && ctx.actorEmail) || auth.getActorEmail(req) || null;
         const record = buildVendorRecordFromBody(body, {
-          actorEmail: auth.getActorEmail(req) || null,
+          actorEmail,
           actorName: req.headers['x-vercel-user-name'] || null,
         });
         enrichVendorRecord(record);
@@ -2998,8 +3002,22 @@ module.exports = async function handler(req, res) {
         notifyVendorWorkflowEvent({
           notifyKey: 'new_vendor_rebekah',
           record,
-          actor: auth.getActorEmail(req) || record.requestedBy,
+          actor: actorEmail || record.requestedBy,
         }).catch(err => console.error('[vendor-notify] create notify failed:', err));
+
+        let workflow = null;
+        try {
+          const { startVendorOnboardingWorkflow } = require('./lib/vendor/cfg-workflow-bridge');
+          workflow = await startVendorOnboardingWorkflow(record, actorEmail || record.requestedBy);
+          if (workflow && workflow.started && workflow.workflow_instance_id) {
+            record.cfgWorkflowInstanceId = workflow.workflow_instance_id;
+            record.cfgWorkflowState = workflow.state || null;
+            await writeVendorRecord(record.refNumber, record).catch(() => {});
+          }
+        } catch (err) {
+          console.error('[vendor] cfg workflow bridge failed:', err);
+          workflow = { started: false, reason: 'BRIDGE_ERROR', error: String(err.message || err).slice(0, 300) };
+        }
 
         return res.status(200).json({
           refNumber: record.refNumber,
@@ -3009,6 +3027,17 @@ module.exports = async function handler(req, res) {
           actionRequired: getVendorActionRequired(record),
           documentSummary: record.documentSummary,
           requiredDocumentsComplete: record.requiredDocumentsComplete,
+          msaRequired: !!record.msaRequired,
+          ndaRequired: !!record.ndaRequired,
+          requestCreated: true,
+          workflowStarted: !!(workflow && workflow.started),
+          workflow,
+          documentsRequired: (workflow && workflow.documents_required) || [
+            ...(record.ndaRequired ? ['Mutual NDA'] : []),
+            ...(record.msaRequired ? ['Master Service Agreement'] : []),
+          ],
+          currentAssignee: record.assignedTo || null,
+          nextAction: getVendorActionRequired(record),
         });
       }
 

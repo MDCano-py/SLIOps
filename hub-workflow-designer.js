@@ -1025,6 +1025,99 @@
           row.appendChild(inp);
           panes.General.appendChild(row);
         });
+
+        panes.General.appendChild(el('h5', { text: 'Condition variable' }));
+        panes.General.appendChild(
+          el('p', {
+            className: 'cfg-hint',
+            text: 'Pick a known workflow variable (e.g. vendor.nda_required). Do not type arbitrary expressions.',
+          })
+        );
+        const leaf =
+          selected.config.condition &&
+          selected.config.condition.all &&
+          selected.config.condition.all[0]
+            ? selected.config.condition.all[0]
+            : {
+                left: { type: 'variable', key: 'vendor.nda_required' },
+                operator: 'is_true',
+                right: { type: 'literal', value: true },
+              };
+        selected.config.condition = selected.config.condition || { all: [leaf] };
+        if (!selected.config.condition.all || !selected.config.condition.all[0]) {
+          selected.config.condition.all = [leaf];
+        }
+        const condLeaf = selected.config.condition.all[0];
+        const knownVars = [
+          'vendor.nda_required',
+          'vendor.msa_required',
+          'vendor.vendor_ref',
+          'vendor.company_name',
+          'vendor.contact_email',
+          'vendor.entity_type',
+          'vendor.po_required',
+          'vendor.state_tax_exempt',
+          'vendor.requested_credit_limit',
+          'vendor.nda_status',
+          'vendor.msa_status',
+          'form.nda_required',
+          'form.msa_required',
+          'form.vendor_ref',
+          'form.contact_email',
+          'form.legal_approved',
+          'request.priority',
+          'request.status',
+        ];
+        ((opts.catalogs && opts.catalogs.builtin_variables) || []).forEach((v) => {
+          if (v && v.key && knownVars.indexOf(v.key) === -1) knownVars.push(v.key);
+        });
+        const varSelect = el('select', {
+          className: 'cfg-input',
+          disabled: readOnly ? 'disabled' : null,
+          'aria-label': 'Condition source variable',
+        });
+        knownVars.forEach((k) => {
+          const opt = el('option', { value: k, text: k });
+          if ((condLeaf.left && condLeaf.left.key) === k) opt.selected = true;
+          varSelect.appendChild(opt);
+        });
+        varSelect.addEventListener('change', () => {
+          condLeaf.left = { type: 'variable', key: varSelect.value };
+          emitDirty();
+        });
+        panes.General.appendChild(varSelect);
+
+        const opSelect = el('select', {
+          className: 'cfg-input',
+          disabled: readOnly ? 'disabled' : null,
+          'aria-label': 'Condition operator',
+        });
+        ['is_true', 'is_false', 'equals', 'not_equals', 'is_empty', 'is_not_empty', 'contains'].forEach((op) => {
+          const opt = el('option', { value: op, text: op });
+          if (condLeaf.operator === op) opt.selected = true;
+          opSelect.appendChild(opt);
+        });
+        opSelect.addEventListener('change', () => {
+          condLeaf.operator = opSelect.value;
+          emitDirty();
+        });
+        panes.General.appendChild(opSelect);
+
+        if (condLeaf.operator === 'equals' || condLeaf.operator === 'not_equals' || condLeaf.operator === 'contains') {
+          const valInp = el('input', {
+            type: 'text',
+            className: 'cfg-input',
+            value: condLeaf.right && condLeaf.right.value != null ? String(condLeaf.right.value) : '',
+            disabled: readOnly ? 'disabled' : null,
+            placeholder: 'Expected value',
+            'aria-label': 'Expected value',
+          });
+          valInp.addEventListener('input', () => {
+            condLeaf.right = { type: 'literal', value: valInp.value };
+            emitDirty();
+          });
+          panes.General.appendChild(valInp);
+        }
       }
 
       // Outputs

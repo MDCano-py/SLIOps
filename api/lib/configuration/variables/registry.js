@@ -41,6 +41,24 @@ const BUILTIN_VARIABLES = Object.freeze([
   { key: 'date.now', category: 'date', label: 'Now (ISO datetime)', type: 'datetime' },
   { key: 'date.year', category: 'date', label: 'Year', type: 'number' },
   { key: 'date.month', category: 'date', label: 'Month', type: 'number' },
+
+  { key: 'vendor.vendor_ref', category: 'vendor', label: 'Vendor reference', type: 'string' },
+  { key: 'vendor.company_name', category: 'vendor', label: 'Vendor company name', type: 'string' },
+  { key: 'vendor.contact_name', category: 'vendor', label: 'Vendor contact name', type: 'string' },
+  { key: 'vendor.contact_email', category: 'vendor', label: 'Vendor contact email', type: 'string' },
+  { key: 'vendor.nda_required', category: 'vendor', label: 'NDA required', type: 'boolean' },
+  { key: 'vendor.msa_required', category: 'vendor', label: 'MSA required', type: 'boolean' },
+  { key: 'vendor.request_id', category: 'vendor', label: 'Vendor request id', type: 'string' },
+  { key: 'vendor.entity_type', category: 'vendor', label: 'Entity type', type: 'string' },
+  { key: 'vendor.po_required', category: 'vendor', label: 'Purchase order required', type: 'string' },
+  { key: 'vendor.state_tax_exempt', category: 'vendor', label: 'State tax exempt', type: 'string' },
+  { key: 'vendor.requested_credit_limit', category: 'vendor', label: 'Requested credit limit', type: 'number' },
+  { key: 'vendor.nda_status', category: 'vendor', label: 'NDA status', type: 'string' },
+  { key: 'vendor.msa_status', category: 'vendor', label: 'MSA status', type: 'string' },
+  { key: 'form.nda_required', category: 'form', label: 'Form: NDA required', type: 'boolean' },
+  { key: 'form.msa_required', category: 'form', label: 'Form: MSA required', type: 'boolean' },
+  { key: 'form.vendor_ref', category: 'form', label: 'Form: vendor reference', type: 'string' },
+  { key: 'form.contact_email', category: 'form', label: 'Form: contact email', type: 'string' },
 ]);
 
 const BUILTIN_BY_KEY = Object.freeze(
@@ -66,12 +84,16 @@ function isFormVariableKey(key) {
     /^form\.[a-zA-Z][a-zA-Z0-9_]*$/.test(key);
 }
 
+function isVendorVariableKey(key) {
+  return /^vendor\.[a-zA-Z][a-zA-Z0-9_]*$/.test(key);
+}
+
 function isCustomVariableKey(key) {
   return /^custom\.[a-zA-Z][a-zA-Z0-9_]*$/.test(key);
 }
 
 function isKnownVariableShape(key) {
-  return isBuiltinKey(key) || isFormVariableKey(key) || isCustomVariableKey(key);
+  return isBuiltinKey(key) || isFormVariableKey(key) || isVendorVariableKey(key) || isCustomVariableKey(key);
 }
 
 function extractVariableKeys(template) {
@@ -97,6 +119,7 @@ module.exports = {
   listBuiltinVariables,
   isBuiltinKey,
   isFormVariableKey,
+  isVendorVariableKey,
   isCustomVariableKey,
   isKnownVariableShape,
   extractVariableKeys,
