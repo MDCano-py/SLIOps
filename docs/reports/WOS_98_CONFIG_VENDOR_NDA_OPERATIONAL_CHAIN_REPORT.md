@@ -145,7 +145,7 @@ npm run security:wos98-config-vendor-nda-e2e-test
 ## Branch / commit
 
 - Branch: `wos-98-config-vendor-nda-e2e`
-- Commit: update after final push with `git rev-parse HEAD`
+- Commit: 35bc9133dd53994737875f3b6cba856171bc251f ($short)
 
 ## Changed files (navigation / bridge acceptance)
 
