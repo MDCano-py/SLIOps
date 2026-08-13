@@ -40,6 +40,7 @@
     selected: null,
     designer: null,
     selectedNodeKey: null,
+    workflowAdvancedCanvas: false,
     message: '',
     error: '',
     search: '',
@@ -1019,12 +1020,73 @@
       const host = el('div', { className: 'cfg-wf-host' });
       wrap.appendChild(host);
       wrap._getPayload = () => state.designer;
+      const Simple = root.HubWorkflowSimpleBuilder;
       const Designer = root.HubWorkflowDesigner;
+      const useAdvanced = !!state.workflowAdvancedCanvas;
+
+      function markUnsaved() {
+        markDirty();
+        const metaRow = wrap.querySelector('.cfg-editor-meta');
+        if (metaRow && !metaRow.querySelector('.cfg-unsaved')) {
+          metaRow.appendChild(el('span', { className: 'cfg-unsaved', text: 'Unsaved changes' }));
+        }
+        const saved = metaRow && metaRow.querySelector('.cfg-saved');
+        if (saved) saved.remove();
+      }
+
+      if (!useAdvanced && Simple && typeof Simple.mount === 'function') {
+        Simple.mount(host, {
+          graph: state.designer,
+          readOnly,
+          catalogs: state.catalogs || {},
+          roles: state.roles,
+          users: state.users,
+          documents: (state.definitions.documents || []).filter((d) => d.status === 'published'),
+          selectedNodeKey: state.selectedNodeKey,
+          onSelect: (key) => {
+            state.selectedNodeKey = key;
+          },
+          onChange: (graph) => {
+            state.designer = graph;
+          },
+          onDirty: markUnsaved,
+          onOpenAdvanced: (graph) => {
+            state.designer = graph;
+            state.workflowAdvancedCanvas = true;
+            refresh();
+          },
+        });
+        return;
+      }
+
       if (!Designer || typeof Designer.mount !== 'function') {
         host.appendChild(el('p', { className: 'cfg-hint', text: 'Workflow designer failed to load.' }));
         return;
       }
-      Designer.mount(host, {
+
+      const toolbar = el('div', { className: 'swb-advanced-bar' });
+      toolbar.appendChild(
+        el('button', {
+          type: 'button',
+          className: 'hub-btn',
+          text: '← Back to simple builder',
+          onclick: () => {
+            state.workflowAdvancedCanvas = false;
+            refresh();
+          },
+        })
+      );
+      toolbar.appendChild(
+        el('span', {
+          className: 'cfg-hint',
+          text: 'Advanced canvas — optional. Prefer the simple builder for production authoring.',
+        })
+      );
+      host.appendChild(toolbar);
+      const canvasHost = el('div', { className: 'cfg-wf-advanced-host' });
+      host.appendChild(canvasHost);
+
+      Designer.mount(canvasHost, {
         graph: state.designer,
         readOnly,
         autoFit: readOnly || !(state.designer.nodes || []).length,
@@ -1039,15 +1101,7 @@
         onChange: (graph) => {
           state.designer = graph;
         },
-        onDirty: () => {
-          markDirty();
-          const metaRow = wrap.querySelector('.cfg-editor-meta');
-          if (metaRow && !metaRow.querySelector('.cfg-unsaved')) {
-            metaRow.appendChild(el('span', { className: 'cfg-unsaved', text: 'Unsaved changes' }));
-          }
-          const saved = metaRow && metaRow.querySelector('.cfg-saved');
-          if (saved) saved.remove();
-        },
+        onDirty: markUnsaved,
         onChooseTemplate: async () => {
           const modal = root.streamlineModal;
           if (!modal || !modal.form) return;

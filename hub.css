@@ -4147,3 +4147,123 @@ html[data-theme="dark"] .wfd-inspector {
   background: var(--hub-surface);
 }
 
+
+/* ===== WOS-100 Simplified workflow builder ===== */
+.swb-root { min-height: calc(100vh - 240px); display: flex; flex-direction: column; gap: 0.5rem; }
+.swb-workspace {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; gap: 0.75rem;
+  min-height: 560px; flex: 1;
+}
+.swb-left, .swb-right {
+  border: 1px solid var(--hub-border); border-radius: 12px; background: var(--hub-surface);
+  padding: 0.75rem; overflow: auto;
+}
+.swb-left h4, .swb-right h4, .swb-mid-head { margin: 0 0 0.5rem; font-size: 0.95rem; }
+.swb-lib { display: flex; flex-direction: column; gap: 0.4rem; }
+.swb-lib-item {
+  display: flex; gap: 0.55rem; align-items: flex-start; width: 100%; text-align: left;
+  border: 1px solid var(--hub-border); border-radius: 10px; padding: 0.55rem 0.6rem;
+  background: #fff; color: inherit; font: inherit; cursor: pointer;
+}
+html[data-theme="dark"] .swb-lib-item { background: var(--hub-surface-2); }
+.swb-lib-item:hover { border-color: var(--hub-teal); }
+.swb-lib-item span.cfg-hint { display: block; font-size: 0.75rem; }
+.swb-mid { display: flex; flex-direction: column; min-width: 0; }
+.swb-canvas {
+  flex: 1; overflow: auto; border: 1px solid var(--hub-border); border-radius: 12px;
+  background: #f7fafb; padding: 1.25rem 1rem 2rem;
+}
+html[data-theme="dark"] .swb-canvas { background: var(--hub-surface-2); }
+.swb-seq { display: flex; flex-direction: column; align-items: center; gap: 0; max-width: 720px; margin: 0 auto; }
+.swb-connector {
+  width: 2px; height: 18px; background: color-mix(in srgb, var(--hub-teal) 45%, var(--hub-border));
+}
+.swb-plus {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--hub-teal);
+  background: #fff; color: var(--hub-teal); font-size: 1.1rem; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; margin: 0.15rem 0;
+}
+html[data-theme="dark"] .swb-plus { background: var(--hub-surface); }
+.swb-plus:hover { background: color-mix(in srgb, var(--hub-teal) 14%, #fff); }
+.swb-plus-spacer { height: 12px; }
+.swb-card {
+  position: relative; width: min(420px, 92vw); border: 1px solid var(--hub-border);
+  border-radius: 16px; background: #fff; padding: 0.85rem 1rem; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 30, 32, 0.04); text-align: left;
+}
+html[data-theme="dark"] .swb-card { background: var(--hub-surface); }
+.swb-card.is-selected { border-color: var(--hub-teal); box-shadow: 0 0 0 2px color-mix(in srgb, var(--hub-teal) 25%, transparent); }
+.swb-card-body { display: flex; gap: 0.65rem; align-items: flex-start; }
+.swb-card-icon {
+  width: 2rem; height: 2rem; border-radius: 10px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--hub-teal) 12%, transparent); flex: none;
+}
+.swb-card-start .swb-card-icon { background: #e7f6ee; }
+.swb-card-end .swb-card-icon { background: #eee; }
+.swb-card-condition .swb-card-icon { background: #fff4df; }
+.swb-card-approval .swb-card-icon { background: #e7f0ff; }
+.swb-card-sign .swb-card-icon { background: #f3e8ff; }
+.swb-card-review .swb-card-icon { background: #e8f4ff; }
+.swb-card-notify .swb-card-icon { background: #ffe8ef; }
+.swb-card-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.swb-card-sub { color: var(--hub-muted); font-size: 0.8rem; }
+.swb-card-menu { position: absolute; top: 0.45rem; right: 0.45rem; }
+.swb-more {
+  border: 0; background: transparent; cursor: pointer; font-size: 1.1rem; line-height: 1;
+  color: var(--hub-muted); padding: 0.2rem 0.35rem; border-radius: 6px;
+}
+.swb-more:hover { background: var(--hub-surface-2); color: inherit; }
+.swb-menu-pop {
+  position: absolute; right: 0; top: 1.6rem; z-index: 5; min-width: 150px;
+  border: 1px solid var(--hub-border); border-radius: 8px; background: var(--hub-surface);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 0.25rem;
+}
+.swb-menu-item {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 0.4rem 0.55rem; border-radius: 6px; font: inherit; color: inherit; cursor: pointer;
+}
+.swb-menu-item:hover { background: var(--hub-surface-2); }
+.swb-fork {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; width: min(720px, 100%);
+  margin: 0.35rem 0 0.15rem; align-items: start;
+}
+.swb-fork-col { display: flex; flex-direction: column; align-items: center; }
+.swb-fork-label {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; margin-bottom: 0.35rem;
+  padding: 0.15rem 0.55rem; border-radius: 999px;
+}
+.swb-fork-yes { background: #e7f6ee; color: #1b6b3a; }
+.swb-fork-no { background: #fdecec; color: #8a2f2f; }
+.swb-branch-tag {
+  position: absolute; left: 0.75rem; top: -0.55rem; font-size: 0.65rem; font-weight: 700;
+  letter-spacing: 0.04em; background: var(--hub-surface); padding: 0 0.35rem; color: var(--hub-muted);
+}
+.swb-field-label { display: block; margin: 0.65rem 0 0.25rem; font-size: 0.8rem; color: var(--hub-muted); }
+.swb-validation {
+  margin-bottom: 0.5rem; padding: 0.55rem 0.7rem; border-radius: 8px;
+  background: color-mix(in srgb, #c45c5c 12%, transparent); color: inherit; font-size: 0.85rem;
+}
+.swb-picker-overlay {
+  position: fixed; inset: 0; background: rgba(15,30,32,0.35); z-index: 80;
+  display: grid; place-items: center; padding: 1rem;
+}
+.swb-picker {
+  width: min(520px, 100%); background: var(--hub-surface); border-radius: 14px;
+  border: 1px solid var(--hub-border); padding: 1rem; box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+}
+.swb-picker-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.75rem 0 1rem; }
+.swb-picker-item {
+  display: flex; gap: 0.5rem; align-items: flex-start; text-align: left;
+  border: 1px solid var(--hub-border); border-radius: 10px; padding: 0.55rem; background: #fff;
+  color: inherit; font: inherit; cursor: pointer;
+}
+html[data-theme="dark"] .swb-picker-item { background: var(--hub-surface-2); }
+.swb-picker-text { display: flex; flex-direction: column; gap: 0.1rem; font-size: 0.8rem; }
+.swb-footer { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.swb-advanced-bar { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.cfg-wf-advanced-host { min-height: calc(100vh - 280px); }
+
+@media (max-width: 1100px) {
+  .swb-workspace { grid-template-columns: 1fr; }
+  .swb-fork { grid-template-columns: 1fr; }
+}
