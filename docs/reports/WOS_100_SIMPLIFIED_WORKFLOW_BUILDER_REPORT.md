@@ -3,7 +3,7 @@
 ## Branch / commit
 
 - Branch: `wos-100-simplified-workflow-builder`
-- Commit: `3bb2ddbb52119d52eb2e8d5661d390251bdfbfc4` (`3bb2ddb`)
+- Commit: `e056b5d` (tip; feature `3bb2ddb`)
 
 ## Summary
 
