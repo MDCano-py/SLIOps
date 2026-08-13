@@ -128,19 +128,28 @@
           }
         })
         .catch(function(err) {
-          // FAIL OPEN — let the user through. The portal continues to
-          // load normally. Most data calls will still 401 if the user
-          // genuinely isn't signed in (proxyFetch handles that), but a
-          // broken /me alone won't lock anyone out.
-          console.warn('[auth] gate failed open:', err);
-          document.documentElement.style.visibility = '';
+          // WOS-99 — fail closed on deployed hosts. Local/dev may still fail open
+          // so a broken /me does not brick laptop development.
+          console.warn('[auth] gate failed:', err);
+          if (isLocalOrDevPortal()) {
+            console.warn('[auth] gate failed open (local/dev only)');
+            document.documentElement.style.visibility = '';
+            return;
+          }
+          var here = window.location.pathname + window.location.search + window.location.hash;
+          var loginUrl = appPath('/api/auth/login?next=' + encodeURIComponent(here));
+          window.location.replace(loginUrl);
         });
     } catch (e) {
-      // Defensive — never let a JS error in the gate prevent the page
-      // from rendering. Worst case the user sees the portal without a
-      // session check (back to pre-SSO behavior).
-      console.warn('[auth] gate exception, failing open:', e);
-      try { document.documentElement.style.visibility = ''; } catch (e2) {}
+      console.warn('[auth] gate exception:', e);
+      try {
+        if (isLocalOrDevPortal()) {
+          document.documentElement.style.visibility = '';
+        } else {
+          var here2 = window.location.pathname + window.location.search + window.location.hash;
+          window.location.replace(appPath('/api/auth/login?next=' + encodeURIComponent(here2)));
+        }
+      } catch (e2) {}
     }
   })();
 </script>

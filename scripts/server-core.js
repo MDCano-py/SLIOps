@@ -477,7 +477,8 @@ function createServer(options = {}) {
             console.error(`\n[server] ${stlErr.message}`);
             process.exit(1);
           }
-          // WOS-86 — production must not enable staging-only features; require session secret.
+          // WOS-86 / WOS-99 — production must not enable staging-only features; require session secret.
+          // Refuse auth kill-switches and non-Postgres stores before Cyber pentest.
           if (nodeEnv === 'production') {
             const secret = process.env.SESSION_SECRET || '';
             if (secret.length < 32) {
@@ -491,6 +492,45 @@ function createServer(options = {}) {
             if (['1', 'true', 'yes'].includes(String(process.env.STAGING_DEMO_DATA_ENABLED || '').toLowerCase())) {
               console.error('\n[server] STAGING_DEMO_DATA_ENABLED must not be set in production');
               process.exit(1);
+            }
+            if (['1', 'true', 'yes'].includes(String(process.env.DEMO_BYPASS || '').toLowerCase())) {
+              console.error('\n[server] DEMO_BYPASS must not be set in production');
+              process.exit(1);
+            }
+            if (['1', 'true', 'yes'].includes(String(process.env.ALLOW_DEV_LOGIN || '').toLowerCase())) {
+              console.error('\n[server] ALLOW_DEV_LOGIN must not be set in production');
+              process.exit(1);
+            }
+            if ((process.env.SSO_ENFORCEMENT || 'on').toLowerCase() === 'off') {
+              console.error('\n[server] SSO_ENFORCEMENT=off is not allowed in production');
+              process.exit(1);
+            }
+            const storeMode = String(process.env.HUB_STORE_MODE || '').toLowerCase();
+            if (storeMode === 'local_json' || ['1', 'true', 'yes'].includes(String(process.env.HUB_USE_LOCAL_STORE || '').toLowerCase())) {
+              console.error('\n[server] local JSON hub store is not allowed in production (set HUB_STORE_MODE=postgres)');
+              process.exit(1);
+            }
+            if (storeMode && storeMode !== 'postgres') {
+              console.error('\n[server] HUB_STORE_MODE must be postgres in production');
+              process.exit(1);
+            }
+            if (!process.env.DATABASE_URL) {
+              console.error('\n[server] DATABASE_URL is required in production');
+              process.exit(1);
+            }
+            const authProvider = String(process.env.AUTH_PROVIDER || 'entra').toLowerCase();
+            if (authProvider === 'authbridge') {
+              try {
+                const ab = require(path.join(ROOT, 'api', 'lib', 'authbridge'));
+                const missing = ab.missingAuthBridgeVars();
+                if (missing.length) {
+                  console.error(`\n[server] AUTH_PROVIDER=authbridge but missing: ${missing.join(', ')}`);
+                  process.exit(1);
+                }
+              } catch (abErr) {
+                console.error(`\n[server] AuthBridge configuration error: ${abErr.message}`);
+                process.exit(1);
+              }
             }
           }
         }

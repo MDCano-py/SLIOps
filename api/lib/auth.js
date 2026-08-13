@@ -204,7 +204,16 @@ function getActorEmail(req) {
     const sess = getSession(req);
     if (sess?.email) return String(sess.email).toLowerCase();
   } catch {
-    // fall through to header check
+    // fall through
+  }
+  try {
+    const authbridge = require('./authbridge');
+    if (authbridge.isAuthBridgeEnabled && authbridge.isAuthBridgeEnabled()) {
+      const identity = authbridge.identityFromTrustedHeaders(req);
+      if (identity && identity.email) return String(identity.email).toLowerCase();
+    }
+  } catch {
+    // authbridge optional
   }
   const headerEmail = req.headers?.['x-vercel-user-email']
                    || req.headers?.['x-vercel-id-token-email']

@@ -81,6 +81,7 @@
     "security:wos98-config-vendor-nda-e2e-test": "node scripts/security/wos98-config-vendor-nda-e2e-test.js",
     "security:wos98-nav-documents-bridge-test": "node scripts/security/wos98-nav-documents-bridge-test.js",
     "security:wos98-vendor-contract-automation-test": "node scripts/security/wos98-vendor-contract-automation-test.js",
+    "security:wos99-production-completion-test": "node scripts/security/wos99-production-completion-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",
     "vendor-master:test": "node scripts/vendor-master-test.js",

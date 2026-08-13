@@ -1799,7 +1799,9 @@ function getDemoActorEmail() {
 async function handleAuth(path, req, res) {
   const PORTAL_BASE = process.env.PORTAL_BASE_URL || '/';
   const entra = loadEntraModule();
-  const useEntra = entra.isEntraConfigured();
+  const authbridge = require('./lib/authbridge');
+  const useAuthBridge = authbridge.isAuthBridgeEnabled();
+  const useEntra = !useAuthBridge && entra.isEntraConfigured();
 
   // Friendly error renderer — small HTML page so users don't see raw JSON
   // when something goes wrong during the auth dance.
@@ -1831,6 +1833,9 @@ async function handleAuth(path, req, res) {
 
     // ---- /auth/login ----
     if (path === '/auth/login') {
+      if (useAuthBridge) {
+        return authbridge.handleLogin(req, res, { renderError, portalBase: PORTAL_BASE });
+      }
       if (useEntra) {
         return entra.handleLogin(req, res, { renderError, portalBase: PORTAL_BASE });
       }
@@ -1857,10 +1862,17 @@ async function handleAuth(path, req, res) {
       return res.status(302).end();
     }
 
-    // ---- /auth/callback ---- (Entra OIDC)
+    // ---- /auth/callback ---- (AuthBridge or Entra OIDC)
     if (path === '/auth/callback') {
+      if (useAuthBridge) {
+        return authbridge.handleCallback(req, res, {
+          renderError,
+          portalBase: PORTAL_BASE,
+          ensureUserProvisioned,
+        });
+      }
       if (!useEntra) {
-        return renderError(503, 'Entra SSO not configured', 'Set ENTRA_* environment variables.');
+        return renderError(503, 'Entra SSO not configured', 'Set ENTRA_* environment variables or AUTH_PROVIDER=authbridge.');
       }
       return entra.handleCallback(req, res, {
         renderError,
@@ -1978,7 +1990,21 @@ async function handleAuth(path, req, res) {
       noStore(res);
 
       let entraLogoutUrl = null;
-      if (useEntra) {
+      if (useAuthBridge) {
+        const abLogout = process.env.AUTHBRIDGE_LOGOUT_URL;
+        if (abLogout) {
+          try {
+            const u = new URL(abLogout);
+            u.searchParams.set(
+              'post_logout_redirect_uri',
+              require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE)
+            );
+            entraLogoutUrl = u.toString();
+          } catch {
+            entraLogoutUrl = abLogout;
+          }
+        }
+      } else if (useEntra) {
         const tenantId = process.env.ENTRA_TENANT_ID;
         const landing = require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE);
         const postLogout = encodeURIComponent(landing);
@@ -1990,7 +2016,7 @@ async function handleAuth(path, req, res) {
       }
 
       const sess = auth.getSession(req);
-      if (!useEntra && sess?.email && process.env.SAML_LOGOUT_URL) {
+      if (!useEntra && !useAuthBridge && sess?.email && process.env.SAML_LOGOUT_URL) {
         const idpLogoutUrl = await loadSamlModule().getLogoutUrl(sess.email);
         if (idpLogoutUrl) {
           auth.clearSession(res);
