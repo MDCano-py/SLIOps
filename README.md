@@ -1,13 +1,28 @@
-# SLIOps
+# SLIOps (`production-ec2`)
 
-Streamline Operations Workflow Hub — parts requests, forms, vendor onboarding, archives, and RBAC.
+Lean runtime snapshot for EC2. Full source, reports, and tests stay on `main`.
 
-## Quick start
+## Clone on the instance
 
 ```bash
-npm ci
-cp .env.example .env.local   # or .env.local.postgres.example for Postgres
-npm run dev
+git clone \
+  --depth 1 \
+  --single-branch \
+  --branch production-ec2 \
+  https://github.com/MDCano-py/SLIOps.git \
+  /opt/wos/app
 ```
 
-See [DEPLOYMENT_NOTES.md](./DEPLOYMENT_NOTES.md) and [DEPLOYMENT_STAGING.md](./DEPLOYMENT_STAGING.md) for EC2 + Nginx + RDS deployment.
+## Start
+
+```bash
+cd /opt/wos/app
+cp .env.example .env   # fill secrets on the host; never commit .env
+npm ci
+npm run db:migrate
+NODE_ENV=production npm start
+```
+
+Optional worker: `npm run hub-worker`
+
+See `DEPLOYMENT_STAGING.md`, `DEPLOYMENT_NOTES.md`, `RDS_POSTGRES_SETUP.md`, and `deploy/` for Nginx, systemd, and RDS.

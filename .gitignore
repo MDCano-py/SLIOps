@@ -28,6 +28,13 @@ yarn-error.log*
 coverage/
 .nyc_output/
 test-results/
+playwright-report/
+
+# Development-only trees (keep on main; never re-add on production-ec2)
+docs/
+reports/
+simulations/
+simulation-data/
 
 # Build / dist output
 dist/
