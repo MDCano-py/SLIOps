@@ -184,11 +184,8 @@ function createSsoHandlers(redis) {
           }
         }
 
-        let target = portalBase.endsWith('/') ? portalBase : `${portalBase}/`;
-        if (next && next.startsWith('/') && !next.startsWith('//')) {
-          const base = portalBase.replace(/\/$/, '');
-          target = base + next;
-        }
+        const { resolvePostAuthRedirect } = require('./app-paths');
+        const target = resolvePostAuthRedirect(portalBase, next);
         res.setHeader('Location', target);
         return res.status(302).end();
       }

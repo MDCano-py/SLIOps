@@ -55,8 +55,24 @@
   function appPath(p) {
     var base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
     var path = (p && p.charAt(0) === '/') ? p : '/' + (p || '');
+    // Do not double-prefix when callers already pass a mounted path.
+    if (base && (path === base || path.indexOf(base + '/') === 0)) {
+      return path;
+    }
     return base + path;
   }
+  /** Application-relative path (no APP_BASE_PATH). Safe for ?next=. */
+  function appRelativePath(pathname) {
+    var base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
+    var p = pathname || '/';
+    if (base && (p === base || p.indexOf(base + '/') === 0)) {
+      p = p.slice(base.length) || '/';
+    }
+    if (p.charAt(0) !== '/') p = '/' + p;
+    return p;
+  }
+  window.appPath = appPath;
+  window.appRelativePath = appRelativePath;
 </script>
 <script>
   // ============================================================
@@ -84,6 +100,14 @@
     function isLocalOrDevPortal() {
       if (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) return true;
       return window.PORTAL_ENV === 'development';
+    }
+    function loginNextValue() {
+      // Pass app-relative pathname only. Backend owns APP_BASE_PATH /
+      // PORTAL_BASE_URL joining — never send /ops-hub-staging/... as next
+      // when the portal is already mounted there.
+      return appRelativePath(window.location.pathname)
+        + window.location.search
+        + window.location.hash;
     }
     try {
       // Emergency bypass — local/development only (ignored on staging/production hosts)
@@ -122,8 +146,7 @@
           } else {
             // Not authenticated — redirect to login, preserving where
             // the user was trying to go.
-            var here = window.location.pathname + window.location.search + window.location.hash;
-            var loginUrl = appPath('/api/auth/login?next=' + encodeURIComponent(here));
+            var loginUrl = appPath('/api/auth/login?next=' + encodeURIComponent(loginNextValue()));
             window.location.replace(loginUrl);
           }
         })
@@ -136,8 +159,7 @@
             document.documentElement.style.visibility = '';
             return;
           }
-          var here = window.location.pathname + window.location.search + window.location.hash;
-          var loginUrl = appPath('/api/auth/login?next=' + encodeURIComponent(here));
+          var loginUrl = appPath('/api/auth/login?next=' + encodeURIComponent(loginNextValue()));
           window.location.replace(loginUrl);
         });
     } catch (e) {
@@ -146,8 +168,7 @@
         if (isLocalOrDevPortal()) {
           document.documentElement.style.visibility = '';
         } else {
-          var here2 = window.location.pathname + window.location.search + window.location.hash;
-          window.location.replace(appPath('/api/auth/login?next=' + encodeURIComponent(here2)));
+          window.location.replace(appPath('/api/auth/login?next=' + encodeURIComponent(loginNextValue())));
         }
       } catch (e2) {}
     }
@@ -13162,7 +13183,10 @@ function goBack() {
       }
       // Local demo: auto dev-login instead of SAML "not configured" page
       const isLocal = /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
-      const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+      const nextPath = (typeof appRelativePath === 'function'
+        ? appRelativePath(window.location.pathname)
+        : window.location.pathname) + window.location.search + window.location.hash;
+      const next = encodeURIComponent(nextPath);
       if (isLocal) {
         window.location.href = appPath('/api/auth/dev-login?email=demo@streamlinecorp.com&next=' + next);
       } else {

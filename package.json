@@ -82,6 +82,7 @@
     "security:wos98-nav-documents-bridge-test": "node scripts/security/wos98-nav-documents-bridge-test.js",
     "security:wos98-vendor-contract-automation-test": "node scripts/security/wos98-vendor-contract-automation-test.js",
     "security:wos99-production-completion-test": "node scripts/security/wos99-production-completion-test.js",
+    "security:wos-sso-redirect-path-test": "node scripts/security/wos-sso-redirect-path-test.js",
     "security:wos100-simplified-workflow-builder-test": "node scripts/security/wos100-simplified-workflow-builder-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",

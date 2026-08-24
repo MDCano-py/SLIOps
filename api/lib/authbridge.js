@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const auth = require('./auth');
+const { resolvePostAuthRedirect, getAppBasePath, toAppRelativePath, getPortalMountPath } = require('./app-paths');
 
 const OAUTH_STATE_COOKIE = 'sliops_oauth_state';
 const OAUTH_STATE_TTL_SECONDS = 10 * 60;
@@ -151,12 +152,15 @@ function consumeOAuthState(req, res, stateFromQuery) {
 }
 
 function buildRedirectTarget(portalBase, next) {
-  let target = portalBase || '/';
-  if (next && next.startsWith('/') && !next.startsWith('//')) {
-    const base = portalBase.endsWith('/') ? portalBase.slice(0, -1) : portalBase;
-    target = base + next;
-  }
-  return target;
+  return resolvePostAuthRedirect(portalBase, next);
+}
+
+function normalizeNextForState(next, portalBase) {
+  if (typeof next !== 'string' || !next) return '';
+  const mount = getPortalMountPath(portalBase) || getAppBasePath();
+  const rel = toAppRelativePath(next, mount);
+  if (rel == null) return '';
+  return rel.slice(0, 512);
 }
 
 function httpRequestJson(url, options, body) {
@@ -266,7 +270,14 @@ async function handleLogin(req, res, { renderError, portalBase }) {
   }
 
   const remember = req.query.remember === '1' || req.query.remember === 'true';
-  const next = typeof req.query.next === 'string' ? req.query.next : '';
+  const rawNext = typeof req.query.next === 'string' ? req.query.next : '';
+  const next = normalizeNextForState(rawNext, portalBase);
+  console.log('[auth]', JSON.stringify({
+    event: 'auth_login_initiated',
+    provider: 'authbridge',
+    requested_next: rawNext ? rawNext.slice(0, 200) : '',
+    normalized_next: next,
+  }));
   const state = issueOAuthStateCookie(res, { remember, next });
   const url = new URL(env('AUTHBRIDGE_AUTHORIZE_URL'));
   url.searchParams.set('response_type', 'code');
@@ -341,6 +352,13 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
     }
     auth.issueSession(res, identity.email, { remember: !!oauthState.r });
     const target = buildRedirectTarget(portalBase, oauthState.next);
+    console.log('[auth]', JSON.stringify({
+      event: 'auth_session_established',
+      provider: 'authbridge',
+      user: identity.email,
+      requested_next: oauthState.next || '',
+      final_redirect: target,
+    }));
     res.setHeader('Location', target);
     return res.status(302).end();
   } catch (err) {

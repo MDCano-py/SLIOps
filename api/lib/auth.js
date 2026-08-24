@@ -16,9 +16,11 @@
 // without external libs — keeps deps low.
 
 const crypto = require('crypto');
+const { getCookiePath } = require('./app-paths');
 
 const SESSION_COOKIE_NAME  = 'sliops_session';
 const REMEMBER_COOKIE_NAME = 'sliops_remember';
+const OAUTH_STATE_COOKIE_NAME = 'sliops_oauth_state';
 // 8 hours and 30 days, in seconds. Sliding session means each authenticated
 // request issues a fresh cookie with a new 8-hour expiry, so an active
 // user never gets logged out mid-day; an idle user logs out after 8 hours.
@@ -113,13 +115,14 @@ function parseCookies(req) {
 }
 
 // Build a Set-Cookie header value with secure defaults. We always set
-// HttpOnly + Secure + SameSite=Lax — Lax (not Strict) so SAML POST-back
-// redirects from Microsoft still carry the cookie. Path=/ so the cookie
-// is available across the whole portal + proxy.
-function buildSetCookie(name, value, ttlSeconds) {
+// HttpOnly + Secure + SameSite=Lax — Lax (not Strict) so IdP redirects
+// still carry the cookie. Path follows APP_BASE_PATH when mounted
+// (e.g. Path=/ops-hub-staging) so the session is scoped to WOS, not n8n.
+function buildSetCookie(name, value, ttlSeconds, opts = {}) {
+  const path = opts.path || getCookiePath();
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
-    'Path=/',
+    `Path=${path}`,
     'HttpOnly',
     'Secure',
     'SameSite=Lax',
@@ -132,6 +135,11 @@ function buildSetCookie(name, value, ttlSeconds) {
     parts.push('Expires=Thu, 01 Jan 1970 00:00:00 GMT');
   }
   return parts.join('; ');
+}
+
+function cookieClearPaths() {
+  const paths = new Set([getCookiePath(), '/']);
+  return [...paths];
 }
 
 // ---------- Session lifecycle ----------
@@ -153,12 +161,16 @@ function issueSession(res, email, opts = {}) {
   appendSetCookie(res, [cookie, clearOther]);
 }
 
-// Clear both cookies — logout.
+// Clear both cookies — logout. Clear under APP_BASE_PATH and Path=/ so
+// pre-fix cookies (Path=/) do not linger beside the scoped cookie.
 function clearSession(res) {
-  appendSetCookie(res, [
-    buildSetCookie(SESSION_COOKIE_NAME, '', 0),
-    buildSetCookie(REMEMBER_COOKIE_NAME, '', 0),
-  ]);
+  const cookies = [];
+  for (const path of cookieClearPaths()) {
+    cookies.push(buildSetCookie(SESSION_COOKIE_NAME, '', 0, { path }));
+    cookies.push(buildSetCookie(REMEMBER_COOKIE_NAME, '', 0, { path }));
+    cookies.push(buildSetCookie(OAUTH_STATE_COOKIE_NAME, '', 0, { path }));
+  }
+  appendSetCookie(res, cookies);
 }
 
 // Vercel's serverless res object collects multiple Set-Cookie values via
@@ -224,6 +236,7 @@ function getActorEmail(req) {
 module.exports = {
   SESSION_COOKIE_NAME,
   REMEMBER_COOKIE_NAME,
+  OAUTH_STATE_COOKIE_NAME,
   SESSION_TTL_SECONDS,
   REMEMBER_TTL_SECONDS,
   signJwt,
@@ -235,4 +248,5 @@ module.exports = {
   clearSession,
   getSession,
   getActorEmail,
+  getCookiePath,
 };

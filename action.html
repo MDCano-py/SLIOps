@@ -57,8 +57,10 @@
     function appPath(p) {
       const base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
       const path = p.startsWith('/') ? p : `/${p}`;
+      if (base && (path === base || path.indexOf(base + '/') === 0)) return path;
       return base + path;
     }
+    window.appPath = appPath;
     const params = new URLSearchParams(location.search);
     const token = params.get('t');
     const apiBase = appPath('/api/maintainx?path=');

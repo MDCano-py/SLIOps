@@ -14,23 +14,28 @@ function setNoStore(res) {
 
 /**
  * Preferred landing page after logout (login or portal home).
+ * Never lands on bare "/" when WOS is mounted under APP_BASE_PATH.
  */
 function resolvePostLogoutUrl(portalBase) {
-  const base = portalBase || process.env.PORTAL_BASE_URL || '/';
-  const normalized = base.endsWith('/') ? base.slice(0, -1) : base;
+  const { resolvePostAuthRedirect } = require('./app-paths');
+  const home = resolvePostAuthRedirect(portalBase || process.env.PORTAL_BASE_URL || '/', '/');
 
   try {
     const stagingLogin = require('./staging-test-login');
     if (stagingLogin.isStagingTestLoginEnabled()) {
-      return `${normalized}/api/auth/staging-test-login`;
+      const { publicPath, getPortalMountPath, getAppBasePath } = require('./app-paths');
+      const mount = getPortalMountPath(portalBase) || getAppBasePath();
+      if (/^https?:\/\//i.test(home)) {
+        const u = new URL(home);
+        return `${u.origin}${publicPath('/api/auth/staging-test-login', mount)}`;
+      }
+      return publicPath('/api/auth/staging-test-login', mount);
     }
   } catch {
     /* optional */
   }
 
-  // Relative portal home forces a full navigation (avoids BFCache restoring app state).
-  if (base.startsWith('http')) return `${normalized}/`;
-  return `${normalized}/` || '/';
+  return home;
 }
 
 /**

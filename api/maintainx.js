@@ -1968,14 +1968,18 @@ async function handleAuth(path, req, res) {
         console.error('First-login provisioning failed (non-fatal):', err);
       }
 
-      // Build the redirect target. If `next` is a relative path on the
-      // same site, honour it; otherwise fall back to PORTAL_BASE.
-      let target = PORTAL_BASE;
-      if (next && next.startsWith('/') && !next.startsWith('//')) {
-        // Strip the leading slash and prepend PORTAL_BASE if it ends with /
-        const base = PORTAL_BASE.endsWith('/') ? PORTAL_BASE.slice(0, -1) : PORTAL_BASE;
-        target = base + next;
-      }
+      // Build the redirect target via the shared app-paths helper so a
+      // `next` that already includes APP_BASE_PATH is not double-prefixed
+      // onto PORTAL_BASE_URL (which already contains /ops-hub-staging).
+      const { resolvePostAuthRedirect } = require('./lib/app-paths');
+      const target = resolvePostAuthRedirect(PORTAL_BASE, next);
+      console.log('[auth]', JSON.stringify({
+        event: 'auth_session_established',
+        provider: 'saml',
+        user: identity.email,
+        requested_next: next || '',
+        final_redirect: target,
+      }));
       res.setHeader('Location', target);
       return res.status(302).end();
     }

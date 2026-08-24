@@ -14,12 +14,32 @@
 const crypto = require('crypto');
 const msal = require('@azure/msal-node');
 const auth = require('./auth');
+const { resolvePostAuthRedirect, getAppBasePath, toAppRelativePath, getPortalMountPath } = require('./app-paths');
 
 const OAUTH_STATE_COOKIE = 'sliops_oauth_state';
 const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 const OIDC_SCOPES = ['openid', 'profile', 'email', 'User.Read'];
 
 let _cca = null;
+
+function authLog(event, fields = {}) {
+  const safe = { event, ...fields };
+  delete safe.code;
+  delete safe.token;
+  delete safe.access_token;
+  delete safe.id_token;
+  delete safe.client_secret;
+  delete safe.authorization_code;
+  console.log('[auth]', JSON.stringify(safe));
+}
+
+function normalizeNextForState(next, portalBase) {
+  if (typeof next !== 'string' || !next) return '';
+  const mount = getPortalMountPath(portalBase) || getAppBasePath();
+  const rel = toAppRelativePath(next, mount);
+  if (rel == null) return '';
+  return rel.slice(0, 512);
+}
 
 function isNonProduction() {
   return process.env.NODE_ENV !== 'production';
@@ -148,12 +168,7 @@ function consumeOAuthState(req, res, stateFromQuery) {
 }
 
 function buildRedirectTarget(portalBase, next) {
-  let target = portalBase || '/';
-  if (next && next.startsWith('/') && !next.startsWith('//')) {
-    const base = portalBase.endsWith('/') ? portalBase.slice(0, -1) : portalBase;
-    target = base + next;
-  }
-  return target;
+  return resolvePostAuthRedirect(portalBase, next);
 }
 
 async function handleLogin(req, res, { renderError, portalBase }) {
@@ -170,7 +185,14 @@ async function handleLogin(req, res, { renderError, portalBase }) {
   }
 
   const remember = req.query.remember === '1' || req.query.remember === 'true';
-  const next = typeof req.query.next === 'string' ? req.query.next : '';
+  const rawNext = typeof req.query.next === 'string' ? req.query.next : '';
+  const next = normalizeNextForState(rawNext, portalBase);
+  authLog('auth_login_initiated', {
+    requested_next: rawNext ? rawNext.slice(0, 200) : '',
+    normalized_next: next,
+    portal_base: portalBase || '',
+    app_base_path: getAppBasePath() || '/',
+  });
   const state = issueOAuthStateCookie(res, { remember, next });
 
   try {
@@ -202,6 +224,11 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
 
   const code = req.query.code;
   const state = req.query.state;
+  authLog('auth_callback_received', {
+    has_code: !!code,
+    has_state: !!state,
+    idp_error: errParam || '',
+  });
   if (!code) {
     return renderError(400, 'Missing authorization code', 'Restart sign-in from the portal.');
   }
@@ -245,6 +272,11 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
     }
 
     const target = buildRedirectTarget(portalBase, oauthState.next);
+    authLog('auth_session_established', {
+      user: identity.email,
+      requested_next: oauthState.next || '',
+      final_redirect: target,
+    });
     res.setHeader('Location', target);
     return res.status(302).end();
   } catch (err) {
@@ -316,4 +348,6 @@ module.exports = {
   handleLogout,
   handleDevLogin,
   identityFromTokenResponse,
+  buildRedirectTarget,
+  normalizeNextForState,
 };
