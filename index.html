@@ -13173,12 +13173,23 @@ function goBack() {
       headers,
     };
     const res = await fetch(url, merged);
-    // Auth-redirect on 401. We only do this for AJAX/data fetches, not
-    // for navigations — and we skip the redirect for /auth/* paths
-    // themselves to avoid loops. Pre-SSO (no SAML config), the proxy
-    // never returns 401 from session checks, so this is dormant.
-    if (res.status === 401 && !/\/auth\//.test(path)) {
+    // Auth-redirect ONLY for explicit WOS session failure.
+  // MaintainX / integration failures must never restart Entra — they arrive
+  // as non-401 statuses (e.g. 502 + MAINTAINX_AUTH_FAILED) or as 401 without
+  // code WOS_AUTH_REQUIRED (legacy). Parse the body code before redirecting.
+  if (res.status === 401 && !/\/auth\//.test(path)) {
       if (window._portalNoAuth || (window.RbacClient && window.RbacClient.isPortalNoAuthMode && window.RbacClient.isPortalNoAuthMode())) {
+        return res;
+      }
+      var wosAuthRequired = false;
+      try {
+        var authBody = await res.clone().json();
+        wosAuthRequired = !!(authBody && authBody.code === 'WOS_AUTH_REQUIRED');
+      } catch (parseErr) {
+        wosAuthRequired = false;
+      }
+      if (!wosAuthRequired) {
+        console.warn('[auth] HTTP 401 without WOS_AUTH_REQUIRED — not restarting SSO', path);
         return res;
       }
       // Local demo: auto dev-login instead of SAML "not configured" page
@@ -22660,7 +22671,15 @@ function goBack() {
       headers['X-Portal-Noauth'] = '1';
     }
     const res = await fetch(url, { ...options, credentials: 'include', headers });
-    if (res.status === 401) throw new Error('Not authenticated');
+    if (res.status === 401) {
+      let code = null;
+      try {
+        const body = await res.clone().json();
+        code = body && body.code;
+      } catch (e) { /* ignore */ }
+      if (code === 'WOS_AUTH_REQUIRED') throw new Error('Not authenticated');
+      throw new Error('Request unauthorized');
+    }
     if (res.status === 403) throw new Error('Access restricted');
     return res;
   }

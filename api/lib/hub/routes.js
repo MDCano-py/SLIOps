@@ -18,6 +18,7 @@ const { handleTemplateRuntimeRoutes } = require('../templates/runtime-routes');
 const { handleSpaceRoutes } = require('../spaces/routes');
 const { handleRbacRoutes } = require('../rbac/routes');
 const { handleConfigurationRoutes } = require('../configuration/routes');
+const authErrors = require('../auth-errors');
 
 function parseBody(req) {
   if (!req.body) return {};
@@ -211,11 +212,11 @@ async function handleHubRoute(path, req, res, ctx) {
 
   function requireHubPerm(res, permId) {
     if (!actorEmail) {
-      json(res, 401, { error: 'Unauthorized access' });
+      json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
       return false;
     }
     if (!hasHubPerm(permissions, permId)) {
-      json(res, 403, { error: 'Forbidden' });
+      json(res, 403, authErrors.wosForbiddenBody());
       return false;
     }
     return true;
@@ -282,7 +283,7 @@ async function handleHubRoute(path, req, res, ctx) {
   }
 
   if (path === '/hub/notifications' && method === 'GET') {
-    if (!actorEmail) return json(res, 401, { error: 'Unauthorized access' });
+    if (!actorEmail) return json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
     const unreadOnly = req.query?.unread === 'true';
     const list = await store.listNotifications(actorEmail, { unreadOnly });
     const unread_count = await store.countUnreadNotifications(actorEmail);
@@ -290,7 +291,7 @@ async function handleHubRoute(path, req, res, ctx) {
   }
 
   if (path === '/hub/notifications/read-all' && method === 'POST') {
-    if (!actorEmail) return json(res, 401, { error: 'Unauthorized access' });
+    if (!actorEmail) return json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
     const result = await store.markAllNotificationsRead(actorEmail);
     return json(res, 200, result);
   }
@@ -452,7 +453,7 @@ async function handleHubRoute(path, req, res, ctx) {
   }
 
   // Auth required below
-  if (!actorEmail) return json(res, 401, { error: 'Unauthorized access' });
+  if (!actorEmail) return json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
 
   // ----- Staging/local demo data (never production; admin-only) -----
   function demoEndpointsAllowed() {
@@ -765,7 +766,7 @@ async function handleHubRoute(path, req, res, ctx) {
       // operation (parity with the /workflow PUT route). Require an
       // authenticated admin/hub_admin and a real target request; do not
       // allow arbitrary authenticated users to inject steps on any request.
-      if (!actorEmail) return json(res, 401, { error: 'Unauthorized access' });
+      if (!actorEmail) return json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
       if (!requestForAccess) return json(res, 404, { error: 'Request not found' });
       if (!isAdmin && !hasHubPerm(permissions, 'hub_admin')) {
         return json(res, 403, { error: 'Admin required to modify workflow steps' });

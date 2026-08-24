@@ -10,6 +10,7 @@ const { kindForSpace, normalizeTemplateKind } = require('./template-kind');
 const { canInspectSubmission } = require('./runtime-rbac');
 const rbacPostgres = require('../rbac/postgres');
 const { recordSecurityAudit } = require('../security-audit');
+const authErrors = require('../auth-errors');
 
 // WOS-80 — resolve an actor's workflow role keys for submission authorization
 // (mirrors the runtime router helper). Fails open to [] on any error.
@@ -122,7 +123,7 @@ async function handleTemplateRoutes(path, req, res, ctx) {
   const [subListPath, subListQuery] = path.split('?');
   if (subListPath === '/hub/templates/submissions' && method === 'GET') {
     if (!actorEmail) {
-      json(res, 401, { error: 'Unauthorized access' });
+      json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
       return true;
     }
     try {
@@ -148,7 +149,7 @@ async function handleTemplateRoutes(path, req, res, ctx) {
     // Unauthenticated → 401; otherwise only admins, the submission creator,
     // or an actor whose workflow roles permit inspection may read it.
     if (!actorEmail) {
-      json(res, 401, { error: 'Unauthorized access' });
+      json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
       return true;
     }
     const bundle = await templateStore.getSubmissionWithVersion(subGetMatch[1]);

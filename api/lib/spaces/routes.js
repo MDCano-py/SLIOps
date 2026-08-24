@@ -3,6 +3,7 @@
  */
 const spaceStore = require('./store');
 const { rolesCanSee } = require('./normalize');
+const authErrors = require('../auth-errors');
 
 function parseBody(req) {
   if (!req.body) return {};
@@ -55,7 +56,7 @@ async function handleSpaceRoutes(path, req, res, ctx) {
 
   if (path === '/hub/spaces/registry' && method === 'GET') {
     if (!actorEmail) {
-      json(res, 401, { error: 'Unauthorized' });
+      json(res, 401, authErrors.wosAuthRequiredBody());
       return true;
     }
     try {
@@ -140,7 +141,7 @@ async function handleSpaceRoutes(path, req, res, ctx) {
 
   m = path.match(/^\/hub\/launch-entries\/([^/]+)$/);
   if (m && method === 'GET') {
-    if (!actorEmail) return json(res, 401, { error: 'Unauthorized' }), true;
+    if (!actorEmail) return json(res, 401, authErrors.wosAuthRequiredBody()), true;
     try {
       const entry = await spaceStore.getLaunchEntry(m[1]);
       if (!entry) return json(res, 404, { error: 'Launch entry not found' });

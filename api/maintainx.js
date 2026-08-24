@@ -25,6 +25,7 @@ const { recordSecurityAudit } = require('./lib/security-audit');
 const { createRedisClient } = require('../for-dev/redis-client');
 const crypto = require('crypto');
 const auth = require('./lib/auth.js');
+const authErrors = require('./lib/auth-errors');
 const { handleHubRoute } = require('./lib/hub/routes.js');
 const { mirrorArchiveToHub } = require('./lib/hub/bridge.js');
 const { enrichVendorSummary, derivePipelineStage, deriveDeptStatuses, attachHybridFields } = require('./lib/vendor-hybrid-status.js');
@@ -242,7 +243,7 @@ function requireVendorAuth(req, res) {
   }
   const token = req.headers['x-vendor-session'] || '';
   if (!verifyVendorToken(token)) {
-    res.status(401).json({ error: 'Vendor session required or expired' });
+    res.status(401).json(authErrors.vendorAuthRequiredBody());
     return false;
   }
   return true;
@@ -261,13 +262,13 @@ async function requirePermissions(req, res, neededPerms) {
   }
   const actorEmail = auth.getActorEmail(req);
   if (!actorEmail) {
-    res.status(401).json({ error: 'Not authenticated' });
+    res.status(401).json(authErrors.wosAuthRequiredBody());
     return null;
   }
   const rec = await getUserPermissions(actorEmail);
   const perms = rec?.permissions || [];
   if (!hasAnyPermission(perms, neededPerms)) {
-    res.status(403).json({ error: 'Forbidden' });
+    res.status(403).json(authErrors.wosForbiddenBody());
     return null;
   }
   return { actorEmail, permissions: perms };
@@ -2192,9 +2193,9 @@ module.exports = async function handler(req, res) {
   }
 
   // ---- SSO ENFORCEMENT GATE ----
-  // Reject sessionless requests to data endpoints with 401. The portal's
-  // proxyFetch helper detects 401 and redirects to login. Anyone hitting
-  // the API directly without a session gets a clear error.
+  // Reject sessionless requests to data endpoints with 401 + WOS_AUTH_REQUIRED.
+  // The portal's proxyFetch helper redirects to Entra ONLY for that code —
+  // never for MaintainX / integration 401s (which are remapped below).
   //
   // KILL SWITCH: set env var SSO_ENFORCEMENT=off and redeploy to disable
   // both this gate and the portal's /me-driven auth gate (which also
@@ -2243,7 +2244,7 @@ module.exports = async function handler(req, res) {
           res.setHeader('Access-Control-Allow-Credentials', 'true');
           res.setHeader('Vary', 'Origin');
         }
-        return res.status(401).json({ error: 'Not authenticated' });
+        return res.status(401).json(authErrors.wosAuthRequiredBody());
       }
     }
   }
@@ -2569,7 +2570,7 @@ module.exports = async function handler(req, res) {
     if (process.env.CLEANUP_SECRET) {
       const provided = req.headers['x-cleanup-secret'] || req.query.secret;
       if (provided !== process.env.CLEANUP_SECRET) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json(authErrors.wosAuthRequiredBody());
       }
     }
     if (!objectStorage.isConfigured()) {
@@ -2617,7 +2618,7 @@ module.exports = async function handler(req, res) {
     if (process.env.CLEANUP_SECRET) {
       const provided = req.headers['x-cleanup-secret'] || req.query.secret;
       if (provided !== process.env.CLEANUP_SECRET) {
-        return res.status(401).json({ error: 'Unauthorized' });
+        return res.status(401).json(authErrors.wosAuthRequiredBody());
       }
     }
     const kind = req.query.kind;
@@ -2688,7 +2689,7 @@ module.exports = async function handler(req, res) {
     // reads require the per-kind view permission (employees hold these), and
     // deletes require creator+24h or a privileged deleter (see DELETE branch).
     const authActor = await resolveActor(req);
-    if (!authActor.actorEmail) return res.status(401).json({ error: 'Not authenticated' });
+    if (!authActor.actorEmail) return res.status(401).json(authErrors.wosAuthRequiredBody());
     const ARCHIVE_VIEW_PERM = { jsa: 'view_jsa_archive', bol: 'view_bol_archive', swp: null };
     const ARCHIVE_DELETE_PERM = { jsa: 'delete_jsa_archive', bol: 'delete_bol_archive', swp: null };
     if (req.method === 'GET') {
@@ -3976,7 +3977,7 @@ module.exports = async function handler(req, res) {
     // permission (employees hold these). The stored submitter is taken from the
     // session, not the client-supplied x-actor-email header (which is spoofable).
     const authActor = await resolveActor(req);
-    if (!authActor.actorEmail) return res.status(401).json({ error: 'Not authenticated' });
+    if (!authActor.actorEmail) return res.status(401).json(authErrors.wosAuthRequiredBody());
     const REQ_ARCHIVE_VIEW_PERM = { parts: 'view_parts_request_archive', wo: 'view_work_order_archive' };
     if (req.method === 'GET') {
       const vp = REQ_ARCHIVE_VIEW_PERM[kind];
@@ -4037,7 +4038,7 @@ module.exports = async function handler(req, res) {
     // WOS-80 — require an authenticated actor; reads require the roll-off-swap
     // view permission (employees hold it). Submitter taken from the session.
     const authActor = await resolveActor(req);
-    if (!authActor.actorEmail) return res.status(401).json({ error: 'Not authenticated' });
+    if (!authActor.actorEmail) return res.status(401).json(authErrors.wosAuthRequiredBody());
     if (req.method === 'GET' && !hasAnyPermission(authActor.permissions, ['view_roll_off_swap_archive'])) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -4143,7 +4144,10 @@ module.exports = async function handler(req, res) {
 
   const apiKey = process.env.MAINTAINX_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: 'Server misconfigured: MAINTAINX_API_KEY env var is not set' });
+    return res.status(500).json({
+      error: 'Server misconfigured: MAINTAINX_API_KEY env var is not set',
+      code: authErrors.MAINTAINX_AUTH_FAILED,
+    });
   }
 
   if (!['GET', 'POST', 'PUT'].includes(req.method)) {
@@ -4177,12 +4181,40 @@ module.exports = async function handler(req, res) {
   try {
     const upstream = await fetch(targetUrl, fetchOpts);
     const text = await upstream.text();
+
+    // Never pass MaintainX 401/upstream auth failures through as HTTP 401 —
+    // the browser must not treat them as WOS session expiry.
+    if (!upstream.ok) {
+      const classified = authErrors.classifyMaintainxUpstream(upstream.status, text);
+      if (classified) {
+        if (classified.body.code === authErrors.MAINTAINX_AUTH_FAILED) {
+          authErrors.logMaintainxCredentialDiagnostics({
+            path,
+            upstreamStatus: upstream.status,
+            hasApiKey: !!apiKey,
+            orgIdConfigured: !!process.env.MAINTAINX_ORG_ID,
+          });
+        } else {
+          console.error('[maintainx] upstream non-OK', {
+            path: String(path || '').slice(0, 200),
+            upstreamStatus: upstream.status,
+            code: classified.body.code,
+          });
+        }
+        return res.status(classified.httpStatus).json(classified.body);
+      }
+    }
+
     res.status(upstream.status);
     const ct = upstream.headers.get('content-type');
     if (ct) res.setHeader('Content-Type', ct);
     return res.send(text);
   } catch (err) {
     console.error('Proxy error:', err);
-    return res.status(502).json({ error: 'Failed to reach MaintainX', detail: err.message });
+    return res.status(502).json({
+      error: 'Failed to reach MaintainX',
+      code: authErrors.MAINTAINX_UNAVAILABLE,
+      detail: err.message,
+    });
   }
 };

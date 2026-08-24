@@ -5,6 +5,7 @@ const templateStore = require('./store');
 const { rolesCanSee } = require('../spaces/normalize');
 const { canInspectSubmission, canActOnStep } = require('./runtime-rbac');
 const rbacPostgres = require('../rbac/postgres');
+const authErrors = require('../auth-errors');
 
 async function loadActorWorkflowRoles(actorEmail) {
   if (!actorEmail || !rbacPostgres.isAvailable()) return [];
@@ -98,7 +99,7 @@ async function handleTemplateRuntimeRoutes(path, req, res, ctx) {
   }
 
   if (!actorEmail) {
-    json(res, 401, { error: 'Unauthorized' });
+    json(res, 401, authErrors.wosAuthRequiredBody());
     return true;
   }
 
