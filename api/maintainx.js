@@ -2695,7 +2695,7 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET') {
       const viewPerm = ARCHIVE_VIEW_PERM[kind];
       if (viewPerm && !hasAnyPermission(authActor.permissions, [viewPerm])) {
-        return res.status(403).json({ error: 'Forbidden' });
+        return res.status(403).json(authErrors.wosForbiddenBody());
       }
     }
 
@@ -3982,7 +3982,7 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET') {
       const vp = REQ_ARCHIVE_VIEW_PERM[kind];
       if (vp && !hasAnyPermission(authActor.permissions, [vp])) {
-        return res.status(403).json({ error: 'Forbidden' });
+        return res.status(403).json(authErrors.wosForbiddenBody());
       }
     }
     try {
@@ -4040,7 +4040,7 @@ module.exports = async function handler(req, res) {
     const authActor = await resolveActor(req);
     if (!authActor.actorEmail) return res.status(401).json(authErrors.wosAuthRequiredBody());
     if (req.method === 'GET' && !hasAnyPermission(authActor.permissions, ['view_roll_off_swap_archive'])) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json(authErrors.wosForbiddenBody());
     }
     try {
       // POST /forms/{kind}
