@@ -33,6 +33,7 @@
     "vendor-dashboard:test": "node scripts/vendor-dashboard-hybrid-test.js",
     "vendor-dashboard-queues:test": "node scripts/vendor-dashboard-queues-test.js",
     "rds-staging-smoke:test": "node scripts/rds-staging-smoke-test.js",
+    "security:hub-store-lazy-bind-test": "node scripts/security/hub-store-lazy-bind-test.js",
     "templates:versioning-test": "node scripts/templates/template-versioning-test.js",
     "templates:validator-test": "node scripts/templates/template-publish-validator-test.js",
     "settings:ui-test": "node scripts/settings/settings-ui-test.js",

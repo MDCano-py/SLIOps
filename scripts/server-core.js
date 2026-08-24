@@ -104,8 +104,9 @@ function createServer(options = {}) {
 
   if (!process.env.NODE_ENV) process.env.NODE_ENV = options.defaultNodeEnv || 'development';
 
-  const PORT = Number(process.env.PORT) || options.defaultPort || 3000;
-  const HOST = process.env.HOST || options.defaultHost || '127.0.0.1';
+  // Explicit options.port/host win over env overlays (smoke tests bind ephemeral ports).
+  const PORT = Number(options.port) || Number(process.env.PORT) || options.defaultPort || 3000;
+  const HOST = options.host || process.env.HOST || options.defaultHost || '127.0.0.1';
   const basePath = normalizeBasePath(process.env.APP_BASE_PATH || options.basePath || '');
 
   let _handler = null;

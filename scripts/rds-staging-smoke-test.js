@@ -5,10 +5,28 @@
  *
  * On EC2: ensure .env.staging has real DATABASE_URL + PGSSLMODE=require
  * Optional: DATABASE_URL_CONFIRM_PERSISTENCE_TEST=1 for write checks on RDS
+ *
+ * IMPORTANT: loadDbEnv() must run before requiring hub modules that touch the
+ * store (notifications → email-delivery → hub store). Otherwise the hub store
+ * can bind to local_json/redis before HUB_STORE_MODE=postgres is applied and
+ * outbox rows never land in Postgres outbox_events.
  */
 const { Client } = require('pg');
 const http = require('http');
 const { loadDbEnv, getPgClientConfig, databaseHost, isLocalDatabaseUrl } = require('./db/env');
+
+// Load staging/local env BEFORE hub store consumers are required.
+loadDbEnv();
+
+process.env.EMAIL_NOTIFICATIONS_ENABLED = process.env.EMAIL_NOTIFICATIONS_ENABLED || 'false';
+process.env.EMAIL_DELIVERY_MODE = process.env.EMAIL_DELIVERY_MODE || 'queued';
+process.env.VENDOR_NOTIFY_EMAIL_ADMIN = process.env.VENDOR_NOTIFY_EMAIL_ADMIN || 'smoke-rebekah@test.local';
+process.env.VENDOR_NOTIFY_EMAIL_AP = process.env.VENDOR_NOTIFY_EMAIL_AP || 'smoke-ap@test.local';
+process.env.VENDOR_NOTIFY_EMAIL_LEGAL = process.env.VENDOR_NOTIFY_EMAIL_LEGAL || 'smoke-dylan@test.local';
+process.env.HUB_STORE_MODE = process.env.HUB_STORE_MODE || 'postgres';
+process.env.VENDOR_STORE_MODE = process.env.VENDOR_STORE_MODE || process.env.HUB_STORE_MODE;
+process.env.HUB_USE_LOCAL_STORE = process.env.HUB_USE_LOCAL_STORE || '0';
+
 const { buildVendorRecordFromBody } = require('../api/lib/vendor/record');
 const {
   applyVendorWorkflowTransition,
@@ -18,14 +36,11 @@ const { enrichVendorRecord } = require('../api/lib/vendor/documents');
 const { notifyVendorWorkflowEvent } = require('../api/lib/vendor/notifications');
 const { countByQueue } = require('../vendor-dashboard-queues');
 const { evaluateVendorDetailUi } = require('../api/lib/rbac/vendor-ui-perms');
+const { getHubStoreMode, resetHubStoreForTests } = require('../api/lib/hub/db/index.js');
 
-process.env.EMAIL_NOTIFICATIONS_ENABLED = process.env.EMAIL_NOTIFICATIONS_ENABLED || 'false';
-process.env.EMAIL_DELIVERY_MODE = process.env.EMAIL_DELIVERY_MODE || 'queued';
-process.env.VENDOR_NOTIFY_EMAIL_ADMIN = process.env.VENDOR_NOTIFY_EMAIL_ADMIN || 'smoke-rebekah@test.local';
-process.env.VENDOR_NOTIFY_EMAIL_AP = process.env.VENDOR_NOTIFY_EMAIL_AP || 'smoke-ap@test.local';
-process.env.VENDOR_NOTIFY_EMAIL_LEGAL = process.env.VENDOR_NOTIFY_EMAIL_LEGAL || 'smoke-dylan@test.local';
-
-loadDbEnv();
+// Ensure any prior eager bind from other requires is cleared; first store use
+// after env load must see postgres.
+resetHubStoreForTests();
 
 const EXPECTED_MIGRATIONS = [
   '001_init.sql',
@@ -71,6 +86,8 @@ function redactEnv() {
     'EMAIL_DELIVERY_MODE',
     'EMAIL_NOTIFICATIONS_ENABLED',
     'HUB_WORKER_MODE',
+    'HUB_WORKER_ENABLE_INTEGRATIONS',
+    'HUB_WORKER_ENABLE_EMAIL',
     'PORTAL_BASE_URL',
     'DATABASE_URL',
     'RESEND_API_KEY',
@@ -116,6 +133,12 @@ async function checkTables(client) {
 }
 
 async function vendorWorkflowSmoke(client) {
+  assert(
+    'hub store mode postgres before outbox enqueue',
+    getHubStoreMode() === 'postgres',
+    `got ${getHubStoreMode()}`
+  );
+
   const ref = `VEN-SMOKE-${Date.now()}`;
   let record = buildVendorRecordFromBody(
     { companyName: 'RDS Smoke Test Co', msaRequired: true },
@@ -149,18 +172,43 @@ async function vendorWorkflowSmoke(client) {
   const queues = countByQueue([record], 'rebekah');
   assert('dashboard queues computable', typeof queues.all_active === 'number');
 
-  await notifyVendorWorkflowEvent({
+  // Persist outbox event even when EMAIL_NOTIFICATIONS_ENABLED=false /
+  // HUB_WORKER_ENABLE_EMAIL=false — those flags affect send/dispatch only.
+  const notifyResult = await notifyVendorWorkflowEvent({
     notifyKey: 'sent_to_ap',
     record,
     actor: 'smoke@test.local',
     warnings: [],
   });
+  assert(
+    'notifyVendorWorkflowEvent queued (not skipped)',
+    !!(notifyResult && (notifyResult.queued || notifyResult.outbox_event_id || notifyResult.dedupe_hit)),
+    notifyResult?.skipped
+      ? `skipped:${notifyResult.reason || 'unknown'}`
+      : `result=${JSON.stringify({
+          queued: notifyResult?.queued,
+          outbox_event_id: notifyResult?.outbox_event_id,
+          error: notifyResult?.error,
+        })}`
+  );
 
   const outbox = await client.query(
-    `SELECT payload, dedupe_key FROM outbox_events WHERE dedupe_key LIKE $1 ORDER BY created_at DESC LIMIT 3`,
+    `SELECT id, status, dedupe_key, payload FROM outbox_events
+     WHERE dedupe_key LIKE $1
+     ORDER BY created_at DESC LIMIT 5`,
     [`email:vendor:${ref}%`]
   );
-  assert('outbox events queued', outbox.rows.length >= 1);
+  assert(
+    'outbox events queued',
+    outbox.rows.length >= 1,
+    `expected >=1 row in outbox_events for email:vendor:${ref}% (hub_store=${getHubStoreMode()}, email_mode=${process.env.EMAIL_DELIVERY_MODE}, notify=${notifyResult?.outbox_event_id || notifyResult?.reason || 'n/a'})`
+  );
+  if (outbox.rows[0]) {
+    assert(
+      'outbox event pending or retrying (not discarded by disable flags)',
+      ['pending', 'retrying', 'processing', 'processed', 'sent'].includes(String(outbox.rows[0].status))
+    );
+  }
   const payloadStr = JSON.stringify(outbox.rows.map((r) => r.payload));
   assert('outbox no blob url', !payloadStr.includes('blob.vercel'));
   assert('outbox no token param', !payloadStr.includes('?token='));
@@ -217,7 +265,13 @@ async function healthSmoke() {
   process.env.HUB_USE_LOCAL_STORE = '0';
 
   const { createServer } = require('./server-core');
-  const srv = createServer({ envFiles: [], defaultPort: port, defaultHost: '127.0.0.1' });
+  const srv = createServer({
+    envFiles: [],
+    port,
+    host: '127.0.0.1',
+    defaultPort: port,
+    defaultHost: '127.0.0.1',
+  });
   const { server } = await srv.listen();
 
   try {
@@ -286,6 +340,8 @@ async function main() {
     console.log('\n--- RDS target detected: run PM2 on EC2 ---');
     console.log('  pm2 start deploy/ecosystem.config.cjs');
     console.log('  pm2 status  # ops-hub-staging + ops-hub-staging-worker');
+    console.log('  Note: HUB_WORKER_ENABLE_EMAIL/INTEGRATIONS=false only skips dispatch;');
+    console.log('  outbox_events / integration_events must still be persisted by the app.');
   } else {
     await healthSmoke().catch((err) => assert('health smoke', false, err.message));
     console.log('\n--- PM2 ---');

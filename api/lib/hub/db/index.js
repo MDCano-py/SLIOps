@@ -1,6 +1,11 @@
 /**
  * Hub database adapter selector.
  * Routes and workflow modules require this module as the store abstraction.
+ *
+ * Store binding is lazy: scripts must be able to loadDbEnv() before the first
+ * store call. Eager require-time binding previously pinned local_json/redis
+ * when HUB_STORE_MODE=postgres was only set later from .env.staging, so outbox
+ * writes missed Postgres outbox_events.
  */
 
 const {
@@ -27,6 +32,11 @@ function loadStore() {
 function getStore() {
   if (!_store) _store = loadStore();
   return _store;
+}
+
+/** Test-only: clear cached adapter after env changes. */
+function resetHubStoreForTests() {
+  _store = null;
 }
 
 async function checkHubStoreHealth() {
@@ -72,9 +82,23 @@ async function checkHubStoreHealth() {
   };
 }
 
-const store = getStore();
+const meta = {
+  getStore,
+  getHubStoreMode,
+  checkHubStoreHealth,
+  resetHubStoreForTests,
+};
 
-module.exports = store;
-module.exports.getStore = getStore;
-module.exports.getHubStoreMode = getHubStoreMode;
-module.exports.checkHubStoreHealth = checkHubStoreHealth;
+module.exports = new Proxy(meta, {
+  get(target, prop, receiver) {
+    if (prop in target) return Reflect.get(target, prop, receiver);
+    if (typeof prop === 'symbol') return undefined;
+    const store = getStore();
+    const value = store[prop];
+    return typeof value === 'function' ? value.bind(store) : value;
+  },
+  has(target, prop) {
+    if (prop in target) return true;
+    return prop in getStore();
+  },
+});
