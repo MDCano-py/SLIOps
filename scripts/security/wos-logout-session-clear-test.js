@@ -199,13 +199,54 @@ async function main() {
     )
   );
 
-  console.log('\n=== index.html signed-out gate + prompt=login ===');
+  console.log('\n=== sliops_oidc_id cookie attributes ===');
+  await run(() =>
+    withEnv(
+      {
+        SESSION_SECRET: 'x'.repeat(48),
+        APP_BASE_PATH: '/ops-hub-staging',
+      },
+      () => {
+        const auth = loadFresh('api/lib/auth.js');
+        const m = mockRes();
+        const sample = 'eyJhbGciOiJSUzI1NiJ9.' + 'b'.repeat(40) + '.sig';
+        ok(
+          'issueOidcIdTokenCookie succeeds',
+          auth.issueOidcIdTokenCookie(m.res, sample, auth.SESSION_TTL_SECONDS) === true
+        );
+        const issued = [].concat(m.headers['Set-Cookie'] || []).join('\n');
+        ok('HttpOnly', /HttpOnly/i.test(issued));
+        ok('Secure', /Secure/i.test(issued));
+        ok('SameSite=Lax', /SameSite=Lax/i.test(issued));
+        ok('Path scoped to mount', /Path=\/ops-hub-staging/.test(issued));
+        ok(
+          'Max-Age matches session TTL',
+          new RegExp(`Max-Age=${auth.SESSION_TTL_SECONDS}`).test(issued)
+        );
+        ok('cookie name is sliops_oidc_id', /sliops_oidc_id=/.test(issued));
+      }
+    )
+  );
+
+  console.log('\n=== index.html signed-out gate (no forced prompt=login) ===');
   await run(() => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     ok('auth gate detects signed_out=1', /signed_out=1/.test(html) && /isSignedOutLanding/.test(html));
     ok('signed-out interstitial exists', /showSignedOutInterstitial/.test(html));
-    ok('Sign in uses prompt=login', /\/api\/auth\/login\?prompt=login/.test(html));
+    ok(
+      'Sign in uses normal /api/auth/login',
+      /wos-signed-out-signin[\s\S]{0,120}appPath\('\/api\/auth\/login'\)/.test(html)
+    );
+    ok('Sign in does not force prompt=login', !/\/api\/auth\/login\?prompt=login/.test(html));
     ok('proxyFetch respects _portalSignedOut', /_portalSignedOut/.test(html));
+    ok('frontend never references sliops_oidc_id', !/sliops_oidc_id/.test(html));
+  });
+
+  console.log('\n=== authLog redacts id_token fields ===');
+  await run(() => {
+    const entraSrc = fs.readFileSync(path.join(ROOT, 'api/lib/entra.js'), 'utf8');
+    ok('authLog deletes id_token', /delete safe\.id_token/.test(entraSrc));
+    ok('authLog deletes access_token', /delete safe\.access_token/.test(entraSrc));
   });
 
   if (failed) {

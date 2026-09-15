@@ -165,7 +165,10 @@ function issueSession(res, email, opts = {}) {
   appendSetCookie(res, [cookie, clearOther]);
 }
 
-// Store Entra id_token for logout id_token_hint (HttpOnly; never exposed to JS).
+// Store Entra id_token for logout id_token_hint only.
+// Cookie flags (via buildSetCookie): HttpOnly, Secure, SameSite=Lax, Path=mount.
+// Never readable from frontend JS; never logged. Lifetime matches the WOS
+// session TTL so logout can still pass a hint for as long as the user is signed in.
 function issueOidcIdTokenCookie(res, idToken, ttlSeconds) {
   if (!idToken || typeof idToken !== 'string') return false;
   if (idToken.length > OIDC_ID_TOKEN_COOKIE_MAX_CHARS) return false;

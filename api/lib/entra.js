@@ -186,10 +186,6 @@ async function handleLogin(req, res, { renderError, portalBase }) {
   }
 
   const remember = req.query.remember === '1' || req.query.remember === 'true';
-  const forceLogin =
-    req.query.prompt === 'login' ||
-    req.query.force_login === '1' ||
-    req.query.force_login === 'true';
   const rawNext = typeof req.query.next === 'string' ? req.query.next : '';
   const next = normalizeNextForState(rawNext, portalBase);
   authLog('auth_login_initiated', {
@@ -197,7 +193,6 @@ async function handleLogin(req, res, { renderError, portalBase }) {
     normalized_next: next,
     portal_base: portalBase || '',
     app_base_path: getAppBasePath() || '/',
-    prompt: forceLogin ? 'login' : 'select_account',
   });
   const state = issueOAuthStateCookie(res, { remember, next });
 
@@ -207,9 +202,7 @@ async function handleLogin(req, res, { renderError, portalBase }) {
       scopes: OIDC_SCOPES,
       redirectUri: process.env.ENTRA_REDIRECT_URI,
       state,
-      // After Sign out, force credential challenge so Entra SSO cannot
-      // silently undo local session clear.
-      prompt: forceLogin ? 'login' : 'select_account',
+      prompt: 'select_account',
     });
     res.setHeader('Location', url);
     return res.status(302).end();
