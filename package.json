@@ -87,6 +87,7 @@
     "security:wos-sso-maintainx-auth-separation-test": "node scripts/security/wos-sso-maintainx-auth-separation-test.js",
     "security:wos-logout-session-clear-test": "node scripts/security/wos-logout-session-clear-test.js",
     "security:wos-logout-authbridge-me-test": "node scripts/security/wos-logout-authbridge-me-test.js",
+    "security:wos-signed-out-boot-test": "node scripts/security/wos-signed-out-boot-test.js",
     "security:wos100-simplified-workflow-builder-test": "node scripts/security/wos100-simplified-workflow-builder-test.js",
     "ui:visual-consistency-test": "node scripts/ui/visual-consistency-test.js",
     "ec2-live-cutover:validate": "bash scripts/ec2-live-cutover-validate.sh",

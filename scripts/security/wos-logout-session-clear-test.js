@@ -231,8 +231,8 @@ async function main() {
   console.log('\n=== index.html signed-out gate (no forced prompt=login) ===');
   await run(() => {
     const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-    ok('auth gate detects signed_out=1', /signed_out=1/.test(html) && /isSignedOutLanding/.test(html));
-    ok('signed-out interstitial exists', /showSignedOutInterstitial/.test(html));
+    ok('signed-out boot guard present', /signedOutBootGuard/.test(html));
+    ok('signed-out interstitial exists', /wos-signed-out|__WOS_RENDER_SIGNED_OUT__/.test(html));
     ok(
       'Sign in uses /api/auth/resume',
       /wos-signed-out-signin[\s\S]{0,120}appPath\('\/api\/auth\/resume'\)/.test(html)
@@ -241,6 +241,64 @@ async function main() {
     ok('Sign in does not force prompt=login', !/\/api\/auth\/login\?prompt=login/.test(html));
     ok('proxyFetch respects _portalSignedOut', /_portalSignedOut/.test(html));
     ok('frontend never references sliops_oidc_id', !/sliops_oidc_id/.test(html));
+  });
+
+  console.log('\n=== signed_out=1 aborts SPA boot before protected APIs ===');
+  await run(() => {
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const hub = fs.readFileSync(path.join(ROOT, 'hub.js'), 'utf8');
+
+    ok('early signedOutBootGuard exists', /function signedOutBootGuard|signedOutBootGuard\(\)/.test(html));
+    ok('boot sets __WOS_ABORT_APP_BOOT__', /__WOS_ABORT_APP_BOOT__\s*=\s*true/.test(html));
+    ok('boot sets _portalSignedOut synchronously', /_portalSignedOut\s*=\s*!!isSignedOutLanding|_portalSignedOut\s*=\s*true/.test(html));
+
+    const bootIdx = html.indexOf('signedOutBootGuard');
+    const gateIdx = html.indexOf('(function authGate()');
+    ok('signedOutBootGuard runs before authGate', bootIdx >= 0 && gateIdx > bootIdx);
+
+    ok(
+      'authGate returns immediately when abort flags set',
+      /if \(window\.__WOS_ABORT_APP_BOOT__ === true \|\| window\._portalSignedOut === true\) \{\s*return;/.test(html)
+    );
+
+    ok(
+      'proxyFetch short-circuits when boot aborted',
+      /if \(window\._portalSignedOut \|\| window\.__WOS_ABORT_APP_BOOT__\)\s*\{\s*return new Response/.test(html)
+    );
+
+    ok(
+      'meLoadPromise is null when aborted',
+      /meLoadPromise = \(window\._portalSignedOut \|\| window\.__WOS_ABORT_APP_BOOT__\)\s*\n?\s*\? null/.test(html)
+    );
+    ok(
+      'SPA router/init gated behind abort',
+      /if \(!\(window\._portalSignedOut \|\| window\.__WOS_ABORT_APP_BOOT__\)\) \{\s*\n\s*window\.addEventListener\('hashchange', applyRoute\)/.test(html)
+    );
+    ok(
+      'applyRoute aborts when signed out',
+      /function applyRoute\(routeApplyOpts\) \{\s*if \(window\._portalSignedOut \|\| window\.__WOS_ABORT_APP_BOOT__\) return;/.test(html)
+    );
+    ok(
+      'setHash aborts when signed out',
+      /function setHash\(hash\) \{\s*if \(window\._portalSignedOut \|\| window\.__WOS_ABORT_APP_BOOT__\) return;/.test(html)
+    );
+    ok(
+      'switchTab aborts when signed out',
+      /function switchTab\(tabName, opts = \{\}\) \{\s*if \(window\._portalSignedOut \|\| window\.__WOS_ABORT_APP_BOOT__\) return;/.test(html)
+    );
+    ok(
+      'boot strips hash once via replaceState',
+      /location\.hash[\s\S]{0,120}history\.replaceState/.test(html)
+    );
+
+    ok(
+      'HubUI.init returns early when aborted',
+      /function init\(\) \{\s*\/\/ Signed-out landing[\s\S]{0,120}if \(global\._portalSignedOut \|\| global\.__WOS_ABORT_APP_BOOT__\) return;/.test(hub)
+    );
+    ok(
+      'HubUI does not register DOMContentLoaded when aborted',
+      /if \(!\(global\._portalSignedOut \|\| global\.__WOS_ABORT_APP_BOOT__\)\) \{\s*if \(document\.readyState/.test(hub)
+    );
   });
 
   console.log('\n=== authLog redacts id_token fields ===');

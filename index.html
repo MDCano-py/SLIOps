@@ -76,45 +76,18 @@
 </script>
 <script>
   // ============================================================
-  // SSO AUTH GATE
+  // SIGNED-OUT BOOT GUARD — separate application boot mode
   // ============================================================
-  // Runs before the rest of the portal loads. Checks /api/auth/me — if
-  // the user isn't authenticated, redirects to the SSO login flow with
-  // the current URL preserved as ?next= so they land back here after
-  // sign-in.
-  //
-  // CRITICAL SAFETY DESIGN:
-  //   - "Fail open": if /me itself errors (network failure, proxy down,
-  //     CORS misconfig, etc.) we DO NOT redirect — we let the user
-  //     through. This prevents a broken auth endpoint from creating an
-  //     infinite redirect loop that bricks the portal for everyone.
-  //   - Skips entirely if the URL contains ?_noauth=1 — a back-door for
-  //     emergency access if the gate misbehaves. Bookmark
-  //     https://sliops.com/?_noauth=1 for break-glass.
-  //   - Doesn't run on the auth callback URLs themselves.
-  //
-  // Kill switch (server-side): set env var SSO_ENFORCEMENT=off on the host
-  // environment and restart the app. /me will then always return
-  // authenticated:true, so the gate becomes dormant without any code change.
-  (function authGate() {
-    function isLocalOrDevPortal() {
-      if (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) return true;
-      return window.PORTAL_ENV === 'development';
-    }
-    function loginNextValue() {
-      // Pass app-relative pathname only. Backend owns APP_BASE_PATH /
-      // PORTAL_BASE_URL joining — never send /ops-hub-staging/... as next
-      // when the portal is already mounted there.
-      return appRelativePath(window.location.pathname)
-        + window.location.search
-        + window.location.hash;
-    }
-    function isSignedOutLanding() {
-      return /(\?|&)signed_out=1(&|$)/.test(window.location.search || '');
-    }
-    function showSignedOutInterstitial() {
-      window._portalSignedOut = true;
+  // ?signed_out=1 is a dead-end mode: interstitial only, Sign In →
+  // /api/auth/resume. Normal SPA/auth/router/API boot must never start.
+  // Hash routes must not restore the portal. History is touched at most
+  // once (strip hash) so we do not create redirect/history loops.
+  (function signedOutBootGuard() {
+    function renderSignedOutInterstitial() {
       document.documentElement.style.visibility = '';
+      try {
+        document.documentElement.classList.remove('hub-boot-hub');
+      } catch (e0) { /* ignore */ }
       if (document.getElementById('wos-signed-out')) return;
       var wrap = document.createElement('div');
       wrap.id = 'wos-signed-out';
@@ -133,7 +106,77 @@
         '" style="display:inline-block;padding:0.65rem 1.25rem;background:#2a9499;color:#fff;' +
         'text-decoration:none;border-radius:4px;font-family:system-ui,sans-serif;font-size:0.95rem">' +
         'Sign in</a></div>';
-      document.documentElement.appendChild(wrap);
+      (document.body || document.documentElement).appendChild(wrap);
+    }
+    window.__WOS_RENDER_SIGNED_OUT__ = renderSignedOutInterstitial;
+    try {
+      var params = new URLSearchParams(window.location.search || '');
+      var isSignedOutLanding = params.get('signed_out') === '1';
+      // Always define the flag synchronously (false when not signed out).
+      window._portalSignedOut = !!isSignedOutLanding;
+      if (!isSignedOutLanding) return;
+      window.__WOS_ABORT_APP_BOOT__ = true;
+      // Stabilize URL: drop any hash once so #/dashboard etc. cannot look
+      // like a restorable route. Never pushState; never loop.
+      if (window.location.hash) {
+        try {
+          var stable = window.location.pathname + (window.location.search || '');
+          window.history.replaceState(null, '', stable);
+        } catch (histErr) { /* ignore */ }
+      }
+      if (document.body) {
+        renderSignedOutInterstitial();
+      } else {
+        document.addEventListener('DOMContentLoaded', renderSignedOutInterstitial);
+      }
+    } catch (e) {
+      try {
+        window._portalSignedOut = true;
+        window.__WOS_ABORT_APP_BOOT__ = true;
+      } catch (e2) { /* ignore */ }
+    }
+  })();
+</script>
+<script>
+  // ============================================================
+  // SSO AUTH GATE
+  // ============================================================
+  // Runs before the rest of the portal loads. Checks /api/auth/me — if
+  // the user isn't authenticated, redirects to the SSO login flow with
+  // the current URL preserved as ?next= so they land back here after
+  // sign-in.
+  //
+  // CRITICAL SAFETY DESIGN:
+  //   - "Fail open": if /me itself errors (network failure, proxy down,
+  //     CORS misconfig, etc.) we DO NOT redirect — we let the user
+  //     through. This prevents a broken auth endpoint from creating an
+  //     infinite redirect loop that bricks the portal for everyone.
+  //   - Skips entirely if the URL contains ?_noauth=1 — a back-door for
+  //     emergency access if the gate misbehaves. Bookmark
+  //     https://sliops.com/?_noauth=1 for break-glass.
+  //   - Doesn't run on the auth callback URLs themselves.
+  //   - Does not run at all in signed-out boot mode (signedOutBootGuard).
+  //
+  // Kill switch (server-side): set env var SSO_ENFORCEMENT=off on the host
+  // environment and restart the app. /me will then always return
+  // authenticated:true, so the gate becomes dormant without any code change.
+  (function authGate() {
+    // Dead-end signed-out mode: signedOutBootGuard owns this page. Do not
+    // fetch /me, redirect to login, or touch history.
+    if (window.__WOS_ABORT_APP_BOOT__ === true || window._portalSignedOut === true) {
+      return;
+    }
+    function isLocalOrDevPortal() {
+      if (/^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)) return true;
+      return window.PORTAL_ENV === 'development';
+    }
+    function loginNextValue() {
+      // Pass app-relative pathname only. Backend owns APP_BASE_PATH /
+      // PORTAL_BASE_URL joining — never send /ops-hub-staging/... as next
+      // when the portal is already mounted there.
+      return appRelativePath(window.location.pathname)
+        + window.location.search
+        + window.location.hash;
     }
     try {
       // Emergency bypass — local/development only (ignored on staging/production hosts)
@@ -160,7 +203,6 @@
       document.documentElement.style.visibility = 'hidden';
 
       var meUrl = appPath('/api/maintainx?path=' + encodeURIComponent('/me'));
-      var signedOut = isSignedOutLanding();
       fetch(meUrl, { credentials: 'include' })
         .then(function(r) {
           if (!r.ok) throw new Error('me responded ' + r.status);
@@ -168,11 +210,8 @@
         })
         .then(function(data) {
           if (data && data.authenticated === true) {
-            // Authenticated — show the portal (ignore stale signed_out flag)
+            // Authenticated — show the portal
             document.documentElement.style.visibility = '';
-          } else if (signedOut) {
-            // Local session cleared; do not auto-bounce into Entra SSO.
-            showSignedOutInterstitial();
           } else {
             // Not authenticated — redirect to login, preserving where
             // the user was trying to go.
@@ -184,10 +223,6 @@
           // WOS-99 — fail closed on deployed hosts. Local/dev may still fail open
           // so a broken /me does not brick laptop development.
           console.warn('[auth] gate failed:', err);
-          if (signedOut) {
-            showSignedOutInterstitial();
-            return;
-          }
           if (isLocalOrDevPortal()) {
             console.warn('[auth] gate failed open (local/dev only)');
             document.documentElement.style.visibility = '';
@@ -199,9 +234,7 @@
     } catch (e) {
       console.warn('[auth] gate exception:', e);
       try {
-        if (isSignedOutLanding()) {
-          showSignedOutInterstitial();
-        } else if (isLocalOrDevPortal()) {
+        if (isLocalOrDevPortal()) {
           document.documentElement.style.visibility = '';
         } else {
           window.location.replace(appPath('/api/auth/login?next=' + encodeURIComponent(loginNextValue())));
@@ -13198,6 +13231,13 @@ function goBack() {
   // / mxPost / mxDelete helpers below also route through this so they
   // get the same credentials + auth-redirect behavior automatically.
   async function proxyFetch(path, init = {}) {
+    // Signed-out landing: never hit protected APIs and never start SSO.
+    if (window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__) {
+      return new Response(JSON.stringify({ authenticated: false, code: 'SIGNED_OUT' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const url = path.startsWith('http') ? path : proxyUrl(path);
     const headers = { ...(init.headers || {}) };
     if (window._portalNoAuth || (window.RbacClient && window.RbacClient.isPortalNoAuthMode && window.RbacClient.isPortalNoAuthMode())) {
@@ -13214,7 +13254,7 @@ function goBack() {
   // as non-401 statuses (e.g. 502 + MAINTAINX_AUTH_FAILED) or as 401 without
   // code WOS_AUTH_REQUIRED (legacy). Parse the body code before redirecting.
   if (res.status === 401 && !/\/auth\//.test(path)) {
-      if (window._portalNoAuth || window._portalSignedOut || (window.RbacClient && window.RbacClient.isPortalNoAuthMode && window.RbacClient.isPortalNoAuthMode())) {
+      if (window._portalNoAuth || window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__ || (window.RbacClient && window.RbacClient.isPortalNoAuthMode && window.RbacClient.isPortalNoAuthMode())) {
         return res;
       }
       var wosAuthRequired = false;
@@ -21539,7 +21579,9 @@ function goBack() {
   // prompt or bypass straight in. Otherwise a user clicking "Management"
   // before /me resolves would see the passcode gate flash even when their
   // SSO permissions would have let them in.
-  const meLoadPromise = proxyFetch('/me').then(r => r.json()).then(data => {
+  const meLoadPromise = (window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__)
+    ? null
+    : proxyFetch('/me').then(r => r.json()).then(data => {
     if (data && data.ssoEnforced === false) {
       window._portalNoAuth = true;
       if (window.RbacClient) window.RbacClient.enablePortalNoAuthMode();
@@ -25887,6 +25929,7 @@ function goBack() {
   }
 
   function switchTab(tabName, opts = {}) {
+    if (window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__) return;
     _switchTabInProgress = true;
     try {
     const inShell = usesHubShell(tabName);
@@ -26090,6 +26133,7 @@ function goBack() {
   let _pendingMgmtSection = null;
 
   function setHash(hash) {
+    if (window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__) return;
     if (_routingInProgress) return;
     if (window.location.hash === hash) return;
     if (!window.location.hash || window.location.hash === '#/') {
@@ -26312,6 +26356,7 @@ function goBack() {
     _lastAppliedRouteKey = '';
   }
   function applyRoute(routeApplyOpts) {
+    if (window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__) return;
     if (_routingInProgress) return;
     const force = routeApplyOpts && routeApplyOpts.force;
     if (!window.HubUI || typeof window.HubUI.navigateShell !== 'function') {
@@ -26582,11 +26627,14 @@ function goBack() {
   }
 
   // Listen for hash changes (back/forward, manual edits, etc.)
-  window.addEventListener('hashchange', applyRoute);
-  window.addEventListener('popstate',   applyRoute);
-
+  // Signed-out dead-end mode: do not register router or portal chrome
+  // handlers — hash must never rehydrate the SPA.
   window.applyRoute = applyRoute;
   window.resetRouteCache = resetRouteCache;
+
+  if (!(window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__)) {
+  window.addEventListener('hashchange', applyRoute);
+  window.addEventListener('popstate',   applyRoute);
 
   // Brand block doubles as a Home button
   const brandHomeBtn = document.getElementById('brandHomeBtn');
@@ -26668,36 +26716,39 @@ function goBack() {
   // ---------------------------------------------------------------------
   // Initialize
   // ---------------------------------------------------------------------
-  addPart();
-  loadDropdowns();
-  loadSignedInUser();
+  // Signed-out landing must not boot the SPA (dropdowns, /me, MaintainX,
+  // router). Only the interstitial Sign In → /api/auth/resume is allowed.
+    addPart();
+    loadDropdowns();
+    loadSignedInUser();
 
-  // Preload Work Order Request form data in the background as soon as the
-  // portal is ready. Without this, the locations/assets/categories fetch
-  // doesn't start until the user clicks the WO Request tab — and they
-  // wait 2-5 seconds staring at a loader. Preloading means by the time
-  // they click the tab, the data is already there and the form is
-  // immediately interactive.
-  //
-  // Mirrors the lazy-load guard in the tab-switch handler: setting
-  // woDataLoaded=true here prevents the tab-switch from firing a
-  // duplicate fetch when the user actually opens the tab.
-  //
-  // Errors are non-fatal — if the preload fails (network blip, MaintainX
-  // down), the tab-switch handler can still trigger a retry by resetting
-  // the flag in the catch path. Cheap and resilient.
-  woDataLoaded = true;
-  loadWorkOrderData().catch((err) => {
-    console.warn('WO data preload failed; will retry on tab open:', err);
-    woDataLoaded = false; // allow tab-switch to retry
-  });
-
-  document.querySelectorAll('[data-tab-jump]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const t = btn.getAttribute('data-tab-jump');
-      if (t) switchTab(t);
+    // Preload Work Order Request form data in the background as soon as the
+    // portal is ready. Without this, the locations/assets/categories fetch
+    // doesn't start until the user clicks the WO Request tab — and they
+    // wait 2-5 seconds staring at a loader. Preloading means by the time
+    // they click the tab, the data is already there and the form is
+    // immediately interactive.
+    //
+    // Mirrors the lazy-load guard in the tab-switch handler: setting
+    // woDataLoaded=true here prevents the tab-switch from firing a
+    // duplicate fetch when the user actually opens the tab.
+    //
+    // Errors are non-fatal — if the preload fails (network blip, MaintainX
+    // down), the tab-switch handler can still trigger a retry by resetting
+    // the flag in the catch path. Cheap and resilient.
+    woDataLoaded = true;
+    loadWorkOrderData().catch((err) => {
+      console.warn('WO data preload failed; will retry on tab open:', err);
+      woDataLoaded = false; // allow tab-switch to retry
     });
-  });
+
+    document.querySelectorAll('[data-tab-jump]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const t = btn.getAttribute('data-tab-jump');
+        if (t) switchTab(t);
+      });
+    });
+  }
 </script>
 <script src="vendor-dashboard-queues.js"></script>
 <script src="rbac-client.js"></script>
@@ -26707,6 +26758,7 @@ function goBack() {
 <script src="template-registry-ui.js"></script>
 <script>
   (function () {
+    if (window._portalSignedOut || window.__WOS_ABORT_APP_BOOT__) return;
     if (window._portalNoAuth && window.RbacClient) {
       window.RbacClient.enablePortalNoAuthMode();
       window.RbacClient.revealAllNav(document);

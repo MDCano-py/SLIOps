@@ -3238,6 +3238,8 @@
   }
 
   function init() {
+    // Signed-out landing: do not fetch /me, hydrate routes, or load dashboards.
+    if (global._portalSignedOut || global.__WOS_ABORT_APP_BOOT__) return;
     wireShellNav();
     wireQuickFilters();
     wireNotifications();
@@ -3310,9 +3312,11 @@
     },
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  if (!(global._portalSignedOut || global.__WOS_ABORT_APP_BOOT__)) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
   }
 })(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : this);
