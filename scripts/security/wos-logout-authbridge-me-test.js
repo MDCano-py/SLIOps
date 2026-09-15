@@ -199,6 +199,105 @@ async function main() {
     )
   );
 
+  console.log('\n=== explicit resume clears marker; login does not ===');
+  await run(() =>
+    withEnv(
+      {
+        SESSION_SECRET: 'x'.repeat(48),
+        AUTH_PROVIDER: 'authbridge',
+        AUTHBRIDGE_MODE: 'header',
+        AUTHBRIDGE_TRUST_PROXY_HEADERS: '1',
+        AUTHBRIDGE_SHARED_SECRET: 'y'.repeat(32),
+        ALLOWED_EMAIL_DOMAINS: 'streamlinecorp.com',
+        PORTAL_BASE_URL: 'https://operations.streamlinescada.com/',
+        APP_BASE_PATH: '',
+        STAGING_TEST_LOGIN_ENABLED: '0',
+      },
+      async () => {
+        const auth = loadFresh('api/lib/auth.js');
+        const authbridge = loadFresh('api/lib/authbridge.js');
+        const logout = loadFresh('api/lib/logout.js');
+
+        const abHeaders = {
+          'x-authbridge-secret': process.env.AUTHBRIDGE_SHARED_SECRET,
+          'x-authbridge-email': 'michael.cano@streamlinecorp.com',
+          'x-authbridge-name': 'Michael Cano',
+        };
+
+        // Simulate post-logout request with marker + AuthBridge headers
+        const signedOutReq = {
+          method: 'GET',
+          query: { next: '/' },
+          headers: {
+            ...abHeaders,
+            cookie: `${auth.SIGNED_OUT_COOKIE_NAME}=1`,
+          },
+        };
+        ok(
+          'post-logout /me actor is anonymous',
+          auth.getActorEmail(signedOutReq) === null
+        );
+
+        // Accidental /auth/login while signed out must NOT clear marker
+        const loginRes = mockRes();
+        loginRes.res.status = function status(code) {
+          loginRes._status = code;
+          return { end() { return loginRes.res; } };
+        };
+        await authbridge.handleLogin(signedOutReq, loginRes.res, {
+          portalBase: process.env.PORTAL_BASE_URL,
+          renderError() {},
+        });
+        const loginCookies = [].concat(loginRes.headers['Set-Cookie'] || []).join('\n');
+        ok('login does not clear signed_out while marker present', !/sliops_signed_out=.*Max-Age=0/i.test(loginCookies));
+        ok(
+          'login redirects back to signed_out landing',
+          /signed_out=1/.test(String(loginRes.headers.Location || ''))
+        );
+
+        // Explicit resume clears marker and redirects to portal root (no AuthBridge URL hardcode)
+        const resumeRes = mockRes();
+        resumeRes.res.status = function status(code) {
+          resumeRes._status = code;
+          return { end() { return resumeRes.res; } };
+        };
+        await authbridge.handleResume(signedOutReq, resumeRes.res, {
+          portalBase: process.env.PORTAL_BASE_URL,
+        });
+        const resumeCookies = [].concat(resumeRes.headers['Set-Cookie'] || []).join('\n');
+        ok('resume clears sliops_signed_out', /sliops_signed_out=.*Max-Age=0/i.test(resumeCookies));
+        const loc = String(resumeRes.headers.Location || '');
+        ok('resume redirects to portal', /operations\.streamlinescada\.com\/?$/.test(loc) || loc.endsWith('/'));
+        ok('resume does not include signed_out', !/[?&]signed_out=1(?:&|$)/.test(loc));
+        ok('resume does not hardcode AuthBridge login URL', !/authbridge\/login/.test(loc));
+
+        // After marker cleared, AuthBridge headers authenticate again
+        const afterResumeReq = {
+          headers: {
+            ...abHeaders,
+            cookie: '', // marker cleared client-side
+          },
+        };
+        ok(
+          'AuthBridge headers work again after resume',
+          auth.getActorEmail(afterResumeReq) === 'michael.cano@streamlinecorp.com'
+        );
+
+        // Loading signed_out landing alone does not clear (no resume call)
+        const m = mockRes();
+        auth.issueSignedOutMarker(m.res);
+        const still = auth.getActorEmail({
+          headers: {
+            ...abHeaders,
+            cookie: `${auth.SIGNED_OUT_COOKIE_NAME}=1`,
+          },
+        });
+        ok('loading signed_out alone keeps marker effect', still === null);
+        ok('resolvePostLogoutUrl still marks signed_out', /signed_out=1/.test(logout.resolvePostLogoutUrl(process.env.PORTAL_BASE_URL)));
+      }
+    )
+  );
+
   if (failed) {
     console.error(`\n${failed} failure(s)`);
     process.exit(1);

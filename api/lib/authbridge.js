@@ -252,6 +252,44 @@ function verifyHmacJwt(token, secret) {
   return payload;
 }
 
+function stripSignedOutFromUrl(url) {
+  if (!url || typeof url !== 'string') return url;
+  try {
+    const absolute = /^https?:\/\//i.test(url);
+    const u = absolute ? new URL(url) : new URL(url, 'https://placeholder.local');
+    u.searchParams.delete('signed_out');
+    if (absolute) return u.toString();
+    return `${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Explicit Sign In after logout (AuthBridge header mode / gateway).
+ * Clears sliops_signed_out then redirects to the portal so Nginx
+ * auth_request can challenge AuthBridge. Does not hardcode AuthBridge URLs.
+ */
+async function handleResume(req, res, { portalBase }) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  auth.clearSignedOutMarker(res);
+  const rawNext = typeof req.query?.next === 'string' ? req.query.next : '';
+  const next = normalizeNextForState(rawNext, portalBase) || '/';
+  let target = buildRedirectTarget(portalBase, next);
+  target = stripSignedOutFromUrl(target);
+  console.log('[auth]', JSON.stringify({
+    event: 'auth_resume_initiated',
+    provider: 'authbridge',
+    mode: authBridgeMode(),
+    final_redirect: target,
+  }));
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Location', target);
+  return res.status(302).end();
+}
+
 async function handleLogin(req, res, { renderError, portalBase }) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const missing = missingAuthBridgeVars();
@@ -259,11 +297,22 @@ async function handleLogin(req, res, { renderError, portalBase }) {
     return renderError(503, 'AuthBridge not configured', `Missing: ${missing.join(', ')}`);
   }
   if (authBridgeMode() === 'header') {
-    return renderError(
-      400,
-      'AuthBridge header mode',
-      'Sign-in is handled by the AuthBridge gateway. Open the portal through the corporate AuthBridge entry URL.'
-    );
+    // Automatic auth-gate / 401 bounces must NOT clear sliops_signed_out.
+    // Explicit Sign In uses /api/auth/resume. If the marker is present,
+    // send the user back to the signed-out landing without clearing it.
+    if (auth.hasSignedOutMarker(req)) {
+      const { resolvePostLogoutUrl } = require('./logout');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Location', resolvePostLogoutUrl(portalBase));
+      return res.status(302).end();
+    }
+    // No marker: send to portal; Nginx auth_request owns AuthBridge challenge.
+    const rawNext = typeof req.query.next === 'string' ? req.query.next : '';
+    const next = normalizeNextForState(rawNext, portalBase) || '/';
+    const target = stripSignedOutFromUrl(buildRedirectTarget(portalBase, next));
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Location', target);
+    return res.status(302).end();
   }
   if (authBridgeMode() !== 'oidc') {
     return renderError(400, 'AuthBridge login', 'OIDC mode is required for browser login redirects.');
@@ -498,6 +547,7 @@ module.exports = {
   missingAuthBridgeVars,
   authBridgeMode,
   handleLogin,
+  handleResume,
   handleCallback,
   handleLogout,
   identityFromTrustedHeaders,
@@ -507,4 +557,5 @@ module.exports = {
   resolveAuthBridgeCookieDomain,
   clearAuthBridgeBrowserCookies,
   buildAuthBridgeLogoutUrl,
+  stripSignedOutFromUrl,
 };

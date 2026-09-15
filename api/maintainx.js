@@ -1863,6 +1863,28 @@ async function handleAuth(path, req, res) {
       return res.status(302).end();
     }
 
+    // ---- /auth/resume ----
+    // Explicit Sign In after logout. Clears sliops_signed_out then redirects
+    // to the portal so Nginx/AuthBridge (or Entra via /auth/login) can run.
+    // Must not be used for automatic 401/auth-gate bounces.
+    if (path === '/auth/resume') {
+      if (req.method !== 'GET') {
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
+      if (useAuthBridge) {
+        return authbridge.handleResume(req, res, { portalBase: PORTAL_BASE });
+      }
+      // Entra / SAML: clear marker then send through normal login.
+      auth.clearSignedOutMarker(res);
+      const rawNext = typeof req.query.next === 'string' ? req.query.next : '';
+      const nextQ = rawNext ? `?next=${encodeURIComponent(rawNext)}` : '';
+      const { publicPath, getAppBasePath } = require('./lib/app-paths');
+      const loginPath = publicPath(`/api/auth/login${nextQ}`, getAppBasePath());
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Location', loginPath);
+      return res.status(302).end();
+    }
+
     // ---- /auth/callback ---- (AuthBridge or Entra OIDC)
     if (path === '/auth/callback') {
       if (useAuthBridge) {

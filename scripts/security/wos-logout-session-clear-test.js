@@ -234,9 +234,10 @@ async function main() {
     ok('auth gate detects signed_out=1', /signed_out=1/.test(html) && /isSignedOutLanding/.test(html));
     ok('signed-out interstitial exists', /showSignedOutInterstitial/.test(html));
     ok(
-      'Sign in uses normal /api/auth/login',
-      /wos-signed-out-signin[\s\S]{0,120}appPath\('\/api\/auth\/login'\)/.test(html)
+      'Sign in uses /api/auth/resume',
+      /wos-signed-out-signin[\s\S]{0,120}appPath\('\/api\/auth\/resume'\)/.test(html)
     );
+    ok('Sign in does not use /api/auth/login', !/wos-signed-out-signin[\s\S]{0,120}appPath\('\/api\/auth\/login'\)/.test(html));
     ok('Sign in does not force prompt=login', !/\/api\/auth\/login\?prompt=login/.test(html));
     ok('proxyFetch respects _portalSignedOut', /_portalSignedOut/.test(html));
     ok('frontend never references sliops_oidc_id', !/sliops_oidc_id/.test(html));
