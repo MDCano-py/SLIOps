@@ -78,3 +78,6 @@ screenshots/
 *.png.bak
 
 # Optional: keep tracked logos/assets at repo root — do not blanket-ignore *.png
+
+# Offline production export (USB backup artifacts; never commit)
+production-backup/

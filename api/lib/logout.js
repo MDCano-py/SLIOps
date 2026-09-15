@@ -13,8 +13,19 @@ function setNoStore(res) {
 }
 
 /**
+ * Append ?signed_out=1 so the portal auth gate does not immediately
+ * bounce the user back into Entra after local session clear.
+ */
+function appendSignedOutFlag(url) {
+  if (!url || typeof url !== 'string') return url;
+  if (/[?&]signed_out=1(?:&|$)/.test(url)) return url;
+  return url.includes('?') ? `${url}&signed_out=1` : `${url}?signed_out=1`;
+}
+
+/**
  * Preferred landing page after logout (login or portal home).
  * Never lands on bare "/" when WOS is mounted under APP_BASE_PATH.
+ * Always includes signed_out=1 so auto-SSO cannot look like a no-op logout.
  */
 function resolvePostLogoutUrl(portalBase) {
   const { resolvePostAuthRedirect } = require('./app-paths');
@@ -27,15 +38,17 @@ function resolvePostLogoutUrl(portalBase) {
       const mount = getPortalMountPath(portalBase) || getAppBasePath();
       if (/^https?:\/\//i.test(home)) {
         const u = new URL(home);
-        return `${u.origin}${publicPath('/api/auth/staging-test-login', mount)}`;
+        return appendSignedOutFlag(
+          `${u.origin}${publicPath('/api/auth/staging-test-login', mount)}`
+        );
       }
-      return publicPath('/api/auth/staging-test-login', mount);
+      return appendSignedOutFlag(publicPath('/api/auth/staging-test-login', mount));
     }
   } catch {
     /* optional */
   }
 
-  return home;
+  return appendSignedOutFlag(home);
 }
 
 /**
@@ -58,6 +71,7 @@ async function performLogout(req, res, { portalBase, useEntra = false, entraLogo
 
 module.exports = {
   setNoStore,
+  appendSignedOutFlag,
   resolvePostLogoutUrl,
   performLogout,
 };

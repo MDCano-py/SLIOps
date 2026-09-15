@@ -2010,14 +2010,8 @@ async function handleAuth(path, req, res) {
           }
         }
       } else if (useEntra) {
-        const tenantId = process.env.ENTRA_TENANT_ID;
         const landing = require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE);
-        const postLogout = encodeURIComponent(landing);
-        if (tenantId) {
-          entraLogoutUrl =
-            `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout` +
-            `?post_logout_redirect_uri=${postLogout}`;
-        }
+        entraLogoutUrl = require('./lib/entra').buildEntraLogoutUrl(req, landing);
       }
 
       const sess = auth.getSession(req);

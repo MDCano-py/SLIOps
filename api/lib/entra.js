@@ -1,7 +1,8 @@
 // Microsoft Entra ID (Azure AD) — OIDC authorization code flow via @azure/msal-node.
 //
-// Tokens are acquired and validated server-side only. The browser receives
-// our signed session cookie (auth.issueSession) — never Microsoft tokens.
+// Access/refresh tokens stay server-side only. The browser receives our signed
+// session cookie (auth.issueSession). An HttpOnly id_token cookie may also be
+// stored solely so logout can pass id_token_hint to Entra end-session.
 //
 // Required env vars:
 //   ENTRA_TENANT_ID
@@ -185,6 +186,10 @@ async function handleLogin(req, res, { renderError, portalBase }) {
   }
 
   const remember = req.query.remember === '1' || req.query.remember === 'true';
+  const forceLogin =
+    req.query.prompt === 'login' ||
+    req.query.force_login === '1' ||
+    req.query.force_login === 'true';
   const rawNext = typeof req.query.next === 'string' ? req.query.next : '';
   const next = normalizeNextForState(rawNext, portalBase);
   authLog('auth_login_initiated', {
@@ -192,6 +197,7 @@ async function handleLogin(req, res, { renderError, portalBase }) {
     normalized_next: next,
     portal_base: portalBase || '',
     app_base_path: getAppBasePath() || '/',
+    prompt: forceLogin ? 'login' : 'select_account',
   });
   const state = issueOAuthStateCookie(res, { remember, next });
 
@@ -201,7 +207,9 @@ async function handleLogin(req, res, { renderError, portalBase }) {
       scopes: OIDC_SCOPES,
       redirectUri: process.env.ENTRA_REDIRECT_URI,
       state,
-      prompt: 'select_account',
+      // After Sign out, force credential challenge so Entra SSO cannot
+      // silently undo local session clear.
+      prompt: forceLogin ? 'login' : 'select_account',
     });
     res.setHeader('Location', url);
     return res.status(302).end();
@@ -264,6 +272,15 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
     }
 
     auth.issueSession(res, identity.email, { remember: oauthState.r === 1 });
+    const idToken =
+      tokenResponse.idToken ||
+      tokenResponse.id_token ||
+      null;
+    if (idToken) {
+      const ttl =
+        oauthState.r === 1 ? auth.REMEMBER_TTL_SECONDS : auth.SESSION_TTL_SECONDS;
+      auth.issueOidcIdTokenCookie(res, idToken, ttl);
+    }
 
     try {
       await ensureUserProvisioned(identity);
@@ -285,17 +302,37 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
   }
 }
 
+/**
+ * Build Entra end-session URL with post_logout_redirect_uri and id_token_hint
+ * when the HttpOnly OIDC id cookie is present.
+ */
+function buildEntraLogoutUrl(req, landing) {
+  const tenantId = process.env.ENTRA_TENANT_ID;
+  if (!tenantId || !landing) return null;
+  const params = new URLSearchParams();
+  params.set('post_logout_redirect_uri', landing);
+  const idToken = auth.readOidcIdToken(req);
+  if (idToken) {
+    params.set('id_token_hint', idToken);
+  } else {
+    const sess = auth.getSession(req);
+    if (sess?.email) {
+      params.set('logout_hint', sess.email);
+    }
+  }
+  return (
+    `https://login.microsoftonline.com/${encodeURIComponent(tenantId)}` +
+    `/oauth2/v2.0/logout?${params.toString()}`
+  );
+}
+
 async function handleLogout(req, res, { portalBase }) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   const { performLogout, resolvePostLogoutUrl } = require('./logout');
   const landing = resolvePostLogoutUrl(portalBase);
-  const tenantId = process.env.ENTRA_TENANT_ID;
-  const entraLogoutUrl = tenantId
-    ? `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/logout` +
-      `?post_logout_redirect_uri=${encodeURIComponent(landing)}`
-    : null;
+  const entraLogoutUrl = buildEntraLogoutUrl(req, landing);
   return performLogout(req, res, {
     portalBase,
     useEntra: !!entraLogoutUrl,
@@ -349,5 +386,6 @@ module.exports = {
   handleDevLogin,
   identityFromTokenResponse,
   buildRedirectTarget,
+  buildEntraLogoutUrl,
   normalizeNextForState,
 };

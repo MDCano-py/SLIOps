@@ -221,6 +221,10 @@ async function main() {
         'logout Location is portal or login',
         /ops-hub-staging/i.test(String(m2.headers.Location || ''))
       );
+      assert(
+        'logout Location includes signed_out=1',
+        /[?&]signed_out=1(?:&|$)/.test(String(m2.headers.Location || ''))
+      );
     }
   );
 
@@ -267,7 +271,10 @@ async function main() {
     const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
     const hubJs = fs.readFileSync(path.join(ROOT, 'hub.js'), 'utf8');
     assert('portalSignOut shared helper exists', indexHtml.includes('window.portalSignOut'));
-    assert('confirm sign-out prompt', indexHtml.includes('Are you sure you want to sign out?'));
+    assert(
+      'confirm sign-out prompt',
+      /Sign out\?/.test(indexHtml) && /portalSignOut[\s\S]{0,400}streamlineModal/.test(indexHtml)
+    );
     assert('mgmt sign-out uses portalSignOut', /mgmtSignOutLink[\s\S]*portalSignOut/.test(indexHtml));
     assert('no Vercel redeploy copy in user mgmt', !/edit the env var in Vercel/i.test(indexHtml));
     assert(

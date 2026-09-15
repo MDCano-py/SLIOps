@@ -21,6 +21,10 @@ const { getCookiePath } = require('./app-paths');
 const SESSION_COOKIE_NAME  = 'sliops_session';
 const REMEMBER_COOKIE_NAME = 'sliops_remember';
 const OAUTH_STATE_COOKIE_NAME = 'sliops_oauth_state';
+// HttpOnly id_token retained only for Entra end-session (id_token_hint).
+const OIDC_ID_TOKEN_COOKIE_NAME = 'sliops_oidc_id';
+// Soft cap — browsers reject oversized cookies; skip store if exceeded.
+const OIDC_ID_TOKEN_COOKIE_MAX_CHARS = 3500;
 // 8 hours and 30 days, in seconds. Sliding session means each authenticated
 // request issues a fresh cookie with a new 8-hour expiry, so an active
 // user never gets logged out mid-day; an idle user logs out after 8 hours.
@@ -161,14 +165,30 @@ function issueSession(res, email, opts = {}) {
   appendSetCookie(res, [cookie, clearOther]);
 }
 
-// Clear both cookies — logout. Clear under APP_BASE_PATH and Path=/ so
-// pre-fix cookies (Path=/) do not linger beside the scoped cookie.
+// Store Entra id_token for logout id_token_hint (HttpOnly; never exposed to JS).
+function issueOidcIdTokenCookie(res, idToken, ttlSeconds) {
+  if (!idToken || typeof idToken !== 'string') return false;
+  if (idToken.length > OIDC_ID_TOKEN_COOKIE_MAX_CHARS) return false;
+  const ttl = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? ttlSeconds : SESSION_TTL_SECONDS;
+  appendSetCookie(res, [buildSetCookie(OIDC_ID_TOKEN_COOKIE_NAME, idToken, ttl)]);
+  return true;
+}
+
+function readOidcIdToken(req) {
+  const cookies = parseCookies(req);
+  const token = cookies[OIDC_ID_TOKEN_COOKIE_NAME];
+  return token && typeof token === 'string' ? token : null;
+}
+
+// Clear session + OAuth state + OIDC id cookies. Clear under APP_BASE_PATH
+// and Path=/ so pre-fix cookies (Path=/) do not linger beside the scoped cookie.
 function clearSession(res) {
   const cookies = [];
   for (const path of cookieClearPaths()) {
     cookies.push(buildSetCookie(SESSION_COOKIE_NAME, '', 0, { path }));
     cookies.push(buildSetCookie(REMEMBER_COOKIE_NAME, '', 0, { path }));
     cookies.push(buildSetCookie(OAUTH_STATE_COOKIE_NAME, '', 0, { path }));
+    cookies.push(buildSetCookie(OIDC_ID_TOKEN_COOKIE_NAME, '', 0, { path }));
   }
   appendSetCookie(res, cookies);
 }
@@ -237,6 +257,7 @@ module.exports = {
   SESSION_COOKIE_NAME,
   REMEMBER_COOKIE_NAME,
   OAUTH_STATE_COOKIE_NAME,
+  OIDC_ID_TOKEN_COOKIE_NAME,
   SESSION_TTL_SECONDS,
   REMEMBER_TTL_SECONDS,
   signJwt,
@@ -245,6 +266,8 @@ module.exports = {
   buildSetCookie,
   appendSetCookie,
   issueSession,
+  issueOidcIdTokenCookie,
+  readOidcIdToken,
   clearSession,
   getSession,
   getActorEmail,
