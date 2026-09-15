@@ -397,17 +397,98 @@ function identityFromTrustedHeaders(req) {
   return { email, name, firstName, lastName, oid: null, tid: null, provider: 'authbridge' };
 }
 
-async function handleLogout(req, res, { portalBase }) {
-  auth.clearSession(res);
-  const logoutUrl = env('AUTHBRIDGE_LOGOUT_URL');
-  if (logoutUrl) {
-    const u = new URL(logoutUrl);
-    u.searchParams.set('post_logout_redirect_uri', portalBase || '/');
-    res.setHeader('Location', u.toString());
-    return res.status(302).end();
+/**
+ * Resolve AuthBridge browser session cookie names to clear on logout.
+ * Prefer explicit AUTHBRIDGE_SESSION_COOKIE_NAMES. Also clear any cookies
+ * present on the logout request whose names start with
+ * AUTHBRIDGE_SESSION_COOKIE_PREFIX (default: sli_authbri).
+ */
+function resolveAuthBridgeCookiesToClear(req) {
+  const names = new Set();
+  env('AUTHBRIDGE_SESSION_COOKIE_NAMES')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .forEach((n) => names.add(n));
+
+  const prefix = env('AUTHBRIDGE_SESSION_COOKIE_PREFIX', 'sli_authbri').trim();
+  if (prefix && req) {
+    const cookies = auth.parseCookies(req);
+    for (const name of Object.keys(cookies)) {
+      if (name.startsWith(prefix)) names.add(name);
+    }
   }
-  res.setHeader('Location', portalBase || '/');
-  return res.status(302).end();
+  return [...names];
+}
+
+function resolveAuthBridgeCookieDomain() {
+  const configured = env('AUTHBRIDGE_COOKIE_DOMAIN').trim();
+  if (configured) return configured;
+  if (!isTruthy(env('AUTHBRIDGE_COOKIE_DOMAIN_AUTO', '1'))) return '';
+  try {
+    const base = env('PORTAL_BASE_URL') || env('AUTHBRIDGE_REDIRECT_URI');
+    if (!base || !/^https?:\/\//i.test(base)) return '';
+    const host = new URL(base).hostname;
+    const parts = host.split('.').filter(Boolean);
+    if (parts.length >= 2) return `.${parts.slice(-2).join('.')}`;
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+/**
+ * Expire AuthBridge browser cookies that are present / configured.
+ * Does not invent cookie names — only clears names from env or the
+ * sli_authbri* cookies actually sent on the logout request.
+ */
+function clearAuthBridgeBrowserCookies(req, res) {
+  const names = resolveAuthBridgeCookiesToClear(req);
+  if (!names.length) return [];
+  const domain = resolveAuthBridgeCookieDomain();
+  const paths = new Set([
+    auth.getCookiePath(),
+    '/',
+    env('AUTHBRIDGE_COOKIE_PATH', '/').trim() || '/',
+  ]);
+  const cleared = [];
+  for (const name of names) {
+    for (const path of paths) {
+      // Host-only clear
+      auth.appendSetCookie(res, [auth.buildSetCookie(name, '', 0, { path })]);
+      cleared.push({ name, path, domain: null });
+      // Parent-domain clear (required when AuthBridge set Domain=.example.com)
+      if (domain) {
+        auth.appendSetCookie(res, [auth.buildSetCookie(name, '', 0, { path, domain })]);
+        cleared.push({ name, path, domain });
+      }
+    }
+  }
+  return cleared;
+}
+
+function buildAuthBridgeLogoutUrl(landing) {
+  const logoutUrl = env('AUTHBRIDGE_LOGOUT_URL');
+  if (!logoutUrl) return null;
+  try {
+    const u = new URL(logoutUrl);
+    if (landing) u.searchParams.set('post_logout_redirect_uri', landing);
+    return u.toString();
+  } catch {
+    return logoutUrl;
+  }
+}
+
+async function handleLogout(req, res, { portalBase }) {
+  const { performLogout, resolvePostLogoutUrl } = require('./logout');
+  const landing = resolvePostLogoutUrl(portalBase);
+  const authBridgeLogoutUrl = buildAuthBridgeLogoutUrl(landing);
+  return performLogout(req, res, {
+    portalBase,
+    useEntra: !!authBridgeLogoutUrl,
+    entraLogoutUrl: authBridgeLogoutUrl,
+    clearAuthBridgeCookies: true,
+  });
 }
 
 module.exports = {
@@ -422,4 +503,8 @@ module.exports = {
   identityFromTrustedHeaders,
   identityFromClaims,
   isEmailDomainAllowed,
+  resolveAuthBridgeCookiesToClear,
+  resolveAuthBridgeCookieDomain,
+  clearAuthBridgeBrowserCookies,
+  buildAuthBridgeLogoutUrl,
 };

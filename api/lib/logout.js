@@ -52,11 +52,29 @@ function resolvePostLogoutUrl(portalBase) {
 }
 
 /**
- * Clear session cookies and redirect. Optionally hand off to Entra SLO when configured.
+ * Clear session cookies and redirect. Optionally hand off to Entra / AuthBridge SLO.
+ * Always sets sliops_signed_out so AuthBridge header-mode cannot re-auth /me
+ * until the next explicit sign-in.
  */
-async function performLogout(req, res, { portalBase, useEntra = false, entraLogoutUrl = null } = {}) {
+async function performLogout(
+  req,
+  res,
+  { portalBase, useEntra = false, entraLogoutUrl = null, clearAuthBridgeCookies = false } = {}
+) {
   setNoStore(res);
   auth.clearSession(res);
+  auth.issueSignedOutMarker(res);
+
+  if (clearAuthBridgeCookies) {
+    try {
+      const authbridge = require('./authbridge');
+      if (authbridge.isAuthBridgeEnabled && authbridge.isAuthBridgeEnabled()) {
+        authbridge.clearAuthBridgeBrowserCookies(req, res);
+      }
+    } catch {
+      /* optional */
+    }
+  }
 
   const landing = resolvePostLogoutUrl(portalBase);
 

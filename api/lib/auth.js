@@ -25,6 +25,10 @@ const OAUTH_STATE_COOKIE_NAME = 'sliops_oauth_state';
 const OIDC_ID_TOKEN_COOKIE_NAME = 'sliops_oidc_id';
 // Soft cap — browsers reject oversized cookies; skip store if exceeded.
 const OIDC_ID_TOKEN_COOKIE_MAX_CHARS = 3500;
+// Set on logout so AuthBridge header-mode (or residual IdP cookies) cannot
+// immediately re-authenticate /api/me until the user explicitly signs in.
+const SIGNED_OUT_COOKIE_NAME = 'sliops_signed_out';
+const SIGNED_OUT_TTL_SECONDS = 24 * 60 * 60;
 // 8 hours and 30 days, in seconds. Sliding session means each authenticated
 // request issues a fresh cookie with a new 8-hour expiry, so an active
 // user never gets logged out mid-day; an idle user logs out after 8 hours.
@@ -131,6 +135,9 @@ function buildSetCookie(name, value, ttlSeconds, opts = {}) {
     'Secure',
     'SameSite=Lax',
   ];
+  if (opts.domain) {
+    parts.push(`Domain=${opts.domain}`);
+  }
   if (ttlSeconds > 0) {
     parts.push(`Max-Age=${ttlSeconds}`);
   } else {
@@ -162,7 +169,29 @@ function issueSession(res, email, opts = {}) {
   const otherName = remember ? SESSION_COOKIE_NAME : REMEMBER_COOKIE_NAME;
   const clearOther = buildSetCookie(otherName, '', 0);
 
-  appendSetCookie(res, [cookie, clearOther]);
+  // Explicit sign-in clears the post-logout marker so AuthBridge/header
+  // identity may authenticate again.
+  const clearSignedOut = buildSetCookie(SIGNED_OUT_COOKIE_NAME, '', 0);
+
+  appendSetCookie(res, [cookie, clearOther, clearSignedOut]);
+}
+
+function hasSignedOutMarker(req) {
+  const cookies = parseCookies(req);
+  const v = cookies[SIGNED_OUT_COOKIE_NAME];
+  return v === '1' || v === 'true';
+}
+
+function issueSignedOutMarker(res) {
+  appendSetCookie(res, [
+    buildSetCookie(SIGNED_OUT_COOKIE_NAME, '1', SIGNED_OUT_TTL_SECONDS),
+  ]);
+}
+
+function clearSignedOutMarker(res) {
+  for (const path of cookieClearPaths()) {
+    appendSetCookie(res, [buildSetCookie(SIGNED_OUT_COOKIE_NAME, '', 0, { path })]);
+  }
 }
 
 // Store Entra id_token for logout id_token_hint only.
@@ -227,14 +256,21 @@ function getSession(req) {
 }
 
 // Get the actor email for THIS request. Order of precedence:
-//   1. Valid session cookie (the new SAML flow)
-//   2. x-vercel-user-email header (Vercel Authentication, if ever enabled)
-//   3. null (anonymous / no auth)
+//   0. If sliops_signed_out is set, treat as anonymous (blocks AuthBridge
+//      header re-auth after Sign Out until explicit login).
+//   1. Valid session cookie (sliops_session / sliops_remember)
+//   2. AuthBridge trusted gateway headers (AUTH_PROVIDER=authbridge, header mode)
+//   3. x-vercel-user-email header (legacy)
 //
 // Wrapped in a try/catch as a defense-in-depth measure: this helper is
 // called on every request, so any unexpected error here would 500 the
 // whole proxy. Better to silently fall back to anonymous than to crash.
 function getActorEmail(req) {
+  try {
+    if (hasSignedOutMarker(req)) return null;
+  } catch {
+    // fall through
+  }
   try {
     const sess = getSession(req);
     if (sess?.email) return String(sess.email).toLowerCase();
@@ -261,8 +297,10 @@ module.exports = {
   REMEMBER_COOKIE_NAME,
   OAUTH_STATE_COOKIE_NAME,
   OIDC_ID_TOKEN_COOKIE_NAME,
+  SIGNED_OUT_COOKIE_NAME,
   SESSION_TTL_SECONDS,
   REMEMBER_TTL_SECONDS,
+  SIGNED_OUT_TTL_SECONDS,
   signJwt,
   verifyJwt,
   parseCookies,
@@ -271,6 +309,9 @@ module.exports = {
   issueSession,
   issueOidcIdTokenCookie,
   readOidcIdToken,
+  issueSignedOutMarker,
+  clearSignedOutMarker,
+  hasSignedOutMarker,
   clearSession,
   getSession,
   getActorEmail,

@@ -1996,18 +1996,14 @@ async function handleAuth(path, req, res) {
 
       let entraLogoutUrl = null;
       if (useAuthBridge) {
-        const abLogout = process.env.AUTHBRIDGE_LOGOUT_URL;
-        if (abLogout) {
-          try {
-            const u = new URL(abLogout);
-            u.searchParams.set(
-              'post_logout_redirect_uri',
-              require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE)
-            );
-            entraLogoutUrl = u.toString();
-          } catch {
-            entraLogoutUrl = abLogout;
-          }
+        const landing = require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE);
+        entraLogoutUrl = authbridge.buildAuthBridgeLogoutUrl(landing);
+        if (!entraLogoutUrl) {
+          console.warn(
+            '[auth] AUTH_PROVIDER=authbridge but AUTHBRIDGE_LOGOUT_URL is unset — ' +
+              'local session will clear and sliops_signed_out will block header re-auth; ' +
+              'configure AUTHBRIDGE_LOGOUT_URL to end the AuthBridge browser session.'
+          );
         }
       } else if (useEntra) {
         const landing = require('./lib/logout').resolvePostLogoutUrl(PORTAL_BASE);
@@ -2019,6 +2015,7 @@ async function handleAuth(path, req, res) {
         const idpLogoutUrl = await loadSamlModule().getLogoutUrl(sess.email);
         if (idpLogoutUrl) {
           auth.clearSession(res);
+          auth.issueSignedOutMarker(res);
           res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
           res.setHeader('Location', idpLogoutUrl);
           return res.status(302).end();
@@ -2029,6 +2026,7 @@ async function handleAuth(path, req, res) {
         portalBase: PORTAL_BASE,
         useEntra: !!entraLogoutUrl,
         entraLogoutUrl,
+        clearAuthBridgeCookies: !!useAuthBridge,
       });
     }
 
