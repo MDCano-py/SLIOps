@@ -1,0 +1,22 @@
+# systemd unit — copy to /etc/systemd/system/ops-hub-staging.service
+# Alternative to PM2. Adjust User, paths, and log directory.
+
+[Unit]
+Description=Streamline Operations Workflow Hub (staging)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/ops-hub-staging
+Environment=NODE_ENV=staging
+EnvironmentFile=/var/www/ops-hub-staging/.env.staging
+ExecStart=/usr/bin/node scripts/production-server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/ops-hub-staging/out.log
+StandardError=append:/var/log/ops-hub-staging/error.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,83 @@
+# Dependencies
+node_modules/
+
+# Environment — never commit real secrets (WOS-79 / WOS-82).
+# Ignore every .env variant but keep the *.example templates tracked.
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Local object storage (STORAGE_DRIVER=local only)
+for-dev/local-object-storage/
+!for-dev/local-object-storage/.gitignore
+
+# Local dev stores (Postgres is SoR on staging/prod; JSON is dev-only)
+for-dev/local-hub-data/redis.json
+for-dev/local-hub-data/*.json
+!for-dev/local-hub-data/.gitignore
+
+# Logs and diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Test / coverage output
+coverage/
+.nyc_output/
+test-results/
+
+# Build / dist output
+dist/
+build/
+.next/
+out/
+.vercel/
+
+# Local database dumps and files
+*.sql.dump
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Temporary / scratch
+tmp/
+temp/
+*.tmp
+*.bak
+.cache/
+
+# WOS-95 — third-party reference copies (never commit)
+reference/
+n8n-master/
+n8n/
+n8n-reference/
+vendor/n8n/
+
+# Local screenshots / artifacts (unless intentionally under docs/)
+screenshots/
+*.png.bak
+
+# Optional: keep tracked logos/assets at repo root — do not blanket-ignore *.png
+
+# Offline production export (USB backup artifacts; never commit)
+production-backup/

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Streamline · Document action</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="hub.css" />
+  <style>
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--hub-bg, #f5f7f8); margin: 0; color: var(--hub-text, #122023); }
+    .wrap { max-width: 720px; margin: 40px auto; padding: 0 20px 48px; }
+    .brand { font-weight: 700; color: var(--hub-teal, #0f766e); margin-bottom: 1rem; }
+    .card { background: var(--hub-surface, #fff); border: 1px solid var(--hub-border, #d9e2e3); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; }
+    .doc { max-height: 420px; overflow: auto; border: 1px solid var(--hub-border); border-radius: 8px; padding: 1rem; background: #fff; }
+    .sig-pad { border: 1px dashed var(--hub-border); border-radius: 8px; padding: 12px; background: #fff; }
+    #sigCanvas { width: 100%; height: 140px; touch-action: none; cursor: crosshair; display: block; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+    .err { color: #b45309; }
+    .ok { color: #0f766e; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">Streamline Operations · Secure document action</div>
+    <div id="status" class="card">Loading…</div>
+    <div id="main" hidden></div>
+  </div>
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const token = params.get('token') || '';
+      const statusEl = document.getElementById('status');
+      const main = document.getElementById('main');
+
+      async function api(path, opts) {
+        const res = await fetch(path, Object.assign({ credentials: 'same-origin' }, opts || {}));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        return data;
+      }
+
+      function bindPad(canvas) {
+        const ctx = canvas.getContext('2d');
+        const ratio = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * ratio;
+        canvas.height = 140 * ratio;
+        ctx.scale(ratio, ratio);
+        ctx.strokeStyle = '#122023';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        let drawing = false;
+        function pos(e) {
+          const r = canvas.getBoundingClientRect();
+          const t = e.touches ? e.touches[0] : e;
+          return { x: t.clientX - r.left, y: t.clientY - r.top };
+        }
+        function start(e) { drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+        function move(e) { if (!drawing) return; const p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+        function end() { drawing = false; }
+        canvas.addEventListener('mousedown', start);
+        canvas.addEventListener('mousemove', move);
+        canvas.addEventListener('mouseup', end);
+        canvas.addEventListener('mouseleave', end);
+        canvas.addEventListener('touchstart', start, { passive: false });
+        canvas.addEventListener('touchmove', move, { passive: false });
+        canvas.addEventListener('touchend', end);
+        return {
+          clear() { ctx.clearRect(0, 0, canvas.width, canvas.height); },
+          dataUrl() { return canvas.toDataURL('image/png'); },
+        };
+      }
+
+      async function boot() {
+        if (!token) {
+          statusEl.innerHTML = '<p class="err">Missing action token.</p>';
+          return;
+        }
+        try {
+          const data = await api('/hub/configuration/external-action/' + encodeURIComponent(token));
+          if (data.completed) {
+            statusEl.innerHTML = '<p class="ok">This action was already completed. Thank you.</p>';
+            return;
+          }
+          statusEl.hidden = true;
+          main.hidden = false;
+          const docs = (data.documents || []).map(function (d) {
+            return '<div class="card"><h3>' + (d.title || 'Document') + '</h3><div class="doc">' + (d.body_html || '<p>No document body.</p>') + '</div></div>';
+          }).join('');
+          main.innerHTML =
+            '<div class="card"><h2>' + (data.task_title || 'Action required') + '</h2>' +
+            '<p>' + (data.instructions || 'Review and sign the document below.') + '</p>' +
+            '<p class="hub-sub">Assigned to ' + (data.display_name || data.email || '') + '</p></div>' +
+            docs +
+            '<div class="card"><label><input type="checkbox" id="ack" /> I acknowledge and agree to the terms.</label>' +
+            '<div class="sig-pad" style="margin-top:12px"><canvas id="sigCanvas"></canvas></div>' +
+            '<div class="actions">' +
+            '<button type="button" class="hub-btn" id="clearSig">Clear signature</button>' +
+            '<button type="button" class="hub-btn hub-btn-primary" id="submit">Sign &amp; submit</button>' +
+            '</div><p id="msg" class="hub-sub"></p></div>';
+          const pad = bindPad(document.getElementById('sigCanvas'));
+          document.getElementById('clearSig').onclick = function () { pad.clear(); };
+          document.getElementById('submit').onclick = async function () {
+            const msg = document.getElementById('msg');
+            if (!document.getElementById('ack').checked) {
+              msg.textContent = 'Please acknowledge the terms before submitting.';
+              msg.className = 'err';
+              return;
+            }
+            try {
+              msg.textContent = 'Submitting…';
+              await api('/hub/configuration/external-action/' + encodeURIComponent(token) + '/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  outcome: 'signed',
+                  acknowledged: true,
+                  signature: pad.dataUrl(),
+                }),
+              });
+              main.innerHTML = '<div class="card"><p class="ok">Signature submitted. You may close this window.</p></div>';
+            } catch (err) {
+              msg.textContent = err.message || 'Submit failed';
+              msg.className = 'err';
+            }
+          };
+        } catch (err) {
+          statusEl.innerHTML = '<p class="err">' + (err.message || 'Unable to load action') + '</p>';
+        }
+      }
+      boot();
+    })();
+  </script>
+</body>
+</html>
