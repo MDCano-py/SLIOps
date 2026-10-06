@@ -61,6 +61,7 @@
     "templates:start-center-admin-help-test": "node scripts/templates/start-center-admin-help-test.js",
     "templates:shell-route-consistency-test": "node scripts/templates/template-shell-route-consistency-test.js",
     "templates:workflow-tab-dark-mode-test": "node scripts/templates/template-workflow-tab-dark-mode-test.js",
+    "security:sensitive-path-probe": "node scripts/security/sensitive-path-probe.js",
     "security:secret-scan": "node scripts/security/secret-scan.js",
     "security:audit": "node scripts/security/dep-audit.js",
     "security:staging-hardening-test": "node scripts/security/staging-hardening-test.js",

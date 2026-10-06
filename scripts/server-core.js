@@ -105,7 +105,13 @@ function createServer(options = {}) {
   if (!process.env.NODE_ENV) process.env.NODE_ENV = options.defaultNodeEnv || 'development';
 
   // Explicit options.port/host win over env overlays (smoke tests bind ephemeral ports).
-  const PORT = Number(options.port) || Number(process.env.PORT) || options.defaultPort || 3000;
+  // Port 0 is valid (OS-assigned ephemeral) and must not be treated as falsy.
+  const PORT = (() => {
+    if (options.port != null && options.port !== '') return Number(options.port);
+    if (process.env.PORT != null && process.env.PORT !== '') return Number(process.env.PORT);
+    if (options.defaultPort != null && options.defaultPort !== '') return Number(options.defaultPort);
+    return 3000;
+  })();
   const HOST = options.host || process.env.HOST || options.defaultHost || '127.0.0.1';
   const basePath = normalizeBasePath(process.env.APP_BASE_PATH || options.basePath || '');
 
@@ -231,9 +237,84 @@ function createServer(options = {}) {
     res.end(body);
   }
 
+  /**
+   * Deny web access to secrets, VCS metadata, deploy trees, and source that
+   * must never be served from the app root. Prefer indistinguishable 404.
+   * Defense-in-depth: Nginx should also deny these paths (see deploy/nginx).
+   */
+  function isBlockedStaticPath(relPath) {
+    const normalized = String(relPath || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .toLowerCase();
+    if (!normalized || normalized === 'index.html') return false;
+
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.some((s) => s === '.git' || s.startsWith('.git'))) return true;
+    if (segments.some((s) => s === 'node_modules')) return true;
+
+    const blockedExact = new Set([
+      'package.json',
+      'package-lock.json',
+      'npm-shrinkwrap.json',
+      'yarn.lock',
+      'pnpm-lock.yaml',
+      '.gitignore',
+      '.npmrc',
+      '.env',
+      '.env.local',
+      '.env.staging',
+      '.env.production',
+      '.env.development',
+      '.env.example',
+      '.env.staging.example',
+      '.env.local.postgres.example',
+    ]);
+    if (blockedExact.has(normalized)) return true;
+    if (segments[0] && segments[0].startsWith('.env')) return true;
+
+    const blockedPrefixes = [
+      'api/',
+      'migrations/',
+      'scripts/',
+      'deploy/',
+      'for-dev/',
+      'docs/',
+      '.git/',
+      'node_modules/',
+    ];
+    if (blockedPrefixes.some((p) => normalized === p.slice(0, -1) || normalized.startsWith(p))) {
+      return true;
+    }
+
+    const blockedExt = [
+      '.env',
+      '.sql',
+      '.pem',
+      '.key',
+      '.p12',
+      '.pfx',
+      '.bak',
+      '.backup',
+      '.old',
+      '.orig',
+      '.swp',
+      '.log',
+      '.map',
+    ];
+    if (blockedExt.some((ext) => normalized.endsWith(ext))) return true;
+
+    return false;
+  }
+
   function serveStatic(nodeRes, filePath) {
     const rel = filePath.replace(/^\/+/, '') || 'index.html';
     const safe = path.normalize(rel).replace(/^(\.\.(\/|\\|$))+/, '');
+    if (isBlockedStaticPath(safe)) {
+      nodeRes.writeHead(404);
+      nodeRes.end('Not found');
+      return;
+    }
     const full = path.join(ROOT, safe === '.' ? 'index.html' : safe);
     if (!full.startsWith(ROOT)) {
       nodeRes.writeHead(403);
@@ -245,6 +326,13 @@ function createServer(options = {}) {
       target = path.join(target, 'index.html');
     }
     if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      nodeRes.writeHead(404);
+      nodeRes.end('Not found');
+      return;
+    }
+    // Re-check after directory → index.html resolution
+    const servedRel = path.relative(ROOT, target).replace(/\\/g, '/');
+    if (isBlockedStaticPath(servedRel)) {
       nodeRes.writeHead(404);
       nodeRes.end('Not found');
       return;
