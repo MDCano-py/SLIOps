@@ -259,8 +259,11 @@ function getSession(req) {
 //   0. If sliops_signed_out is set, treat as anonymous (blocks AuthBridge
 //      header re-auth after Sign Out until explicit login).
 //   1. Valid session cookie (sliops_session / sliops_remember)
-//   2. AuthBridge trusted gateway headers (AUTH_PROVIDER=authbridge, header mode)
-//   3. x-vercel-user-email header (legacy)
+//   2. AuthBridge cryptographically verified identity only:
+//        - header mode: shared-secret gateway headers
+//        - jwt mode: verified Bearer JWT (HMAC)
+// Client-supplied identity headers (x-vercel-*, x-actor-email, etc.) are
+// NEVER trusted as authentication.
 //
 // Wrapped in a try/catch as a defense-in-depth measure: this helper is
 // called on every request, so any unexpected error here would 500 the
@@ -282,14 +285,15 @@ function getActorEmail(req) {
     if (authbridge.isAuthBridgeEnabled && authbridge.isAuthBridgeEnabled()) {
       const identity = authbridge.identityFromTrustedHeaders(req);
       if (identity && identity.email) return String(identity.email).toLowerCase();
+      if (typeof authbridge.identityFromBearerToken === 'function') {
+        const bearer = authbridge.identityFromBearerToken(req);
+        if (bearer && bearer.email) return String(bearer.email).toLowerCase();
+      }
     }
   } catch {
     // authbridge optional
   }
-  const headerEmail = req.headers?.['x-vercel-user-email']
-                   || req.headers?.['x-vercel-id-token-email']
-                   || null;
-  return headerEmail ? String(headerEmail).toLowerCase() : null;
+  return null;
 }
 
 module.exports = {

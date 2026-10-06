@@ -9,7 +9,7 @@
  * trail. Persisting these to a dedicated table is tracked as a follow-up.
  */
 
-const SENSITIVE_KEY = /(secret|token|password|authorization|cookie|api[_-]?key)/i;
+const SENSITIVE_KEY = /(secret|token|password|authorization|cookie|api[_-]?key|x509|certificate|private[_-]?key|idp_x509)/i;
 
 function sanitize(obj) {
   const out = {};

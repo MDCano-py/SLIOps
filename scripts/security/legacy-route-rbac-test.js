@@ -75,7 +75,15 @@ function main() {
     'request-archive GET 403 uses WOS_FORBIDDEN',
     /REQ_ARCHIVE_VIEW_PERM\[kind\][\s\S]{0,220}wosForbiddenBody\(\)/.test(mx)
   );
-  assert('request-archive submitter from session, not header', /const submitter = \(authActor\.actorEmail \|\| req\.headers\['x-actor-email'\]/.test(mx));
+  {
+    const reqArchiveBlock = mx.slice(mx.indexOf('const reqArchiveMatch ='));
+    const postSlice = reqArchiveBlock.slice(0, reqArchiveBlock.indexOf('// ---- Forms'));
+    assert(
+      'request-archive submitter from session, not header',
+      /const submitter = String\(authActor\.actorEmail \|\| 'unknown'\)\.toLowerCase\(\)/.test(postSlice) &&
+        !postSlice.includes("req.headers['x-actor-email']")
+    );
+  }
 
   // Forms roll-off-swap
   const formsBlock = mx.slice(mx.indexOf('const formMatch ='), mx.indexOf('// ---- Operations Workflow Hub API ----'));

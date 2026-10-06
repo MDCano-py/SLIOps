@@ -244,6 +244,7 @@ function createServer(options = {}) {
    */
   function isBlockedStaticPath(relPath) {
     const normalized = String(relPath || '')
+      .replace(/\0/g, '')
       .replace(/\\/g, '/')
       .replace(/^\/+/, '')
       .toLowerCase();

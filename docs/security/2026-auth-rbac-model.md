@@ -1,117 +1,106 @@
-# SLIOps Auth & RBAC Model — Current Truth (Phase 0)
+# SLIOps Auth & RBAC Model — Extracted Current Truth
 
-**Date:** 2026-10-05  
-**Sources:** `api/maintainx.js` (`PERMISSION_CATALOG`, `BUILT_IN_ROLES`), `api/lib/auth.js`, `api/lib/authbridge.js`, `api/lib/sso-routes.js`, `migrations/011_hub_rbac_roles.sql`, `api/lib/rbac/*`, `docs/cyber/ROLE_TEST_MATRIX.md`, staging seed personas.
+**Date:** 2026-10-05 (updated Gate 2)  
+**Sources:** `PERMISSION_CATALOG`, `BUILT_IN_ROLES`, Postgres `roles`/`user_roles`, staging personas, route gates, `rbac-client.js`.
 
-Do not invent roles. Proposals are marked **PROPOSAL**.
-
----
-
-## Identity resolution order (`getActorEmail`)
-
-1. If `sliops_signed_out` marker → anonymous  
-2. Session JWT cookies `sliops_session` / `sliops_remember`  
-3. AuthBridge trusted headers (when AuthBridge enabled + configured)  
-4. **Legacy:** `x-vercel-user-email` / `x-vercel-id-token-email` — **unsafe if edge does not strip**
-
-Server must enforce all privileged actions. UI (`rbac-client.js`) is visibility only.
+Do not invent organizational roles. **PROPOSAL** marks are not current truth.
 
 ---
 
-## Portal permission catalog (capability IDs)
+## Authorization layers (keep separate)
 
-Source of truth for IDs: `PERMISSION_CATALOG` in `api/maintainx.js`.
-
-| Permission | Group | Typical UI | Typical API | Resource scope | Verified |
-| --- | --- | --- | --- | --- | --- |
-| `view_hub_dashboard` | Operations Hub | Dashboard | Hub dashboard reads | Shared operational | code |
-| `view_hub_requests` | Operations Hub | Request hub | Request list/detail | Shared + step rules | code |
-| `view_hub_reports` | Operations Hub | Reports | Hub reports | Shared | code |
-| `hub_admin` | Operations Hub | Admin hub ops | Visibility, retries, admin hub | Broad hub | code |
-| `view_home` … archive `view_*` | Tab Access | Tabs | Tab-gated routes | Tab | code |
-| `view_management` | Tab Access | Management section | **Also gates SSO admin today** | Over-broad | code — **defect** |
-| `view_vendor_*` / `edit_vendor_*` / `manage_vendor_documents` | Vendor | Vendor UI | Vendor APIs | Vendor records | code |
-| `view_user_permissions` | Management | Users tab | User permission views | Users | code |
-| `delete_*_archive` | Archive | Archive delete | Archive DELETE | Archive records | code |
-| `admin` | Admin | User/role admin | `/users`, `/roles` mutations | Users/roles | code |
-| `configuration.*` / `workflow.*` / `form.manage` / `document.manage` / `dashboard.manage` / `variable.manage` | Configuration | Config center | `/hub/configuration*` | Config defs | code |
-| `manage_sso` | — | — | — | — | **PROPOSAL** (not in catalog) |
-| `control_room_*` | — | — | — | — | **PROPOSAL** (not in catalog) |
-
----
-
-## Built-in portal roles (Redis/KV seed — `BUILT_IN_ROLES`)
-
-| Role | Permission highlights | UI capability | API capability | Resource scope | Source | Verified |
-| --- | --- | --- | --- | --- | --- | --- |
-| `employee` | Core view tabs; no management | Submit/view own areas | Non-admin APIs | Operational shared + own submissions | `BUILT_IN_ROLES` | code |
-| `requester` | employee + `view_management` + `submit_new_vendor` | Management tab limited | Vendor submit | Shared | code | code |
-| `accounts_payable` | Vendor view/edit/docs | Vendor full edit | Vendor mutations | Vendors | code | code |
-| `management` | Nearly all including `hub_admin` + `admin` | Admin | User admin + hub admin | Broad | code | code |
-
-Custom roles may exist in live Redis — `UNKNOWN_REQUIRES_HUMAN_CONFIRMATION`.
-
----
-
-## Workflow assignee roles (Postgres `roles` / `user_roles`)
-
-Migration `011` seeds: `admin`, `requester`, `manager`, `operations`, `ap`, `legal`.  
-Code/seeds also reference: `hub_admin`, `hr`, `field_supervisor`, `field_technician`, `client`, `vendor`, `employee`.
-
-These are **workflow step assignee** keys, distinct from portal permission bundles (though staging test login maps both).
-
-| Role key | Permission (portal preset via staging seed) | UI | API | Scope | Source | Verified |
-| --- | --- | --- | --- | --- | --- | --- |
-| `hub_admin` | Full admin preset | All admin | Admin APIs | Broad | `staging-test-users.js` | code |
-| `operations` | Ops + vendor | Ops/vendor | Ops APIs | Shared ops | seed | code |
-| `hr` | Core + forms + management view | Forms/management | Limited | Shared | seed | code |
-| `ap` | AP / vendor | Vendor | Vendor | Vendors | seed | code |
-| `field_supervisor` | Core + management + submit vendor | Field + mgmt | Limited | Shared | seed | code |
-| `field_technician` | Core limited | Field | Limited | Shared | seed | code |
-| `client` | Limited forms | Client | Limited | Restricted | seed | code |
-| `vendor` | Vendor list/docs view | Vendor areas | Vendor read | Vendor | seed | code |
-
-**Standard user for Cyber UserA/UserB:** closest current equivalent is `employee` / `field_technician` — confirm with business before remapping.
-
----
-
-## Sensitive route authorization inventory (priority)
-
-| Route | Method | Authentication | Capability | Resource auth | Audit | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| `/auth/login` `/callback` `/logout` `/resume` | GET/POST | Public / OIDC | — | — | partial | Session lifecycle |
-| `/auth/dev-login` | * | Blocked staging/prod | — | — | — | Must stay 404 deployed |
-| `/auth/staging-test-login` | * | Staging secret | — | persona allowlist | yes | Never production |
-| `/me` | GET | Session preferred | — | self | — | |
-| `/sso/:org/login\|acs\|metadata` | * | Public SAML | — | org | — | Protocol hardening Gate 2 |
-| `/sso-admin/organizations` | GET | Session | hub_admin\|admin\|**view_management** | all orgs | weak | Read too broad? |
-| `/sso-admin/organizations/:slug` | PUT | Session | same OR | org SAML trust | weak | **Critical: view_management can mutate trust** |
-| `/users*` `/roles*` | * | Session | `admin` | users/roles | yes | |
-| `/hub/requests*` | * | Session | hub view/admin | request/step rules | yes | Preserve step checks |
-| `/hub/templates*` `/hub/configuration*` | * | Session | configuration.* / form.manage | templates | yes | |
-| `/hub/dev/seed-demo-data` clear | POST | Session | admin + flags | destructive | yes | Prod blocked |
-| MaintainX proxy paths | GET/POST | Session | SSO gate | allowlist paths | — | Secrets server-only |
-| `/photo-cleanup` `/archive-wipe-orphans` | POST | SSO-public | optional `CLEANUP_SECRET` | destructive | weak | Require secret always |
-| `/vendor-docs*` | * | Session | vendor doc perms | object key | — | S3 |
-| `/hub/control-room/*` | — | — | — | — | — | **Does not exist** |
-
----
-
-## Authorization layer separation (required reading)
-
-| Layer | Question | Current state |
+| Layer | Question | Enforcement |
 | --- | --- | --- |
-| Capability | Can this identity perform this action type? | `requirePermissions` + catalog |
-| Resource | May they access this object? | Implemented for some hub/vendor/submission paths; not universal `created_by` filter |
-| Application entitlement | May AuthBridge issue app token? | Present when AuthBridge mode; verify fail-closed |
-| Administrative trust | Who may change IdP certs/endpoints? | **Broken open** via `view_management` |
-| UI visibility | What should they see? | `rbac-client.js` — not security |
+| Application entitlement | May this identity use this SLIOps app? | AuthBridge `AUTHBRIDGE_APP_ID` / domain allowlist / `AUTHBRIDGE_APP_ENABLED` |
+| Capability authorization | May they perform this action type? | `requirePermissions` + catalog |
+| Resource authorization | May they access this object? | Request/step/submission/vendor guards (not global `created_by`) |
+| Administrative trust | May they change IdP/SAML trust? | **`manage_sso`** (writes); read may use `view_management` |
+| Frontend visibility | What should they see? | `rbac-client.js` — not security |
+
+UserA and UserB remain equivalent Standard identities (`employee` / field_technician style). Do not manufacture artificial role differences.
 
 ---
 
-## Proposed changes (not applied — need Gate 0/business sign-off)
+## Identity resolution
 
-1. Add capability **`manage_sso`**; require it for SSO PUT/test; keep read behind tighter admin perms.  
-2. Remove or hard-disable `x-vercel-*` identity fallback outside verified gateway.  
-3. Add `control_room_*` capabilities only after Control Room schema + role mapping review.  
-4. Confirm whether portal roles live in Redis vs migrate fully to Postgres.
+1. `sliops_signed_out` → anonymous  
+2. Session JWT cookies  
+3. AuthBridge verified headers or Bearer JWT  
+4. ~~x-vercel-*~~ **removed**
+
+---
+
+## Portal permission catalog
+
+| Permission | Source | Frontend capability | API capability | Resource scope | Admin/trust | Test coverage |
+| --- | --- | --- | --- | --- | --- | --- |
+| `view_hub_dashboard` | catalog | Dashboard | Hub dashboard | Shared ops | — | rbac / staging |
+| `view_hub_requests` | catalog | Request hub | Requests | Shared + step rules | — | workflow-step |
+| `view_hub_reports` | catalog | Reports | Hub reports | Shared | — | static |
+| `hub_admin` | catalog | Hub admin surfaces | Broad hub admin; short-circuit | Broad hub | Elevated | rbac-authz |
+| Tab `view_*` | catalog | Tabs | Tab-gated routes | Tab | — | legacy-route |
+| `view_management` | catalog | Management section | Vendor/mgmt reads; **SSO read only** | Mgmt | **Not trust write** | gate2-sso |
+| Vendor view/edit/doc perms | catalog | Vendor UI | Vendor APIs | Vendor records | — | vendor tests |
+| `view_user_permissions` | catalog | Users tab visibility | — | Users | — | — |
+| `delete_*_archive` | catalog | Archive delete | Archive DELETE override | Archives | — | legacy-route |
+| `admin` | catalog | User/role admin | `/users*`, `/roles*` | Users/roles | Elevated | rbac-authz |
+| **`manage_sso`** | catalog (Gate 2) | Organization SSO UI | SSO **write** + read | SAML trust | **Trust admin** | gate2-sso |
+| `configuration.*` / `workflow.*` / `form.manage` / `document.manage` / `dashboard.manage` / `variable.manage` | catalog | Config center | `/hub/configuration*` | Config defs | — | configurable-platform |
+| `control_room_*` | **PROPOSAL** | — | — | Shared ops assumed | — | none yet |
+
+---
+
+## Built-in portal roles (`BUILT_IN_ROLES` / Redis seed)
+
+| Role | Permissions (summary) | Frontend | API | Resource scope | Trust | Tests |
+| --- | --- | --- | --- | --- | --- | --- |
+| `employee` | Core view tabs; no management | Standard UI | Non-admin | Shared ops + own submissions | none | IDOR / step |
+| `requester` | employee + `view_management` + `submit_new_vendor` | Mgmt tab limited | Vendor submit | Shared | **no manage_sso** | gate2-sso neg |
+| `accounts_payable` | Vendor view/edit/docs | Vendor full | Vendor mutations | Vendors | none | rbac-authz |
+| `management` | Near-full incl. `admin`, `hub_admin`, **`manage_sso`** | Admin | Admin + SSO write | Broad | trust write | gate2-sso |
+
+**Seed caveat:** existing Redis `role:management` may lack `manage_sso` until re-seeded or manually updated (`INFRASTRUCTURE_CHANGE_REQUIRED` / ops task).
+
+---
+
+## Workflow roles (Postgres)
+
+| Role key | Source | Typical use | Portal perms (staging seed) | Trust |
+| --- | --- | --- | --- | --- |
+| `admin` | migration 011 | Workflow admin | — | — |
+| `requester` | 011 | Fill steps | — | — |
+| `manager` | 011 | Approve | — | — |
+| `operations` | 011 + seed | Ops | ops manager preset | no SSO write unless hub_admin |
+| `ap` / `legal` | 011 | Steps | accounting / — | — |
+| `hub_admin` | seed | Staging persona | full + **manage_sso** | yes |
+| `hr`, `field_supervisor`, `field_technician`, `client`, `vendor` | seed | Personas | see ROLE_TEST_MATRIX | no |
+
+---
+
+## Sensitive route → capability → resource → audit
+
+| Route | Method | Capability | Resource auth | Audit |
+| --- | --- | --- | --- | --- |
+| `/sso-admin/organizations` | GET | `manage_sso` \| `view_management` | org list | — |
+| `/sso-admin/organizations/:slug` | GET | same | org | — |
+| `/sso-admin/organizations/:slug` | PUT | **`manage_sso` only** | org SAML trust | `sso.trust_updated` (no cert) |
+| `/sso-admin/.../test` | POST | **`manage_sso` only** | connection | `sso.trust_test` |
+| `/users*`, `/roles*` | * | `admin` | users/roles | rbac audits |
+| `/hub/requests*` | * | hub view/admin | owner/assignee/step | hub audit |
+| `/hub/templates*`, configuration | * | configuration.* / form.manage | template | security-audit |
+| MaintainX proxy | * | session SSO gate | path allowlist | remapped upstream errors |
+| `/photo-cleanup`, `/archive-wipe-orphans` | POST | `CLEANUP_SECRET` | storage keys | storage.* |
+| `/hub/dev/*demo*` | POST | admin + flags | demo data | blocked prod |
+| `/hub/control-room/*` | — | — | — | **absent** |
+
+---
+
+## Pentest Standard users
+
+| Identity | Role equivalent | Notes |
+| --- | --- | --- |
+| UserA | Standard (`employee` / field_technician) | Equivalent to UserB |
+| UserB | Standard | Equivalent to UserA |
+| Hub Admin | `hub_admin` / `management` | Not Entra Global Admin |
+
+Horizontal tests must use resources that product policy isolates — not shared station/ops records chosen only to force a deny.

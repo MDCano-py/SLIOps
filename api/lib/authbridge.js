@@ -94,6 +94,100 @@ function isEmailDomainAllowed(email) {
   return !!domain && domains.includes(domain);
 }
 
+/**
+ * Smallest explicit application entitlement check compatible with AuthBridge claims.
+ *
+ * When AUTHBRIDGE_APP_ENABLED=0|false|off → all users denied (disabled application).
+ * When AUTHBRIDGE_APP_ID is set (or AUTHBRIDGE_REQUIRE_APP_ENTITLEMENT=1):
+ *   claims must include that app id in apps / applications / azp / appid / client_id.
+ * When neither is configured → entitlement reduces to email domain allowlist only
+ *   (existing behavior); callers still must pass isEmailDomainAllowed.
+ */
+function isApplicationEnabled() {
+  const flag = env('AUTHBRIDGE_APP_ENABLED', '1');
+  return !['0', 'false', 'no', 'off'].includes(String(flag).toLowerCase());
+}
+
+function extractAppIdsFromClaims(claims) {
+  if (!claims || typeof claims !== 'object') return [];
+  const ids = new Set();
+  const push = (v) => {
+    if (v == null) return;
+    if (Array.isArray(v)) {
+      v.forEach(push);
+      return;
+    }
+    if (typeof v === 'object' && v.id) {
+      ids.add(String(v.id).toLowerCase());
+      return;
+    }
+    const s = String(v).trim().toLowerCase();
+    if (s) ids.add(s);
+  };
+  push(claims.apps);
+  push(claims.applications);
+  push(claims.app_ids);
+  push(claims.azp);
+  push(claims.appid);
+  push(claims.app_id);
+  push(claims.client_id);
+  push(claims.aud);
+  return [...ids];
+}
+
+function isApplicationEntitled(claims) {
+  if (!isApplicationEnabled()) return false;
+  const requiredApp = env('AUTHBRIDGE_APP_ID').trim().toLowerCase();
+  const requireEntitlement = isTruthy(env('AUTHBRIDGE_REQUIRE_APP_ENTITLEMENT'));
+  if (!requiredApp && !requireEntitlement) return true;
+  if (!requiredApp && requireEntitlement) return false;
+  const present = extractAppIdsFromClaims(claims);
+  if (!present.length) return false;
+  return present.includes(requiredApp);
+}
+
+/**
+ * Validate AuthBridge id_token / access-token claims after confidential exchange
+ * or HMAC verification. Fail closed on missing/invalid security claims when
+ * the corresponding env vars are configured.
+ */
+function validateAuthBridgeClaims(claims, { requireSignatureVerified = false } = {}) {
+  if (!claims || typeof claims !== 'object') {
+    return { ok: false, reason: 'missing_claims' };
+  }
+  if (requireSignatureVerified && claims.__signatureVerified !== true) {
+    return { ok: false, reason: 'unverified_signature' };
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof claims.exp === 'number' && claims.exp < now) {
+    return { ok: false, reason: 'expired' };
+  }
+  if (typeof claims.nbf === 'number' && claims.nbf > now + 60) {
+    return { ok: false, reason: 'not_before' };
+  }
+  const iss = env('AUTHBRIDGE_ISSUER');
+  if (iss && claims.iss && String(claims.iss) !== iss) {
+    return { ok: false, reason: 'issuer_mismatch' };
+  }
+  if (iss && !claims.iss) {
+    return { ok: false, reason: 'issuer_missing' };
+  }
+  const aud = env('AUTHBRIDGE_AUDIENCE');
+  if (aud) {
+    const okAud =
+      claims.aud != null &&
+      (String(claims.aud) === aud || (Array.isArray(claims.aud) && claims.aud.map(String).includes(aud)));
+    if (!okAud) return { ok: false, reason: 'audience_mismatch' };
+  }
+  if (!isApplicationEnabled()) {
+    return { ok: false, reason: 'application_disabled' };
+  }
+  if (!isApplicationEntitled(claims)) {
+    return { ok: false, reason: 'application_not_entitled' };
+  }
+  return { ok: true };
+}
+
 function parseDisplayName(name) {
   if (!name || typeof name !== 'string') return { firstName: null, lastName: null };
   const parts = name.trim().split(/\s+/);
@@ -229,6 +323,14 @@ function verifyHmacJwt(token, secret) {
   if (!token || !secret) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
+  let header;
+  try {
+    header = b64urlJson(parts[0]);
+  } catch {
+    return null;
+  }
+  // Reject alg=none and unexpected algorithms (HMAC path is HS256 only).
+  if (!header || String(header.alg || '').toUpperCase() !== 'HS256') return null;
   const data = `${parts[0]}.${parts[1]}`;
   const expected = crypto.createHmac('sha256', secret).update(data).digest();
   let provided;
@@ -241,15 +343,28 @@ function verifyHmacJwt(token, secret) {
   if (expected.length !== provided.length || !crypto.timingSafeEqual(expected, provided)) return null;
   const payload = decodeJwtPayloadUnsafe(token);
   if (!payload) return null;
-  const now = Math.floor(Date.now() / 1000);
-  if (typeof payload.exp === 'number' && payload.exp < now) return null;
-  const aud = env('AUTHBRIDGE_AUDIENCE');
-  if (aud && payload.aud && String(payload.aud) !== aud && !(Array.isArray(payload.aud) && payload.aud.includes(aud))) {
-    return null;
-  }
-  const iss = env('AUTHBRIDGE_ISSUER');
-  if (iss && payload.iss && String(payload.iss) !== iss) return null;
-  return payload;
+  const validated = validateAuthBridgeClaims(payload);
+  if (!validated.ok) return null;
+  return { ...payload, __signatureVerified: true };
+}
+
+/**
+ * JWT mode: resolve identity from Authorization: Bearer when HMAC secret is configured.
+ * JWKS verification is async and not used on the sync request identity path.
+ */
+function identityFromBearerToken(req) {
+  if (!isAuthBridgeEnabled() || authBridgeMode() !== 'jwt') return null;
+  const hmacSecret = env('AUTHBRIDGE_JWT_HMAC_SECRET');
+  if (!hmacSecret) return null;
+  const authz = req.headers?.authorization || req.headers?.Authorization || '';
+  const m = /^Bearer\s+(\S+)/i.exec(String(authz));
+  if (!m) return null;
+  const claims = verifyHmacJwt(m[1], hmacSecret);
+  if (!claims) return null;
+  const identity = identityFromClaims(claims);
+  if (!identity.email || !identity.email.includes('@')) return null;
+  if (!isEmailDomainAllowed(identity.email)) return null;
+  return identity;
 }
 
 function stripSignedOutFromUrl(url) {
@@ -369,13 +484,15 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
     }, body);
 
     let claims = null;
+    let signatureVerified = false;
     if (tokenJson.id_token) {
       const hmacSecret = env('AUTHBRIDGE_JWT_HMAC_SECRET');
       if (hmacSecret) {
         claims = verifyHmacJwt(tokenJson.id_token, hmacSecret);
+        signatureVerified = !!claims;
       } else {
-        // Production should prefer JWKS; until AUTHBRIDGE_JWKS_URL is set we decode
-        // only after a successful confidential token exchange (code+secret).
+        // After confidential code+secret exchange only — still validate claims.
+        // Prefer setting AUTHBRIDGE_JWT_HMAC_SECRET or JWKS for signature verification.
         claims = decodeJwtPayloadUnsafe(tokenJson.id_token);
       }
     }
@@ -387,6 +504,19 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
     }
     if (!claims) {
       return renderError(401, 'AuthBridge identity missing', 'Token response did not include usable identity claims.');
+    }
+
+    const claimCheck = validateAuthBridgeClaims(claims);
+    if (!claimCheck.ok) {
+      console.log('[auth]', JSON.stringify({
+        event: 'authbridge_claims_rejected',
+        reason: claimCheck.reason,
+        signature_verified: signatureVerified,
+      }));
+      if (claimCheck.reason === 'application_disabled' || claimCheck.reason === 'application_not_entitled') {
+        return renderError(403, 'Application access denied', 'You are not entitled to this application.');
+      }
+      return renderError(401, 'Invalid AuthBridge token claims', claimCheck.reason);
     }
 
     const identity = identityFromClaims(claims);
@@ -422,6 +552,7 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
  */
 function identityFromTrustedHeaders(req) {
   if (!isAuthBridgeEnabled() || authBridgeMode() !== 'header') return null;
+  if (!isApplicationEnabled()) return null;
   if (!isTruthy(env('AUTHBRIDGE_TRUST_PROXY_HEADERS'))) return null;
   const secretHeader = env('AUTHBRIDGE_SECRET_HEADER', 'x-authbridge-secret');
   const provided = req.headers[secretHeader] || req.headers[secretHeader.toLowerCase()] || '';
@@ -551,8 +682,13 @@ module.exports = {
   handleCallback,
   handleLogout,
   identityFromTrustedHeaders,
+  identityFromBearerToken,
   identityFromClaims,
   isEmailDomainAllowed,
+  isApplicationEnabled,
+  isApplicationEntitled,
+  validateAuthBridgeClaims,
+  verifyHmacJwt,
   resolveAuthBridgeCookiesToClear,
   resolveAuthBridgeCookieDomain,
   clearAuthBridgeBrowserCookies,

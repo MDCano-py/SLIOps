@@ -44,6 +44,7 @@ const PERMS_HUB_ADMIN = [
   'delete_jsa_archive',
   'delete_bol_archive',
   'admin',
+  'manage_sso',
 ];
 
 const PERMS_OPS_MANAGER = [

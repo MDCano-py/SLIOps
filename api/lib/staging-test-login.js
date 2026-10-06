@@ -73,8 +73,18 @@ function timingSafeEqualString(a, b) {
 }
 
 function clientIp(req) {
-  const xf = req.headers?.['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
+  // Do not trust client-supplied X-Forwarded-For / X-Real-IP by default.
+  // Set TRUST_FORWARDED_CLIENT_IP=1 only when the edge proxy overwrites these
+  // headers (see deploy/nginx). Do not configure placeholder CIDR ranges here.
+  const trustFwd = ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.TRUST_FORWARDED_CLIENT_IP || '').toLowerCase()
+  );
+  if (trustFwd) {
+    const xf = req.headers?.['x-forwarded-for'];
+    if (typeof xf === 'string' && xf.trim()) return xf.split(',')[0].trim();
+    const xr = req.headers?.['x-real-ip'];
+    if (typeof xr === 'string' && xr.trim()) return xr.trim();
+  }
   return req.socket?.remoteAddress || req.connection?.remoteAddress || 'unknown';
 }
 

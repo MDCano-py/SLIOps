@@ -49,6 +49,16 @@ const PROBE_PATHS = [
   '/backup.sql',
   '/app.bak',
   '/hub.js.map',
+  // Encoded / alternate forms (URL parser + path.normalize)
+  '/.env%00',
+  '/%2e%65nv',
+  '/.%65nv',
+  '/package%2ejson',
+  '/./.env',
+  '/foo/../.env',
+  '/foo/../../package.json',
+  '/migrations%2f001_init.sql',
+  '/.git%2fHEAD',
 ];
 
 const ALLOWED_SMOKE = ['/', '/index.html', '/hub.js', '/hub.css', '/config.js'];

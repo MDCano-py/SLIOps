@@ -1,74 +1,70 @@
 # Control Room — Phase 2 Implementation Plan
 
-**Date:** 2026-10-05  
-**Status:** BLOCKED on Gate 0 human confirmations + Gates 1–3  
+**Date:** 2026-10-05 (updated after historical recovery attempt)  
+**Status:** BLOCKED on Gates 1–3 completion review + historical source  
 **Product boundary:** Operational memory and shift continuity inside SLIOps. Not MaintainX, Paycom, Snowflake, or a second RBAC system.
 
 ---
 
-## Current repository delta
+## Historical source recovery
 
-| Capability | Classification |
+| Check | Result |
 | --- | --- |
-| Operations → Control Room nav | `MISSING_REQUIRED` |
-| Current Shift | `MISSING_REQUIRED` |
-| Quick Log + timeline | `MISSING_REQUIRED` |
-| Acknowledgements (append-only) | `MISSING_REQUIRED` |
-| Handover | `MISSING_REQUIRED` |
-| Operating Board | `MISSING_REQUIRED` |
-| Operator Tasks | `MISSING_REQUIRED` |
-| Schedule foundation | `MISSING_REQUIRED` |
-| History | `MISSING_REQUIRED` |
-| Supervisor Overview | `MISSING_REQUIRED` |
-| `/hub/control-room/*` APIs | `MISSING_REQUIRED` |
-| Postgres CR schema | `MISSING_REQUIRED` |
-| Historical port from `control-room-workspace` @ `1e86af7…` | `UNKNOWN` — objects not in this git repo |
+| `git fetch --all --prune` | No remotes configured in this clone |
+| `git branch -a` | `master`, `security-production-readiness` only |
+| `git show 1e86af775ca4aa941ece8b4cd54e255fd9d0081a` | **fatal: bad object** — not in object store |
+| `control-room-workspace` branch | **Not present** |
 
-Do **not** invent tables until historical migration (if any) is provided and compared to migrations 001–014.
+**Conclusion:** Historical Control Room commit **cannot be recovered from this repository**. Do not greenfield schema until an external archive (GitHub remote with that SHA, bundle, or zip) is provided — or an explicit business greenlight for net-new design is given.
+
+---
+
+## Current vs required delta
+
+| Capability | Classification | Notes |
+| --- | --- | --- |
+| Operations → Control Room nav | `MISSING_REQUIRED` | No nav item in current SPA |
+| Current Shift | `MISSING_REQUIRED` | |
+| Quick Log + timeline | `MISSING_REQUIRED` | |
+| Acknowledgements (append-only) | `MISSING_REQUIRED` | |
+| Stations / units | `MISSING_REQUIRED` | No tables in migrations 001–014 |
+| Handover | `MISSING_REQUIRED` | |
+| Operating Board | `MISSING_REQUIRED` | |
+| Operator Tasks | `MISSING_REQUIRED` | |
+| Schedule foundation | `MISSING_REQUIRED` | |
+| History | `MISSING_REQUIRED` | |
+| Supervisor Overview / KPI | `MISSING_REQUIRED` | |
+| `/hub/control-room/*` APIs | `MISSING_REQUIRED` | |
+| Postgres CR schema | `MISSING_REQUIRED` | |
+| Historical implementation | `UNKNOWN` / unreachable | Cannot classify `HISTORICAL_ONLY` without object |
+| Signed-out boot test `#/control-room` string | `OBSOLETE` as product route | Test URL only; no page |
+
+When historical source arrives, re-run inventory and mark each item `CURRENT_EXISTS` / `HISTORICAL_ONLY` / `MISSING_REQUIRED` / `OBSOLETE` / `CONFLICTS_WITH_CURRENT`.
+
+---
+
+## Permission strategy (capabilities only — no role assignment yet)
+
+Candidate capabilities (not roles):
+
+`control_room_view`, `control_room_log`, `control_room_acknowledge`, `control_room_handover`, `control_room_task_manage`, `control_room_board_manage`, `control_room_schedule_view`, `control_room_schedule_manage`, `control_room_supervisor`
+
+Assume operational records may be **shared** unless an existing business rule says otherwise. Do **not** default to `created_by` ownership.
+
+See `control-room-permissions.md` for open business questions.
 
 ---
 
 ## Prerequisites before coding Gate 4
 
-1. Gate 1 remote exposure probes pass.  
-2. Gate 2 Critical/High authz issues closed or accepted.  
-3. Gate 3 WOS regression green on secured codebase.  
-4. Business answers for resource scope (see `control-room-permissions.md`).  
-5. Historical CR source available **or** explicit greenlight to design net-new schema.
-
----
-
-## Target IA (when unblocked)
-
-Operations → Control Room:
-
-1. Current Shift  
-2. Handover  
-3. Operating Board  
-4. Tasks  
-5. Schedule  
-6. History  
-7. Supervisor Overview  
-
-Reuse existing SLIOps shell (`index.html`, `hub.css`, hash router). API namespace: `/hub/control-room/*`.
-
----
-
-## Suggested delivery slices (after unblocked)
-
-| Slice | Deliverable |
-| --- | --- |
-| CR-0 | Schema delta doc + migration design + permission proposals |
-| CR-1 | Current Shift + Quick Log + timeline + ack |
-| CR-2 | Operating Board + continuity across shifts |
-| CR-3 | Tasks lifecycle |
-| CR-4 | Handover assemble/ack |
-| CR-5 | Schedule foundation |
-| CR-6 | History + Supervisor Overview |
-| CR-7 | Audit + authz tests + scenarios A–E |
+1. Gate 1 remote exposure probes pass (`INFRASTRUCTURE_CHANGE_REQUIRED` until then).  
+2. Gate 2 Critical/High code items reviewed (this branch).  
+3. Gate 3 WOS regression accepted.  
+4. Historical CR source **or** greenlight for greenfield schema.  
+5. Business answers for resource scope.
 
 ---
 
 ## Explicitly deferred
 
-Snowflake, Paycom, Samsara exposure math, AI features, MaintainX WO replacement, major UI redesign, new microservices.
+Snowflake, Paycom, Samsara, AI, MaintainX WO replacement, major UI redesign, new microservices, CR migrations/UI in this execution.

@@ -356,7 +356,13 @@ async function handleHubRoute(path, req, res, ctx) {
     }
     const body = parseBody(req);
     if (!body) return json(res, 400, { error: 'Invalid JSON body' });
-    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '';
+    // Metadata only — never trust client XFF unless edge overwrite is explicitly enabled.
+    const trustFwd = ['1', 'true', 'yes', 'on'].includes(
+      String(process.env.TRUST_FORWARDED_CLIENT_IP || '').toLowerCase()
+    );
+    const clientIp = trustFwd
+      ? (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || '')
+      : (req.socket?.remoteAddress || '');
     const userAgent = req.headers['user-agent'] || '';
 
     if (action === 'fill') {

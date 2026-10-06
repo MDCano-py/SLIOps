@@ -522,6 +522,7 @@ const PERMISSION_CATALOG = [
   { group: 'Archive Deletion',   id: 'delete_bol_archive',       label: 'Delete Any BOL Archive Record (override 24h rule)' },
 
   { group: 'Admin',              id: 'admin',                    label: 'Manage User Permissions' },
+  { group: 'Admin',              id: 'manage_sso',               label: 'Manage Organization SSO / SAML trust configuration' },
 
   { group: 'Configuration',      id: 'configuration.view',       label: 'View Configuration Center' },
   { group: 'Configuration',      id: 'configuration.edit',       label: 'Edit configuration drafts' },
@@ -680,6 +681,7 @@ const BUILT_IN_ROLES = [
       'delete_jsa_archive',
       'delete_bol_archive',
       'admin',
+      'manage_sso',
     ],
     isProtected: true,
     isUndeletable: false,
@@ -2580,10 +2582,27 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed for /photo-cleanup' });
     }
-    // Optional shared-secret auth so random callers can't trigger cleanup
-    if (process.env.CLEANUP_SECRET) {
-      const provided = req.headers['x-cleanup-secret'] || req.query.secret;
-      if (provided !== process.env.CLEANUP_SECRET) {
+    // Fail closed: CLEANUP_SECRET must be set (≥16 chars). Missing/empty disables the endpoint.
+    {
+      const expected = String(process.env.CLEANUP_SECRET || '');
+      if (!expected || expected.length < 16) {
+        recordSecurityAudit('storage.photo_cleanup_disabled', { reason: 'CLEANUP_SECRET_unset_or_weak' });
+        return res.status(503).json({
+          error: 'Cleanup disabled',
+          code: 'CLEANUP_NOT_CONFIGURED',
+        });
+      }
+      const provided = String(req.headers['x-cleanup-secret'] || req.query.secret || '');
+      if (!provided || provided.length !== expected.length) {
+        return res.status(401).json(authErrors.wosAuthRequiredBody());
+      }
+      try {
+        const a = Buffer.from(provided);
+        const b = Buffer.from(expected);
+        if (!require('crypto').timingSafeEqual(a, b)) {
+          return res.status(401).json(authErrors.wosAuthRequiredBody());
+        }
+      } catch {
         return res.status(401).json(authErrors.wosAuthRequiredBody());
       }
     }
@@ -2629,9 +2648,26 @@ module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed for /archive-wipe-orphans' });
     }
-    if (process.env.CLEANUP_SECRET) {
-      const provided = req.headers['x-cleanup-secret'] || req.query.secret;
-      if (provided !== process.env.CLEANUP_SECRET) {
+    {
+      const expected = String(process.env.CLEANUP_SECRET || '');
+      if (!expected || expected.length < 16) {
+        recordSecurityAudit('storage.archive_wipe_disabled', { reason: 'CLEANUP_SECRET_unset_or_weak' });
+        return res.status(503).json({
+          error: 'Cleanup disabled',
+          code: 'CLEANUP_NOT_CONFIGURED',
+        });
+      }
+      const provided = String(req.headers['x-cleanup-secret'] || req.query.secret || '');
+      if (!provided || provided.length !== expected.length) {
+        return res.status(401).json(authErrors.wosAuthRequiredBody());
+      }
+      try {
+        const a = Buffer.from(provided);
+        const b = Buffer.from(expected);
+        if (!require('crypto').timingSafeEqual(a, b)) {
+          return res.status(401).json(authErrors.wosAuthRequiredBody());
+        }
+      } catch {
         return res.status(401).json(authErrors.wosAuthRequiredBody());
       }
     }
@@ -2739,11 +2775,9 @@ module.exports = async function handler(req, res) {
         const uuid = Math.random().toString(36).slice(2, 10);
         const recordId = `${yyyy}-${mm}-${dd}-${hh}${mi}${ss}-${uuid}`;
 
-        // Pull SSO identity from headers (same pattern as /me).
-        const ssoEmail = auth.getActorEmail(req)
-                      || req.headers['x-vercel-id-token-email']
-                      || null;
-        const ssoName = req.headers['x-vercel-user-name'] || null;
+        // Actor identity from verified session / AuthBridge only — never client headers.
+        const ssoEmail = auth.getActorEmail(req) || null;
+        const ssoName = null;
 
         const record = {
           id: recordId,
@@ -2812,12 +2846,10 @@ module.exports = async function handler(req, res) {
           return res.status(400).json({ error: 'Invalid body — JSON object required' });
         }
         const now = new Date();
-        const ssoEmail = auth.getActorEmail(req)
-                      || req.headers['x-vercel-id-token-email']
-                      || null;
+        const ssoEmail = auth.getActorEmail(req) || null;
         rec.data = body;
         rec.updatedAt = now.toISOString();
-        rec.updatedBy = { ssoEmail, ssoName: req.headers['x-vercel-user-name'] || null };
+        rec.updatedBy = { ssoEmail, ssoName: null };
 
         await writeBlobArchiveRecord(kind, rec);
         return res.status(200).json({
@@ -2847,12 +2879,10 @@ module.exports = async function handler(req, res) {
         }
 
         const now = new Date();
-        const ssoEmail = auth.getActorEmail(req)
-                      || req.headers['x-vercel-id-token-email']
-                      || null;
+        const ssoEmail = auth.getActorEmail(req) || null;
         rec.status = 'closed';
         rec.closedAt = now.toISOString();
-        rec.closedBy = { ssoEmail, ssoName: req.headers['x-vercel-user-name'] || null };
+        rec.closedBy = { ssoEmail, ssoName: null };
         rec.terminationReasons = reasons;
         rec.terminationSig    = body.terminationSig;
         rec.terminationName   = body.terminationName || null;
@@ -3038,7 +3068,7 @@ module.exports = async function handler(req, res) {
         const actorEmail = (ctx && ctx.actorEmail) || auth.getActorEmail(req) || null;
         const record = buildVendorRecordFromBody(body, {
           actorEmail,
-          actorName: req.headers['x-vercel-user-name'] || null,
+          actorName: null,
         });
         enrichVendorRecord(record);
 
@@ -3741,11 +3771,16 @@ module.exports = async function handler(req, res) {
   }
 
   // ---- Organization SSO admin (Management panel) ----
+  // Read: manage_sso OR view_management (admin/hub_admin short-circuit in requirePermissions).
+  // Write (trust mutation): manage_sso only — view_management alone must never mutate SAML trust.
   if (path.startsWith('/sso-admin/')) {
-    const ctx = await requirePermissions(req, res, ['hub_admin', 'admin', 'view_management']);
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(req.method || '').toUpperCase());
+    const needed = isWrite ? ['manage_sso'] : ['manage_sso', 'view_management'];
+    const ctx = await requirePermissions(req, res, needed);
     if (!ctx) return;
     const handled = await loadSsoHandlers().handleSsoAdminRoute(path, req, res, {
       requireVendorAuth: () => true,
+      actorEmail: ctx.actorEmail,
     });
     if (handled !== false) return;
   }
@@ -3849,7 +3884,7 @@ module.exports = async function handler(req, res) {
         if (req.method === 'PUT' && isPermsPath) {
           const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
           const perms = Array.isArray(body.permissions) ? body.permissions : [];
-          const actor = (req.headers['x-actor-email'] || body.actorEmail || 'unknown').toLowerCase();
+          const actor = String(ctx.actorEmail || auth.getActorEmail(req) || 'unknown').toLowerCase();
           // Bootstrap admins can't have their permissions changed (always full)
           if (isBootstrapAdmin(email)) {
             return res.status(400).json({ error: 'Cannot modify a bootstrap admin (always has full permissions)' });
@@ -3865,7 +3900,7 @@ module.exports = async function handler(req, res) {
           if (isBootstrapAdmin(email)) {
             return res.status(400).json({ error: 'Cannot remove a bootstrap admin' });
           }
-          const actor = (req.headers['x-actor-email'] || 'unknown').toLowerCase();
+          const actor = String(ctx.actorEmail || auth.getActorEmail(req) || 'unknown').toLowerCase();
           await deleteUserRecord(email, actor);
           return res.status(200).json({ deleted: true });
         }
@@ -3894,14 +3929,8 @@ module.exports = async function handler(req, res) {
     if (!ctx) return;
     const roleId = rolesMatch[1] || null;
     try {
-      // Actor email — prefer SSO header (when SSO is enabled), then x-actor-email
-      // override (currently unused but reserved), then 'unknown'. Bootstrap
-      // admin status is checked against this email later for the
-      // delete-undeletable-role override.
-      const ssoEmail = auth.getActorEmail(req)
-                    || req.headers['x-vercel-id-token-email']
-                    || null;
-      const actor = (req.headers['x-actor-email'] || ssoEmail || 'unknown').toLowerCase();
+      // Actor email from verified session / AuthBridge only.
+      const actor = String(ctx.actorEmail || auth.getActorEmail(req) || 'unknown').toLowerCase();
 
       if (req.method === 'GET' && !roleId) {
         const roles = await getAllRoles();
@@ -4004,7 +4033,7 @@ module.exports = async function handler(req, res) {
       if (req.method === 'POST' && !recordId) {
         const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
         // Prefer the authenticated session email as the submitter of record.
-        const submitter = (authActor.actorEmail || req.headers['x-actor-email'] || body.submittedBy || body.contactEmail || 'unknown').toLowerCase();
+        const submitter = String(authActor.actorEmail || 'unknown').toLowerCase();
         const record = await saveRequestArchive(kind, body, submitter);
         return res.status(201).json({ id: record.id, record });
       }
@@ -4060,7 +4089,7 @@ module.exports = async function handler(req, res) {
       // POST /forms/{kind}
       if (req.method === 'POST' && !recordId) {
         const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-        const submitter = (authActor.actorEmail || req.headers['x-actor-email'] || body.submittedBy || 'unknown').toLowerCase();
+        const submitter = String(authActor.actorEmail || 'unknown').toLowerCase();
         const record = await saveRequestArchive(kind, body, submitter);
         return res.status(201).json({ id: record.id, record });
       }

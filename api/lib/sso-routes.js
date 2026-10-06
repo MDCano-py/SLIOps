@@ -201,10 +201,17 @@ function createSsoHandlers(redis) {
     }
   }
 
-  async function handleSsoAdminRoute(path, req, res, { requireVendorAuth }) {
+  async function handleSsoAdminRoute(path, req, res, { requireVendorAuth, actorEmail }) {
     if (!requireVendorAuth(req, res)) return true;
 
     const portalBase = getPortalBaseUrl(req);
+    const actor = actorEmail || null;
+    let recordSecurityAudit = () => {};
+    try {
+      recordSecurityAudit = require('./security-audit').recordSecurityAudit;
+    } catch {
+      /* optional */
+    }
 
     if (path === '/sso-admin/organizations' && req.method === 'GET') {
       const orgs = await orgStore.listOrganizations();
@@ -266,6 +273,18 @@ function createSsoHandlers(redis) {
       }
 
       const saved = await orgStore.saveOrganization(payload, portalBase);
+      recordSecurityAudit('sso.trust_updated', {
+        actor,
+        slug: saved.org?.slug || slug,
+        sso_enabled: !!saved.org?.sso_enabled,
+        has_saml: !!payload.saml,
+        idp_entity_id: payload.saml?.idp_entity_id || null,
+        idp_sso_url: payload.saml?.idp_sso_url || null,
+        has_certificate: !!(payload.saml && payload.saml.idp_x509_cert),
+        default_role: payload.saml?.default_role || null,
+        active: payload.saml?.active,
+        // never log idp_x509_cert / secrets
+      });
       res.status(200).json({
         organization: saved.org,
         saml: orgStore.sanitizeConnectionForAdmin(saved.connection),
@@ -281,8 +300,19 @@ function createSsoHandlers(redis) {
       if (!connection) return res.status(400).json({ error: 'SAML connection not configured' });
       try {
         const result = testConnectionConfig(connection);
+        recordSecurityAudit('sso.trust_test', {
+          actor,
+          slug: org.slug || slug,
+          ok: true,
+        });
         res.status(200).json({ ok: true, ...result });
       } catch (err) {
+        recordSecurityAudit('sso.trust_test', {
+          actor,
+          slug: org.slug || slug,
+          ok: false,
+          error: err.message,
+        });
         res.status(400).json({ ok: false, error: err.message });
       }
       return true;

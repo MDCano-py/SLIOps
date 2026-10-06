@@ -56,7 +56,9 @@
     user: ['admin'],
     role: ['admin'],
     pssr: ['view_management'],
-    sso: ['hub_admin', 'admin', 'view_management'],
+    // SSO trust admin UI requires manage_sso (admin/hub_admin short-circuit in hasPerm).
+    // view_management alone must not expose trust mutation controls.
+    sso: ['manage_sso'],
     integrations: ['hub_admin', 'admin', 'view_management'],
   };
 
