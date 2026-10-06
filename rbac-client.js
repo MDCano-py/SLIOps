@@ -78,6 +78,20 @@
     'hub:configuration-admin': {
       any: ['configuration.view', 'configuration.edit', 'configuration.publish', 'hub_admin', 'admin'],
     },
+    'hub:control-room': {
+      any: [
+        'control_room_view',
+        'control_room_log',
+        'control_room_acknowledge',
+        'control_room_handover',
+        'control_room_task_manage',
+        'control_room_board_manage',
+        'control_room_schedule_view',
+        'control_room_supervisor',
+        'hub_admin',
+        'admin',
+      ],
+    },
   };
 
   const HUB_TAB_RULES = {
@@ -91,6 +105,20 @@
     'hub-workflows': { any: ['hub_admin', 'admin'] },
     'hub-documents': { any: ['hub_admin', 'admin'] },
     'hub-users': { any: ['admin', 'hub_admin'] },
+    'hub-control-room': {
+      any: [
+        'control_room_view',
+        'control_room_log',
+        'control_room_acknowledge',
+        'control_room_handover',
+        'control_room_task_manage',
+        'control_room_board_manage',
+        'control_room_schedule_view',
+        'control_room_supervisor',
+        'hub_admin',
+        'admin',
+      ],
+    },
   };
 
   function normalizePerms(perms) {

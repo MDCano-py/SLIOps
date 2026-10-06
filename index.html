@@ -9051,6 +9051,7 @@
             <button type="button" class="hub-nav-link" data-hub-tab="hub-my-tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>My Tasks</span></button>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-new-request"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>New Request</span></button>
             <div class="hub-nav-group-label">Operations</div>
+            <button type="button" class="hub-nav-link" data-hub-tab="hub-control-room" data-rbac-key="hub:control-room"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Control Room</span></button>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>Documents</span></button>
             <button type="button" class="hub-nav-link" data-portal-tab="parts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><span>Parts Request</span></button>
             <button type="button" class="hub-nav-link" data-portal-tab="work-order"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span>Work Orders</span></button>
@@ -9231,6 +9232,15 @@
                   </div>
                 </div>
                 <div id="hubReportsRoot"><div class="hub-loading">Loading reports…</div></div>
+              </div>
+              <div class="hub-page" id="hubPageControlRoom" data-hub-page="hub-control-room" hidden>
+                <div class="hub-page-head">
+                  <div>
+                    <h1>Control Room</h1>
+                    <p class="hub-sub">Shift continuity — logs, acknowledgements, board, tasks, handover, and coverage.</p>
+                  </div>
+                </div>
+                <div id="hubControlRoomRoot"><div class="hub-loading">Loading Control Room…</div></div>
               </div>
               <div class="hub-page" id="hubPageAnalytics" data-hub-page="hub-analytics" hidden>
                 <div class="hub-page-head">
@@ -25888,7 +25898,7 @@ function goBack() {
   // tabMenuItems = both flat top-level tabs (e.g. Home) and nested dropdown items
   const tabMenuItems = document.querySelectorAll('.tabs [data-tab]');
   const tabGroups = document.querySelectorAll('.tab-group');
-  const HUB_NATIVE_TABS = ['hub-dashboard', 'hub-analytics', 'hub-requests', 'hub-request-detail', 'hub-new-request', 'hub-my-tasks', 'hub-reports', 'hub-settings', 'hub-start-center', 'hub-configuration', 'hub-forms', 'hub-documents', 'hub-workflows', 'hub-users', 'hub-spaces', 'hub-launch', 'hub-submission', 'hub-archive'];
+  const HUB_NATIVE_TABS = ['hub-dashboard', 'hub-analytics', 'hub-requests', 'hub-request-detail', 'hub-new-request', 'hub-my-tasks', 'hub-reports', 'hub-control-room', 'hub-settings', 'hub-start-center', 'hub-configuration', 'hub-forms', 'hub-documents', 'hub-workflows', 'hub-users', 'hub-spaces', 'hub-launch', 'hub-submission', 'hub-archive'];
   const hubShellPanel = document.getElementById('panel-hub-shell');
   const panels = {
     'home': document.getElementById('panel-home'),
@@ -26203,6 +26213,8 @@ function goBack() {
       tab = 'swp';
     } else if (tab === 'reports') {
       return { tab: 'hub-reports', segments: [] };
+    } else if (tab === 'control-room' || tab === 'hub-control-room') {
+      return { tab: 'hub-control-room', segments: rest || [], query };
     } else if (tab === 'dashboard' || tab === 'hub-dashboard') {
       return { tab: 'hub-dashboard', segments: [], query };
     } else if (tab === 'analytics' || tab === 'hub-analytics') {
@@ -26370,7 +26382,7 @@ function goBack() {
     const { tab, segments, mgmtSection } = parsed;
     _routingInProgress = true;
     try {
-      const knownTabs = ['home','hub-dashboard','hub-analytics','hub-requests','hub-request-detail','hub-new-request','hub-my-tasks','hub-reports','hub-settings','hub-start-center','hub-configuration','hub-forms','hub-documents','hub-workflows','hub-users','hub-spaces','hub-launch','hub-submission','hub-archive','parts','work-order','bol','jsa','jsa-archive','bol-archive','parts-request-archive','work-order-archive','forms-archive','roll-off-swap','roll-off-swap-archive','management','swp'];
+      const knownTabs = ['home','hub-dashboard','hub-analytics','hub-requests','hub-request-detail','hub-new-request','hub-my-tasks','hub-reports','hub-control-room','hub-settings','hub-start-center','hub-configuration','hub-forms','hub-documents','hub-workflows','hub-users','hub-spaces','hub-launch','hub-submission','hub-archive','parts','work-order','bol','jsa','jsa-archive','bol-archive','parts-request-archive','work-order-archive','forms-archive','roll-off-swap','roll-off-swap-archive','management','swp'];
       let target = knownTabs.includes(tab) ? tab : 'hub-dashboard';
       const routeOpts = {};
       if (mgmtSection) routeOpts.mgmtSection = mgmtSection;
@@ -26774,6 +26786,7 @@ function goBack() {
 <script src="hub-workflow-designer.js"></script>
 <script src="hub-workflow-simple-builder.js"></script>
 <script src="hub-configuration-center.js"></script>
+<script src="hub-control-room.js"></script>
 <script src="hub.js"></script>
 </body>
 </html>

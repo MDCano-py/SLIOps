@@ -160,6 +160,15 @@ async function handleHubRoute(path, req, res, ctx) {
   const isAdmin = canViewAll(actorEmail, permissions);
   const method = req.method;
 
+  const { handleControlRoomRoutes } = require('../control-room/routes');
+  const controlRoomHandled = await handleControlRoomRoutes(path, req, res, {
+    actorEmail,
+    permissions,
+    isAdmin,
+    roleKeys: Array.isArray(ctx.roleKeys) ? ctx.roleKeys : undefined,
+  });
+  if (controlRoomHandled) return true;
+
   const rbacHandled = await handleRbacRoutes(path, req, res, {
     actorEmail,
     permissions,

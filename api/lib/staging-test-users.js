@@ -45,6 +45,15 @@ const PERMS_HUB_ADMIN = [
   'delete_bol_archive',
   'admin',
   'manage_sso',
+  'control_room_view',
+  'control_room_log',
+  'control_room_acknowledge',
+  'control_room_handover',
+  'control_room_task_manage',
+  'control_room_board_manage',
+  'control_room_schedule_view',
+  'control_room_schedule_manage',
+  'control_room_supervisor',
 ];
 
 const PERMS_OPS_MANAGER = [
@@ -57,6 +66,15 @@ const PERMS_OPS_MANAGER = [
   'submit_new_vendor',
   'edit_vendor_compliance',
   'manage_vendor_documents',
+  'control_room_view',
+  'control_room_log',
+  'control_room_acknowledge',
+  'control_room_handover',
+  'control_room_task_manage',
+  'control_room_board_manage',
+  'control_room_schedule_view',
+  'control_room_schedule_manage',
+  'control_room_supervisor',
 ];
 
 const PERMS_HR = [...VIEW_CORE, 'view_forms', 'view_management'];
@@ -74,9 +92,31 @@ const PERMS_ACCOUNTING = [
   'manage_vendor_documents',
 ];
 
-const PERMS_FIELD_SUPERVISOR = [...VIEW_CORE, 'view_management', 'submit_new_vendor'];
+const PERMS_FIELD_SUPERVISOR = [
+  ...VIEW_CORE,
+  'view_management',
+  'submit_new_vendor',
+  'control_room_view',
+  'control_room_log',
+  'control_room_acknowledge',
+  'control_room_handover',
+  'control_room_task_manage',
+  'control_room_board_manage',
+  'control_room_schedule_view',
+  'control_room_schedule_manage',
+  'control_room_supervisor',
+];
 
-const PERMS_FIELD_TECH = [...VIEW_CORE];
+const PERMS_FIELD_TECH = [
+  ...VIEW_CORE,
+  'control_room_view',
+  'control_room_log',
+  'control_room_acknowledge',
+  'control_room_handover',
+  'control_room_task_manage',
+  'control_room_board_manage',
+  'control_room_schedule_view',
+];
 
 const PERMS_CLIENT = [
   'view_home',

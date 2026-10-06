@@ -494,6 +494,15 @@ const PERMISSION_CATALOG = [
   { group: 'Operations Hub',   id: 'view_hub_requests',        label: 'View Request Hub' },
   { group: 'Operations Hub',   id: 'view_hub_reports',         label: 'View Hub Reports' },
   { group: 'Operations Hub',   id: 'hub_admin',                label: 'Hub Admin (all requests, visibility, retries)' },
+  { group: 'Control Room',     id: 'control_room_view',        label: 'View Control Room' },
+  { group: 'Control Room',     id: 'control_room_log',         label: 'Create / edit Control Room shift logs' },
+  { group: 'Control Room',     id: 'control_room_acknowledge', label: 'Acknowledge Control Room records' },
+  { group: 'Control Room',     id: 'control_room_handover',    label: 'Submit / acknowledge shift handovers' },
+  { group: 'Control Room',     id: 'control_room_task_manage', label: 'Manage Control Room tasks' },
+  { group: 'Control Room',     id: 'control_room_board_manage',label: 'Manage Control Room operating board' },
+  { group: 'Control Room',     id: 'control_room_schedule_view', label: 'View Control Room schedule' },
+  { group: 'Control Room',     id: 'control_room_schedule_manage', label: 'Edit Control Room schedule' },
+  { group: 'Control Room',     id: 'control_room_supervisor',  label: 'Control Room supervisor overview' },
   { group: 'Tab Access',         id: 'view_home',                label: 'View Home' },
   { group: 'Tab Access',         id: 'view_parts_request',       label: 'View Parts Request' },
   { group: 'Tab Access',         id: 'view_work_order',          label: 'View Work Order Request' },
@@ -545,6 +554,22 @@ const ALL_PERMISSION_IDS = PERMISSION_CATALOG.map(p => p.id);
 //
 // The full set of built-in roles is defined in BUILT_IN_ROLES below — that's
 // the source of truth for first-time seeding.
+const CONTROL_ROOM_OPERATOR_PERMS = [
+  'control_room_view',
+  'control_room_log',
+  'control_room_acknowledge',
+  'control_room_handover',
+  'control_room_task_manage',
+  'control_room_board_manage',
+  'control_room_schedule_view',
+];
+
+const CONTROL_ROOM_SUPERVISOR_PERMS = [
+  ...CONTROL_ROOM_OPERATOR_PERMS,
+  'control_room_schedule_manage',
+  'control_room_supervisor',
+];
+
 const EMPLOYEE_PRESET_PERMISSIONS = [
   'view_home',
   'view_hub_dashboard',
@@ -592,6 +617,7 @@ const BUILT_IN_ROLES = [
       'view_parts_request_archive',
       'view_work_order_archive',
       'view_roll_off_swap_archive',
+      ...CONTROL_ROOM_OPERATOR_PERMS,
     ],
     isProtected: true,
     isUndeletable: true,    // strongest protection — never deletable
@@ -682,6 +708,7 @@ const BUILT_IN_ROLES = [
       'delete_bol_archive',
       'admin',
       'manage_sso',
+      ...CONTROL_ROOM_SUPERVISOR_PERMS,
     ],
     isProtected: true,
     isUndeletable: false,

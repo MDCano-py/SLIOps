@@ -44,6 +44,7 @@
     'hub-new-request',
     'hub-my-tasks',
     'hub-reports',
+    'hub-control-room',
     'hub-settings',
     'hub-start-center',
     'hub-configuration',
@@ -61,6 +62,10 @@
     'hub-reports': {
       title: 'Reports',
       subtitle: 'Operational metrics across requests, workflows, documents, and MaintainX handoffs.',
+    },
+    'hub-control-room': {
+      title: 'Control Room',
+      subtitle: 'Shift continuity — logs, acknowledgements, board, tasks, handover, and coverage.',
     },
     'hub-analytics': {
       title: 'Analytics',
@@ -946,6 +951,7 @@
     if (tab === 'hub-dashboard') return '#/dashboard';
     if (tab === 'hub-analytics') return '#/analytics';
     if (tab === 'hub-reports') return '#/reports';
+    if (tab === 'hub-control-room') return '#/control-room';
     if (tab === 'hub-settings') return '#/settings';
     if (tab === 'hub-start-center') return '#/start-center';
     if (tab === 'hub-configuration') return '#/configuration';
@@ -3212,6 +3218,9 @@
     if (tabName === 'hub-dashboard') initDashboard();
     else if (tabName === 'hub-analytics') initHubAnalytics();
     else if (tabName === 'hub-reports') initHubReports();
+    else if (tabName === 'hub-control-room') {
+      if (typeof global.initHubControlRoom === 'function') global.initHubControlRoom();
+    }
     else if (tabName === 'hub-settings') initHubSettings();
     else if (tabName === 'hub-start-center') initHubStartCenter();
     else if (tabName === 'hub-configuration') initHubConfigurationCenter();
