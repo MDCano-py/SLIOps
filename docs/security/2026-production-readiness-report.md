@@ -4,7 +4,7 @@
 **Branch:** `security-production-readiness`  
 **Starting SHA (baseline master):** `59da042aecf451c8982392fc31fc5026b84fca1d`  
 **Phase 0 checkpoint:** `e269aee1eea19b1824a8b2e64c4d02164cc47a71`  
-**Ending SHA:** *(see latest commit on this branch after Gate 2 commit)*  
+**Ending SHA:** `b6fc741c6ccd6bab113e07a703c0e7924b75f5a5`  
 
 **Verdict:** **NOT PRODUCTION READY** — Gate 2 **code** work for known blockers is complete in-repo; live deploy verification, secret rotation, and full SCR/STR register remain open. Control Room not started (per stop rule).
 
