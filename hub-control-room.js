@@ -91,16 +91,16 @@
   function kpiRow(current) {
     if (!current) return '';
     const shift = current.shift;
-    return `<div class="hub-kpi-row">
-      <div class="hub-kpi"><div class="hub-kpi-label">Station</div><div class="hub-kpi-value">${esc(current.station?.name || '—')}</div></div>
-      <div class="hub-kpi"><div class="hub-kpi-label">Shift</div><div class="hub-kpi-value">${esc(shift?.name || 'None')}</div></div>
-      <div class="hub-kpi"><div class="hub-kpi-label">Window</div><div class="hub-kpi-value" style="font-size:13px">${esc(shift ? `${new Date(shift.starts_at).toLocaleString()} – ${new Date(shift.ends_at).toLocaleString()}` : '—')}</div></div>
-      <div class="hub-kpi"><div class="hub-kpi-label">Now</div><div class="hub-kpi-value" style="font-size:13px">${esc(new Date(current.current_time).toLocaleString())}</div></div>
-      <div class="hub-kpi"><div class="hub-kpi-label">Unacked</div><div class="hub-kpi-value">${esc(current.unacknowledged_count)}</div></div>
-      <div class="hub-kpi"><div class="hub-kpi-label">Board</div><div class="hub-kpi-value">${esc(current.open_board_count)}</div></div>
-      <div class="hub-kpi"><div class="hub-kpi-label">Tasks</div><div class="hub-kpi-value">${esc(current.open_task_count)}</div></div>
+    return `<div class="cr-summary-grid">
+      <div class="hub-kpi hub-panel--glass"><div class="hub-kpi-label">Station</div><div class="hub-kpi-value" style="font-size:1.05rem">${esc(current.station?.name || '—')}</div></div>
+      <div class="hub-kpi hub-panel--glass"><div class="hub-kpi-label">Shift</div><div class="hub-kpi-value" style="font-size:1.05rem">${esc(shift?.name || 'None')}</div>
+        <div class="hub-kpi-trend">${esc(shift ? `${new Date(shift.starts_at).toLocaleString()} – ${new Date(shift.ends_at).toLocaleTimeString()}` : '—')}</div></div>
+      <div class="hub-kpi hub-panel--glass"><div class="hub-kpi-label">Needs attention</div><div class="hub-kpi-value ${current.unacknowledged_count ? 'warn' : ''}">${esc(current.unacknowledged_count)}</div>
+        <div class="hub-kpi-trend">Unacked Attention/Urgent</div></div>
+      <div class="hub-kpi hub-panel--glass"><div class="hub-kpi-label">Open work</div><div class="hub-kpi-value">${esc((current.open_board_count || 0) + (current.open_task_count || 0))}</div>
+        <div class="hub-kpi-trend">Board ${esc(current.open_board_count)} · Tasks ${esc(current.open_task_count)}</div></div>
     </div>
-    <p class="hub-sub" style="margin:8px 0 14px">Operators: ${esc((current.assignments || []).map((a) => a.operator_email).join(', ') || '—')}</p>`;
+    <p class="hub-sub" style="margin:0 0 14px">Operators: ${esc((current.assignments || []).map((a) => a.operator_email).join(', ') || '—')} · Now ${esc(new Date(current.current_time).toLocaleString())}</p>`;
   }
 
   function bootstrapBanner(current, meta) {
@@ -136,8 +136,17 @@
     );
     const units = meta.units || [];
     root.innerHTML = `${subNavHtml()}${kpiRow(current)}
-      <div class="hub-dash-grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div class="cr-workspace">
         <div class="hub-panel">
+          <div class="hub-panel-head"><h2>Shift timeline</h2>
+            <div style="display:flex;gap:6px">
+              <select id="crFilterPriority" class="input" style="width:auto"><option value="">Priority</option><option>Normal</option><option>Attention</option><option>Urgent</option></select>
+              <select id="crFilterAck" class="input" style="width:auto"><option value="">Ack</option><option value="unacked">Unacked</option><option value="acked">Acked</option></select>
+            </div>
+          </div>
+          <div class="hub-panel-body pad" id="crTimelineBody">${renderTimeline(logs.logs || [])}</div>
+        </div>
+        <div class="hub-panel cr-quick-log">
           <div class="hub-panel-head"><h2>Quick Log</h2></div>
           <div class="hub-panel-body pad">
             ${
@@ -157,23 +166,14 @@
               <label>Summary<input class="input" name="summary" required maxlength="200" /></label>
               <label>Details<textarea class="input" name="details" rows="3"></textarea></label>
               <label>MaintainX asset ID<input class="input" name="maintainx_asset_id" placeholder="optional" /></label>
-              <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="follow_up" /> Follow-up required</label>
-              <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="carryover" /> Mark for handover</label>
+              <label style="display:flex;gap:8px;align-items:center;flex-direction:row;font-weight:500"><input type="checkbox" name="follow_up" /> Follow-up required</label>
+              <label style="display:flex;gap:8px;align-items:center;flex-direction:row;font-weight:500"><input type="checkbox" name="carryover" /> Mark for handover</label>
               <button type="submit" class="hub-btn hub-btn-primary" data-cr-submit>Log event</button>
               <p class="hub-empty" id="crQuickLogMsg" style="display:none"></p>
             </form>`
                 : '<p class="hub-empty">You do not have permission to create logs.</p>'
             }
           </div>
-        </div>
-        <div class="hub-panel">
-          <div class="hub-panel-head"><h2>Shift timeline</h2>
-            <div style="display:flex;gap:6px">
-              <select id="crFilterPriority" class="input" style="width:auto"><option value="">Priority</option><option>Normal</option><option>Attention</option><option>Urgent</option></select>
-              <select id="crFilterAck" class="input" style="width:auto"><option value="">Ack</option><option value="unacked">Unacked</option><option value="acked">Acked</option></select>
-            </div>
-          </div>
-          <div class="hub-panel-body pad" id="crTimelineBody">${renderTimeline(logs.logs || [])}</div>
         </div>
       </div>
       <div class="hub-panel" style="margin-top:14px">
@@ -728,8 +728,21 @@
   }
 
   function initHubControlRoom() {
+    if (typeof global.HubUI?.showHubPage === 'function') {
+      global.HubUI.showHubPage('hub-control-room');
+    }
     const root = rootEl();
     if (!root) return;
+    if (global.RbacClient && !global.RbacClient.isPortalNoAuthMode()) {
+      const perms = global.RbacClient.getPermissions ? global.RbacClient.getPermissions() : [];
+      if (!global.RbacClient.canAccessHubTab(perms, 'hub-control-room')) {
+        root.innerHTML = `<div class="hub-access-restricted" role="status">
+          <h2>Access restricted</h2>
+          <p>You do not have permission to view Control Room. Contact an administrator if you need access.</p>
+        </div>`;
+        return;
+      }
+    }
     _booted = true;
     render();
   }

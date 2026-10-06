@@ -838,6 +838,10 @@
         }
       }
       el.classList.toggle('is-active', active);
+      if (active) {
+        const group = el.closest('details.hub-nav-group');
+        if (group) group.open = true;
+      }
     });
   }
 

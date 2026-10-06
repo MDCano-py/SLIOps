@@ -9047,31 +9047,41 @@
           </div>
           <nav class="hub-nav" id="hubSidebarNav">
             <button type="button" class="hub-nav-link is-active" data-hub-tab="hub-dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>Dashboard</span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-requests"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Request Queue</span><span class="hub-nav-badge" id="hubNavQueueCount" hidden></span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-my-tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>My Tasks</span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-new-request"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>New Request</span></button>
-            <div class="hub-nav-group-label">Operations</div>
+            <button type="button" class="hub-nav-link" data-hub-tab="hub-requests"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Requests</span><span class="hub-nav-badge" id="hubNavQueueCount" hidden></span></button>
+            <button type="button" class="hub-nav-link" data-hub-tab="hub-my-tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>My Work</span></button>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-control-room" data-rbac-key="hub:control-room"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Control Room</span></button>
             <button type="button" class="hub-nav-link" data-hub-tab="hub-documents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span>Documents</span></button>
-            <button type="button" class="hub-nav-link" data-portal-tab="parts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><span>Parts Request</span></button>
-            <button type="button" class="hub-nav-link" data-portal-tab="work-order"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span>Work Orders</span></button>
-            <button type="button" class="hub-nav-link" data-portal-tab="bol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg><span>Generators</span></button>
-            <button type="button" class="hub-nav-link" data-portal-tab="jsa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><span>JSA Generator</span></button>
-            <button type="button" class="hub-nav-link" data-portal-tab="swp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Safe Work Permits</span></button>
-            <div class="hub-nav-group-label">Workspace</div>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-forms"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg><span>Forms</span></button>
-            <div id="hubLaunchSpacesNav" class="hub-launch-spaces-nav" hidden></div>
-            <div class="hub-nav-group-label">Archives</div>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-archive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2-2z"/></svg><span>Archive</span></button>
-            <div class="hub-nav-group-label">Insights</div>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-reports" data-rbac-key="hub:reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span>Reports</span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Analytics</span></button>
-            <div class="hub-nav-group-label">Admin</div>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-start-center" data-rbac-key="hub:start-center-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg><span>Start Center</span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-configuration" data-rbac-key="hub:configuration-admin" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Configuration</span></button>
-            <button type="button" class="hub-nav-link" data-portal-tab="management" data-mgmt-section="vendor" data-rbac-key="mgmt:vendor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Vendor Management</span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-users" data-rbac-key="hub:users-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><span>Users</span></button>
-            <button type="button" class="hub-nav-link" data-hub-tab="hub-settings" data-rbac-key="hub:settings-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button>
+            <button type="button" class="hub-nav-link" data-hub-tab="hub-new-request"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg><span>New Request</span></button>
+            <details class="hub-nav-group" open>
+              <summary>Operations Tools</summary>
+              <div class="hub-nav-group-body">
+                <button type="button" class="hub-nav-link" data-portal-tab="parts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg><span>Parts Request</span></button>
+                <button type="button" class="hub-nav-link" data-portal-tab="work-order"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><span>Work Orders</span></button>
+                <button type="button" class="hub-nav-link" data-portal-tab="bol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg><span>Generators</span></button>
+                <button type="button" class="hub-nav-link" data-portal-tab="jsa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg><span>JSA Generator</span></button>
+                <button type="button" class="hub-nav-link" data-portal-tab="swp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Safe Work Permits</span></button>
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-forms"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg><span>Forms</span></button>
+                <div id="hubLaunchSpacesNav" class="hub-launch-spaces-nav" hidden></div>
+              </div>
+            </details>
+            <details class="hub-nav-group">
+              <summary>Insights</summary>
+              <div class="hub-nav-group-body">
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-reports" data-rbac-key="hub:reports"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg><span>Reports</span></button>
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-analytics"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span>Analytics</span></button>
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-archive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2-2z"/></svg><span>Archive</span></button>
+              </div>
+            </details>
+            <details class="hub-nav-group">
+              <summary>Administration</summary>
+              <div class="hub-nav-group-body">
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-start-center" data-rbac-key="hub:start-center-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="8" y1="7" x2="16" y2="7"/><line x1="8" y1="11" x2="14" y2="11"/></svg><span>Start Center</span></button>
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-configuration" data-rbac-key="hub:configuration-admin" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span>Configuration</span></button>
+                <button type="button" class="hub-nav-link" data-portal-tab="management" data-mgmt-section="vendor" data-rbac-key="mgmt:vendor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 0v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Vendor Management</span></button>
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-users" data-rbac-key="hub:users-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 0v2"/><circle cx="9" cy="7" r="4"/></svg><span>Users</span></button>
+                <button type="button" class="hub-nav-link" data-hub-tab="hub-settings" data-rbac-key="hub:settings-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></button>
+              </div>
+            </details>
           </nav>
           <div class="hub-sidebar-foot">Workflow Hub v1.0</div>
         </aside>
@@ -9110,7 +9120,7 @@
                 <div class="hub-page-head">
                   <div>
                     <h1>Operations Dashboard</h1>
-                    <p class="hub-sub">Real-time overview of workload, aging items, and operational health.</p>
+                    <p class="hub-sub">Needs attention, assigned work, and current operational status.</p>
                     <p class="hub-page-meta" id="hubDashboardAsOf">Data as of —</p>
                   </div>
                   <button type="button" class="hub-btn hub-btn-primary" data-hub-tab="hub-new-request">+ New Request</button>
@@ -9237,7 +9247,7 @@
                 <div class="hub-page-head">
                   <div>
                     <h1>Control Room</h1>
-                    <p class="hub-sub">Shift continuity — logs, acknowledgements, board, tasks, handover, and coverage.</p>
+                    <p class="hub-sub">Current operations and shift continuity.</p>
                   </div>
                 </div>
                 <div id="hubControlRoomRoot"><div class="hub-loading">Loading Control Room…</div></div>

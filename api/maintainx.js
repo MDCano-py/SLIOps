@@ -4176,8 +4176,22 @@ module.exports = async function handler(req, res) {
   // ---- Operations Workflow Hub API ----
   // Central request/workflow/dashboard routes. Uses same proxy URL pattern:
   //   /api/maintainx?path=/hub/requests
-  if (path.startsWith('/hub/')) {
+  // Clients often append ?query onto the path value (encodeURIComponent of
+  // "/hub/foo?bar=1"). Split that here so route matchers see a clean pathname
+  // and nested params land on req.query.
+  if (path.startsWith('/hub/') || path.startsWith('/hub?')) {
     try {
+      let hubPath = path;
+      if (typeof hubPath === 'string' && hubPath.includes('?')) {
+        const qi = hubPath.indexOf('?');
+        const embedded = new URLSearchParams(hubPath.slice(qi + 1));
+        hubPath = hubPath.slice(0, qi);
+        if (!req.query || typeof req.query !== 'object') req.query = {};
+        for (const [k, v] of embedded.entries()) {
+          if (k === 'path') continue;
+          if (req.query[k] == null) req.query[k] = v;
+        }
+      }
       let cookieEmail = auth.getActorEmail(req);
       let permissions = [];
       if (cookieEmail) {
@@ -4222,14 +4236,14 @@ module.exports = async function handler(req, res) {
           actorUserId = null;
         }
       }
-      const handled = await handleHubRoute(path, req, res, {
+      const handled = await handleHubRoute(hubPath, req, res, {
         actorEmail: cookieEmail,
         permissions,
         roleKeys,
         actorUserId,
       });
       if (handled !== false) return;
-      return res.status(404).json({ error: 'Hub route not found', path });
+      return res.status(404).json({ error: 'Hub route not found', path: hubPath });
     } catch (err) {
       console.error('Hub route error:', err);
       return res.status(500).json({ error: 'Hub operation failed', detail: err.message });

@@ -32,7 +32,21 @@ function queryOf(req) {
   return req.query || {};
 }
 
-async function handleControlRoomRoutes(path, req, res, ctx) {
+/** Defense-in-depth: strip embedded ?query from proxied path values. */
+function normalizeHubPath(path, req) {
+  if (typeof path !== 'string' || !path.includes('?')) return path;
+  const qi = path.indexOf('?');
+  const embedded = new URLSearchParams(path.slice(qi + 1));
+  if (!req.query || typeof req.query !== 'object') req.query = {};
+  for (const [k, v] of embedded.entries()) {
+    if (k === 'path') continue;
+    if (req.query[k] == null) req.query[k] = v;
+  }
+  return path.slice(0, qi);
+}
+
+async function handleControlRoomRoutes(rawPath, req, res, ctx) {
+  const path = normalizeHubPath(rawPath, req);
   if (!path.startsWith('/hub/control-room')) return false;
 
   const { actorEmail, permissions } = ctx;
