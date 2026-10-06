@@ -5,7 +5,7 @@
 | Field | Value |
 | --- | --- |
 | **Release branch** | `control-room-phase2-secure-base` |
-| **Exact SHA** | `63bb7a7e1b24c084ca13e0dfb4b400976dabd661` |
+| **Exact SHA** | Tip of `control-room-phase2-secure-base` — confirm with `git rev-parse HEAD` before deploy |
 | **Baseline security SHA** | `1dc30915fa005d03373cea14b973113daa67918d` |
 | **Migrations** | `015_control_room.sql` (additive `cr_*` only; no WOS table changes; **no** station/unit seed) |
 
