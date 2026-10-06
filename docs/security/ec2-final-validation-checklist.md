@@ -1,6 +1,7 @@
 # EC2 Final Validation Checklist (one session)
 
-**Branch to deploy:** `security-production-readiness`  
+**Branch to deploy:** `control-room-phase2-secure-base`  
+**Release SHA:** see `docs/control-room/control-room-release-summary.md`  
 **Do not invent secrets.** Fill `<PORTAL>`, `<PREV_SHA>` from live output.  
 **Staging defaults used below:** app root `/var/www/ops-hub-staging`, port `3010`, public `https://automation.streamlinescada.com/ops-hub-staging`.
 
@@ -42,13 +43,14 @@ Fix git remote/credentials; do not overwrite unknown local changes without backu
 ### COMMAND
 ```bash
 cd /var/www/ops-hub-staging
-git checkout security-production-readiness
+git checkout control-room-phase2-secure-base
 git pull --ff-only
 git rev-parse HEAD
+# Confirm SHA matches docs/control-room/control-room-release-summary.md
 npm ci --omit=dev
 ```
 ### EXPECTED RESULT
-HEAD moves to intended SHA; `npm ci` succeeds; no production secrets printed.
+HEAD moves to intended release SHA; `npm ci` succeeds; no production secrets printed.
 ### IF IT FAILS
 Abort deploy; restore `<PREV_SHA>` (see §18). Do not restart services on a broken tree.
 
@@ -130,12 +132,16 @@ Edit `.env.staging` (or prod env file); do not restart until values are correct.
 ```bash
 cd /var/www/ops-hub-staging
 npm run db:migrate
+# Confirm 015 applied (Control Room schema — no fake station seed)
+psql "$DATABASE_URL" -c "SELECT id, applied_at FROM schema_migrations WHERE id LIKE '%015%' OR id LIKE '%control_room%';"
+psql "$DATABASE_URL" -c "\dt cr_*"
+psql "$DATABASE_URL" -c "SELECT COUNT(*) AS stations FROM cr_stations;"
 curl -s http://127.0.0.1:3010/health | jq '{ok, hub_store_mode, store_ok, object_storage_configured, maintainx_configured, sso_enforcement, demo_bypass, staging_test_login_enabled}'
 ```
 ### EXPECTED RESULT
-Migrations apply cleanly; health `ok=true`, `hub_store_mode=postgres`, `demo_bypass` falsey, `sso_enforcement` not off.
+`015_control_room.sql` listed in `schema_migrations`; `cr_*` tables exist; **station count may be 0** until bootstrap (§16a); health `ok=true`, `hub_store_mode=postgres`, `demo_bypass` falsey, `sso_enforcement` not off. Existing WOS tables unchanged.
 ### IF IT FAILS
-Check `DATABASE_URL`/RDS SG; do not proceed to public smoke if health not ok.
+Check `DATABASE_URL`/RDS SG; do not proceed to public smoke if health not ok. Do not invent station seed data.
 
 ---
 
@@ -251,19 +257,116 @@ Check `MAINTAINX_API_KEY` server-side only; never expose key in browser network 
 
 ---
 
-## 16. Control Room smoke
+## 16. Control Room permission verification
 
 ### COMMAND
 ```bash
-# Current branch: Control Room not implemented — confirm absence only
-curl -sk -o /dev/null -w '%{http_code}\n' \
-  'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/hub/control-room/current-shift'
-# Browser: #/control-room should not present a working CR MVP
+# After deploy + role merge, as Hub Admin in Role Management UI (or Redis/Postgres role store):
+# - employee includes operator pack (view/log/ack/handover/task/board/schedule_view)
+# - management includes supervisor pack (+ schedule_manage + supervisor)
+# - Hub Admin users have hub_admin and/or admin (elevated short-circuit)
+
+# Standard employee session — schedule manage must 403:
+curl -sk -b 'sliops_session=<EMPLOYEE_COOKIE>' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"operator_email":"x@example.com","work_date":"2026-10-05","starts_at":"2026-10-05T08:00:00Z","ends_at":"2026-10-05T16:00:00Z"}' \
+  'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/hub/control-room/schedule' \
+  -w '\nHTTP %{http_code}\n' -o /tmp/cr-sched.json
+# Expect HTTP 403
+
+# Unauthorized (no CR) → 403 on GET current
+curl -sk -b 'sliops_session=<NO_CR_COOKIE>' \
+  'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/hub/control-room/current' \
+  -w '\nHTTP %{http_code}\n'
 ```
 ### EXPECTED RESULT
-API not a working CR surface (404/401/403/not handled — **not** a full shift UI). Skip functional CR smoke until Gate 4 ships.
+Employee can open `#/control-room` after station bootstrap; cannot schedule-manage; users without CR get 403. Mapping: `docs/control-room/control-room-permissions.md`.
 ### IF IT FAILS
-If a CR API unexpectedly exists and errors 500, capture logs; do not invent schema on EC2.
+Trigger built-in role merge (open Role Management / call roles list) or manually add missing `control_room_*` to employee/management. Do not invent new roles.
+
+---
+
+## 16a. Production station/unit bootstrap
+
+### COMMAND
+```bash
+# Use REAL production keys/names only — see docs/control-room/control-room-production-bootstrap.md
+psql "$DATABASE_URL" <<'SQL'
+INSERT INTO cr_stations (key, name, active)
+VALUES ('<STATION_KEY>', '<STATION_NAME>', true)
+ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name, active = true, updated_at = now();
+
+INSERT INTO cr_units (station_id, key, name, active)
+SELECT s.id, '<UNIT_KEY>', '<UNIT_NAME>', true
+FROM cr_stations s WHERE s.key = '<STATION_KEY>'
+ON CONFLICT (station_id, key) DO UPDATE SET name = EXCLUDED.name, active = true, updated_at = now();
+
+SELECT s.key, u.key, u.name FROM cr_stations s
+LEFT JOIN cr_units u ON u.station_id = s.id WHERE s.active;
+SQL
+```
+### EXPECTED RESULT
+At least one active station (and units as needed). No `Main Station` / `Unit 1` placeholders unless those are real names.
+### IF IT FAILS
+Fix SQL keys; keep `active=true`. App stays in `needs_bootstrap` until this succeeds.
+
+---
+
+## 16b. Postgres Control Room smoke test
+
+### COMMAND
+```bash
+# Browser as employee/ops after bootstrap:
+# 1) Open #/control-room — no bootstrap banner
+# 2) Create Normal log; edit summary; confirm timeline
+# 3) Create Attention/Urgent; acknowledge (append-only)
+# 4) Create board item; leave open
+# 5) Create task with past due → overdue; complete with note
+# 6) Submit handover; incoming ack as second user
+# 7) Confirm board still open across shifts
+# 8) Supervisor (management/hub_admin): #/control-room → Supervisor tab loads
+
+curl -sk -b 'sliops_session=<EMPLOYEE_COOKIE>' \
+  'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/hub/control-room/current' \
+  | jq '{needs_bootstrap, station:(.station.key), shift:(.shift.id), unacked:.unacknowledged_count}'
+```
+### EXPECTED RESULT
+`needs_bootstrap` false; station present; log/ack/board/task/handover work; MaintainX optional fields may be empty without breaking core flows.
+### IF IT FAILS
+Check `HUB_STORE_MODE=postgres`, migration 015, station rows, and role grants. Capture API status/body — do not invent schema on EC2.
+
+---
+
+## 16c. Remote security probe (post-CR deploy)
+
+### COMMAND
+```bash
+cd /var/www/ops-hub-staging
+PROBE_BASE_URL=https://automation.streamlinescada.com/ops-hub-staging npm run security:sensitive-path-probe
+```
+### EXPECTED RESULT
+Same Gate 1 expectations as §11 — blocked paths not content-leaking; app assets 200. Control Room must not expose migrations/env.
+### IF IT FAILS
+**Stop.** Treat as Critical exposure until green.
+
+---
+
+## 16d. Final WOS regression smoke (on EC2 tree)
+
+### COMMAND
+```bash
+cd /var/www/ops-hub-staging
+npm run security:rbac-authz-test
+npm run security:legacy-route-rbac-test
+npm run security:wos-signed-out-boot-test
+npm run security:control-room-test
+# Optional if Docker available on host:
+# npm run security:control-room-migration-015-test
+```
+### EXPECTED RESULT
+All listed suites PASS. Existing WOS auth/logout/signed-out behavior unchanged.
+### IF IT FAILS
+Do not continue acceptance; consider rollback (§18). CR memory suite does not require RDS; migration-015 test needs Docker.
 
 ---
 
@@ -305,11 +408,16 @@ Restore `.env.staging` from secure backup; escalate — do not delete RDS.
 
 ## Session exit criteria (all must be true)
 
-- [ ] Remote sensitive path probe PASS  
+- [ ] Remote sensitive path probe PASS (§11 + §16c)  
 - [ ] Health postgres + safety flags correct  
+- [ ] Migration `015_control_room.sql` applied; `cr_*` present; no fake station seed  
 - [ ] Login/logout/reauth OK  
 - [ ] Standard cannot mutate SSO trust  
 - [ ] Admin can use SSO admin as intended  
+- [ ] Control Room role grants verified (employee operator / management supervisor / Hub Admin all)  
+- [ ] Production stations/units bootstrapped with real names  
+- [ ] Postgres Control Room smoke PASS (§16b)  
+- [ ] Final WOS + Control Room regression smoke PASS (§16d)  
 - [ ] Request + S3/MaintainX smoke match configuration  
-- [ ] Control Room absence acknowledged (or CR smoke if later shipped)  
 - [ ] Logs clean of secrets / crash loops  
+

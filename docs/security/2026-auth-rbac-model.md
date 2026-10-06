@@ -46,7 +46,7 @@ UserA and UserB remain equivalent Standard identities (`employee` / field_techni
 | `admin` | catalog | User/role admin | `/users*`, `/roles*` | Users/roles | Elevated | rbac-authz |
 | **`manage_sso`** | catalog (Gate 2) | Organization SSO UI | SSO **write** + read | SAML trust | **Trust admin** | gate2-sso |
 | `configuration.*` / `workflow.*` / `form.manage` / `document.manage` / `dashboard.manage` / `variable.manage` | catalog | Config center | `/hub/configuration*` | Config defs | — | configurable-platform |
-| `control_room_*` | **PROPOSAL** | — | — | Shared ops assumed | — | none yet |
+| `control_room_*` | catalog + built-in roles | Control Room UI | `/hub/control-room/*` | **Shared by capability** (no station isolation; no `created_by` gate) | — | `security:control-room-test` |
 
 ---
 
@@ -54,10 +54,10 @@ UserA and UserB remain equivalent Standard identities (`employee` / field_techni
 
 | Role | Permissions (summary) | Frontend | API | Resource scope | Trust | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `employee` | Core view tabs; no management | Standard UI | Non-admin | Shared ops + own submissions | none | IDOR / step |
-| `requester` | employee + `view_management` + `submit_new_vendor` | Mgmt tab limited | Vendor submit | Shared | **no manage_sso** | gate2-sso neg |
-| `accounts_payable` | Vendor view/edit/docs | Vendor full | Vendor mutations | Vendors | none | rbac-authz |
-| `management` | Near-full incl. `admin`, `hub_admin`, **`manage_sso`** | Admin | Admin + SSO write | Broad | trust write | gate2-sso |
+| `employee` | Core view tabs + **CR operator pack**; no management | Standard UI | Non-admin + CR ops | Shared ops + own submissions; CR shared by capability | none | IDOR / step / CR |
+| `requester` | employee views + `view_management` + `submit_new_vendor` (**no CR**) | Mgmt tab limited | Vendor submit | Shared | **no manage_sso** | gate2-sso neg |
+| `accounts_payable` | Vendor view/edit/docs (**no CR**) | Vendor full | Vendor mutations | Vendors | none | rbac-authz |
+| `management` | Near-full incl. `admin`, `hub_admin`, **`manage_sso`**, **CR supervisor pack** | Admin | Admin + SSO write + CR supervisor | Broad | trust write | gate2-sso / CR |
 
 **Seed caveat:** existing Redis `role:management` may lack `manage_sso` until re-seeded or manually updated (`INFRASTRUCTURE_CHANGE_REQUIRED` / ops task).
 
@@ -91,7 +91,7 @@ UserA and UserB remain equivalent Standard identities (`employee` / field_techni
 | MaintainX proxy | * | session SSO gate | path allowlist | remapped upstream errors |
 | `/photo-cleanup`, `/archive-wipe-orphans` | POST | `CLEANUP_SECRET` | storage keys | storage.* |
 | `/hub/dev/*demo*` | POST | admin + flags | demo data | blocked prod |
-| `/hub/control-room/*` | — | — | — | **absent** |
+| `/hub/control-room/*` | * | matching `control_room_*` (elevated: `admin`/`hub_admin`) | Shared by capability; optional future station scope | `control_room.*` security-audit |
 
 ---
 

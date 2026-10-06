@@ -67,6 +67,7 @@
     "security:gate2-cleanup-failclosed-test": "node scripts/security/gate2-cleanup-failclosed-test.js",
     "security:gate2-authbridge-entitlement-test": "node scripts/security/gate2-authbridge-entitlement-test.js",
     "security:control-room-test": "node scripts/security/control-room-test.js",
+    "security:control-room-migration-015-test": "node scripts/security/control-room-migration-015-test.js",
     "security:secret-scan": "node scripts/security/secret-scan.js",
     "security:audit": "node scripts/security/dep-audit.js",
     "security:staging-hardening-test": "node scripts/security/staging-hardening-test.js",

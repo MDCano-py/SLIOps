@@ -18,13 +18,33 @@ function createPostgresStore() {
     return r.rows;
   }
 
+  function emptyBootstrap(actorEmail) {
+    return {
+      station: null,
+      shift: null,
+      assignments: [],
+      current_time: nowIso(),
+      unacknowledged_count: 0,
+      open_board_count: 0,
+      open_task_count: 0,
+      recent_important: [],
+      actor_email: actorEmail || null,
+      needs_bootstrap: true,
+      bootstrap_message:
+        'No Control Room stations configured. Add production stations/units before starting a shift.',
+    };
+  }
+
   async function ensureActiveShift({ stationId, actorEmail, startsAt, endsAt, name }) {
     return tx(async (c) => {
       let st = stationId;
       if (!st) {
-        const s = await c.query('SELECT id FROM cr_stations WHERE key=$1', ['main']);
+        const s = await c.query(
+          `SELECT id FROM cr_stations WHERE active = true ORDER BY name ASC LIMIT 1`
+        );
         st = s.rows[0]?.id;
       }
+      if (!st) return emptyBootstrap(actorEmail);
       let shift = (
         await c.query(
           `SELECT * FROM cr_shifts WHERE station_id=$1 AND status='active' ORDER BY starts_at DESC LIMIT 1`,
@@ -56,10 +76,14 @@ function createPostgresStore() {
   async function getCurrentShiftContext(stationId, actorEmail) {
     let st = stationId;
     if (!st) {
-      const s = await pool.query(`SELECT * FROM cr_stations WHERE key='main' LIMIT 1`);
+      const s = await pool.query(
+        `SELECT id FROM cr_stations WHERE active = true ORDER BY name ASC LIMIT 1`
+      );
       st = s.rows[0]?.id;
     }
+    if (!st) return emptyBootstrap(actorEmail);
     const station = (await pool.query('SELECT * FROM cr_stations WHERE id=$1', [st])).rows[0];
+    if (!station) return emptyBootstrap(actorEmail);
     const shift = (
       await pool.query(
         `SELECT * FROM cr_shifts WHERE station_id=$1 AND status='active' ORDER BY starts_at DESC LIMIT 1`,
@@ -109,6 +133,7 @@ function createPostgresStore() {
       open_task_count: openTasks,
       recent_important: recent.filter((l) => l.priority !== 'Normal' || l.follow_up),
       actor_email: actorEmail || null,
+      needs_bootstrap: false,
     };
   }
 

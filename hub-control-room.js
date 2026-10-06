@@ -103,11 +103,34 @@
     <p class="hub-sub" style="margin:8px 0 14px">Operators: ${esc((current.assignments || []).map((a) => a.operator_email).join(', ') || '—')}</p>`;
   }
 
+  function bootstrapBanner(current, meta) {
+    if (!current?.needs_bootstrap && (meta?.stations || []).length) return '';
+    return `<div class="hub-panel" style="margin-bottom:14px">
+      <div class="hub-panel-head"><h2>Station setup required</h2></div>
+      <div class="hub-panel-body pad">
+        <p class="hub-empty" style="display:block">
+          ${esc(current?.bootstrap_message || 'No Control Room stations or units are configured yet.')}
+        </p>
+        <p class="hub-sub">An administrator must add real production stations/units (see Control Room production bootstrap). Logging and shifts stay disabled until then.</p>
+      </div>
+    </div>`;
+  }
+
   async function renderCurrent(root) {
     const current = await api('/hub/control-room/current' + (_state.stationId ? `?station_id=${encodeURIComponent(_state.stationId)}` : ''));
     _state.current = current;
     _state.stationId = current.station?.id || _state.stationId;
-    const meta = await api('/hub/control-room/meta?station_id=' + encodeURIComponent(_state.stationId || ''));
+    const meta = await api('/hub/control-room/meta' + (_state.stationId ? `?station_id=${encodeURIComponent(_state.stationId)}` : ''));
+    if (current.needs_bootstrap || !(meta.stations || []).length) {
+      root.innerHTML = `${subNavHtml()}${bootstrapBanner(current, meta)}`;
+      root.querySelectorAll('[data-cr-sub]').forEach((b) =>
+        b.addEventListener('click', () => {
+          _state.sub = b.getAttribute('data-cr-sub');
+          render();
+        })
+      );
+      return;
+    }
     const logs = await api(
       '/hub/control-room/logs?shift_id=' + encodeURIComponent(current.shift?.id || '') + '&station_id=' + encodeURIComponent(_state.stationId || '')
     );
@@ -120,7 +143,11 @@
             ${
               hasPerm('control_room_log')
                 ? `<form id="crQuickLogForm">
-              <label>Unit<select name="unit_id" class="input">${units.map((u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('')}</select></label>
+              <label>Unit<select name="unit_id" class="input">${
+                units.length
+                  ? units.map((u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('')
+                  : '<option value="">No units configured</option>'
+              }</select></label>
               <label>Category<select name="category" class="input">
                 ${['Operations', 'Maintenance', 'Safety', 'Process', 'Communication', 'Other'].map((c) => `<option>${c}</option>`).join('')}
               </select></label>

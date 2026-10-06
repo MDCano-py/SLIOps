@@ -18,4 +18,5 @@
 
 `cr_stations`, `cr_units`, `cr_shifts`, `cr_shift_assignments`, `cr_shift_logs`, `cr_shift_log_revisions`, `cr_acknowledgements`, `cr_board_items`, `cr_tasks`, `cr_handovers`, `cr_schedule_assignments`
 
-No duplicate of existing hub request/workflow tables.
+No duplicate of existing hub request/workflow tables.  
+**No production station/unit seed** in `015` — bootstrap real sites at deploy (`control-room-production-bootstrap.md`).

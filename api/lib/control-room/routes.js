@@ -4,7 +4,12 @@
 const authErrors = require('../auth-errors');
 const { recordSecurityAudit } = require('../security-audit');
 const { getControlRoomStore } = require('./store');
-const { CONTROL_ROOM_PERMS, hasCrPerm, canViewControlRoom } = require('./permissions');
+const {
+  CONTROL_ROOM_PERMS,
+  hasCrPerm,
+  canViewControlRoom,
+  canAccessCrResource,
+} = require('./permissions');
 
 function json(res, status, body) {
   res.status(status).json(body);
@@ -43,9 +48,11 @@ async function handleControlRoomRoutes(path, req, res, ctx) {
     return true;
   }
 
-  function requirePerm(permId) {
+  function requirePerm(permId, scope = {}) {
     if (!requireActor()) return false;
-    if (!hasCrPerm(permissions, permId)) {
+    // Shared-capability default: capability required; created_by is never an access gate.
+    // Optional stationId/allowedStationIds reserved for future CONTROL_ROOM_STATION_SCOPE=on.
+    if (!canAccessCrResource(permissions, permId, scope)) {
       json(res, 403, authErrors.wosForbiddenBody());
       return false;
     }
@@ -91,6 +98,7 @@ async function handleControlRoomRoutes(path, req, res, ctx) {
     if (!requireActor()) return true;
     if (!canViewControlRoom(permissions)) return json(res, 403, authErrors.wosForbiddenBody());
     let ctxShift = await store.getCurrentShiftContext(q.station_id, actorEmail);
+    if (ctxShift.needs_bootstrap) return json(res, 200, ctxShift);
     if (!ctxShift.shift) {
       ctxShift = await store.ensureActiveShift({ stationId: q.station_id, actorEmail });
     }
@@ -113,15 +121,28 @@ async function handleControlRoomRoutes(path, req, res, ctx) {
   }
 
   if (path === '/hub/control-room/logs' && method === 'POST') {
-    if (!requirePerm(CONTROL_ROOM_PERMS.log)) return true;
     const body = parseBody(req);
+    if (!requirePerm(CONTROL_ROOM_PERMS.log, { stationId: body?.station_id })) return true;
     if (!body || !body.summary) return json(res, 400, { error: 'summary required' });
     let shiftId = body.shift_id;
     let stationId = body.station_id;
     if (!shiftId || !stationId) {
       const cur = await store.ensureActiveShift({ stationId, actorEmail });
+      if (cur.needs_bootstrap) {
+        return json(res, 409, {
+          error: 'Control Room stations not bootstrapped',
+          code: 'CR_NEEDS_BOOTSTRAP',
+          message: cur.bootstrap_message,
+        });
+      }
       shiftId = shiftId || cur.shift?.id;
       stationId = stationId || cur.station?.id;
+    }
+    if (!stationId || !shiftId) {
+      return json(res, 409, {
+        error: 'Control Room stations not bootstrapped',
+        code: 'CR_NEEDS_BOOTSTRAP',
+      });
     }
     const log = await store.createLog({
       ...body,
@@ -193,13 +214,23 @@ async function handleControlRoomRoutes(path, req, res, ctx) {
   }
 
   if (path === '/hub/control-room/board' && method === 'POST') {
-    if (!requirePerm(CONTROL_ROOM_PERMS.boardManage)) return true;
     const body = parseBody(req);
+    if (!requirePerm(CONTROL_ROOM_PERMS.boardManage, { stationId: body?.station_id })) return true;
     if (!body?.title) return json(res, 400, { error: 'title required' });
     let stationId = body.station_id;
     if (!stationId) {
       const cur = await store.ensureActiveShift({ actorEmail });
+      if (cur.needs_bootstrap) {
+        return json(res, 409, {
+          error: 'Control Room stations not bootstrapped',
+          code: 'CR_NEEDS_BOOTSTRAP',
+          message: cur.bootstrap_message,
+        });
+      }
       stationId = cur.station?.id;
+    }
+    if (!stationId) {
+      return json(res, 409, { error: 'Control Room stations not bootstrapped', code: 'CR_NEEDS_BOOTSTRAP' });
     }
     const item = await store.createBoard({ ...body, station_id: stationId, created_by: actorEmail });
     recordSecurityAudit('control_room.board_create', { actor: actorEmail, board_id: item.id });
@@ -242,13 +273,23 @@ async function handleControlRoomRoutes(path, req, res, ctx) {
   }
 
   if (path === '/hub/control-room/tasks' && method === 'POST') {
-    if (!requirePerm(CONTROL_ROOM_PERMS.taskManage)) return true;
     const body = parseBody(req);
+    if (!requirePerm(CONTROL_ROOM_PERMS.taskManage, { stationId: body?.station_id })) return true;
     if (!body?.title) return json(res, 400, { error: 'title required' });
     let stationId = body.station_id;
     if (!stationId) {
       const cur = await store.ensureActiveShift({ actorEmail });
+      if (cur.needs_bootstrap) {
+        return json(res, 409, {
+          error: 'Control Room stations not bootstrapped',
+          code: 'CR_NEEDS_BOOTSTRAP',
+          message: cur.bootstrap_message,
+        });
+      }
       stationId = cur.station?.id;
+    }
+    if (!stationId) {
+      return json(res, 409, { error: 'Control Room stations not bootstrapped', code: 'CR_NEEDS_BOOTSTRAP' });
     }
     const task = await store.createTask({ ...body, station_id: stationId, created_by: actorEmail });
     recordSecurityAudit('control_room.task_create', { actor: actorEmail, task_id: task.id });

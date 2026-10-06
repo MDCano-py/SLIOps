@@ -23,9 +23,12 @@ const { handleControlRoomRoutes } = require(path.join(ROOT, 'api/lib/control-roo
 const { isTaskOverdue, detectScheduleOverlaps, detectCoverageGaps } = require(
   path.join(ROOT, 'api/lib/control-room/logic.js')
 );
-const { canViewControlRoom, hasCrPerm, CONTROL_ROOM_PERMS } = require(
-  path.join(ROOT, 'api/lib/control-room/permissions.js')
-);
+const {
+  canViewControlRoom,
+  hasCrPerm,
+  canAccessCrResource,
+  CONTROL_ROOM_PERMS,
+} = require(path.join(ROOT, 'api/lib/control-room/permissions.js'));
 
 let passed = 0;
 let failed = 0;
@@ -140,6 +143,37 @@ async function main() {
   assert('15a. supervisor has schedule manage', hasCrPerm(SUPERVISOR, CONTROL_ROOM_PERMS.scheduleManage));
   assert('15b. operator lacks schedule manage', !hasCrPerm(OPERATOR, CONTROL_ROOM_PERMS.scheduleManage));
   assert('15c. operator lacks supervisor', !hasCrPerm(OPERATOR, CONTROL_ROOM_PERMS.supervisor));
+  assert(
+    'shared resource access ignores created_by',
+    canAccessCrResource(OPERATOR, CONTROL_ROOM_PERMS.log, {
+      createdBy: 'other@x.com',
+      actorEmail: 'op@sliops.test',
+      stationId: 'any',
+    })
+  );
+  assert(
+    'hub_admin elevated grants all CR',
+    canAccessCrResource(['hub_admin'], CONTROL_ROOM_PERMS.supervisor, {})
+  );
+
+  // Empty master data (no fake production seed)
+  process.env.CONTROL_ROOM_MEMORY_SEED = '0';
+  resetControlRoomStoreForTests(createMemoryStore());
+  let empty = await call('GET', '/hub/control-room/current', {
+    actorEmail: 'op@sliops.test',
+    permissions: OPERATOR,
+  });
+  assert(
+    'empty stations → needs_bootstrap (no crash)',
+    empty.status === 200 && empty.body.needs_bootstrap === true && !empty.body.station
+  );
+  empty = await call('POST', '/hub/control-room/logs', {
+    actorEmail: 'op@sliops.test',
+    permissions: OPERATOR,
+    body: { summary: 'blocked without station' },
+  });
+  assert('empty stations → log create 409 CR_NEEDS_BOOTSTRAP', empty.status === 409 && empty.body.code === 'CR_NEEDS_BOOTSTRAP');
+  delete process.env.CONTROL_ROOM_MEMORY_SEED;
 
   resetControlRoomStoreForTests(createMemoryStore());
   const store = getControlRoomStore();

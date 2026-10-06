@@ -26,10 +26,13 @@ function createMemoryStore() {
     schedule: [],
   };
 
-  const stationId = uuid();
-  const unitId = uuid();
-  db.stations.push({ id: stationId, key: 'main', name: 'Main Station', active: true });
-  db.units.push({ id: unitId, station_id: stationId, key: 'unit-1', name: 'Unit 1', active: true });
+  // Optional test seed — production Postgres has no default stations.
+  if (process.env.CONTROL_ROOM_MEMORY_SEED !== '0') {
+    const stationId = uuid();
+    const unitId = uuid();
+    db.stations.push({ id: stationId, key: 'test-main', name: 'Test Station', active: true });
+    db.units.push({ id: unitId, station_id: stationId, key: 'unit-1', name: 'Unit 1', active: true });
+  }
 
   async function listStations() {
     return db.stations.filter((s) => s.active);
@@ -38,8 +41,44 @@ function createMemoryStore() {
     return db.units.filter((u) => u.active && (!stationIdFilter || u.station_id === stationIdFilter));
   }
 
+  async function createStation({ key, name }) {
+    const row = { id: uuid(), key, name, active: true, created_at: nowIso(), updated_at: nowIso() };
+    db.stations.push(row);
+    return row;
+  }
+
+  async function createUnit({ station_id, key, name }) {
+    const row = {
+      id: uuid(),
+      station_id,
+      key,
+      name,
+      active: true,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
+    db.units.push(row);
+    return row;
+  }
+
   async function ensureActiveShift({ stationId: sid, actorEmail, startsAt, endsAt, name }) {
-    const station = db.stations.find((s) => s.id === sid) || db.stations[0];
+    const station = (sid && db.stations.find((s) => s.id === sid)) || db.stations.find((s) => s.active) || null;
+    if (!station) {
+      return {
+        station: null,
+        shift: null,
+        assignments: [],
+        current_time: nowIso(),
+        unacknowledged_count: 0,
+        open_board_count: 0,
+        open_task_count: 0,
+        recent_important: [],
+        actor_email: actorEmail || null,
+        needs_bootstrap: true,
+        bootstrap_message:
+          'No Control Room stations configured. Add production stations/units before starting a shift.',
+      };
+    }
     let shift = db.shifts.find((s) => s.station_id === station.id && s.status === 'active');
     if (!shift) {
       const start = startsAt ? new Date(startsAt) : new Date();
@@ -71,7 +110,26 @@ function createMemoryStore() {
   }
 
   async function getCurrentShiftContext(stationIdFilter, actorEmail) {
-    const station = db.stations.find((s) => s.id === stationIdFilter) || db.stations[0];
+    const station =
+      (stationIdFilter && db.stations.find((s) => s.id === stationIdFilter)) ||
+      db.stations.find((s) => s.active) ||
+      null;
+    if (!station) {
+      return {
+        station: null,
+        shift: null,
+        assignments: [],
+        current_time: nowIso(),
+        unacknowledged_count: 0,
+        open_board_count: 0,
+        open_task_count: 0,
+        recent_important: [],
+        actor_email: actorEmail || null,
+        needs_bootstrap: true,
+        bootstrap_message:
+          'No Control Room stations configured. Add production stations/units before starting a shift.',
+      };
+    }
     const shift = db.shifts.find((s) => s.station_id === station.id && s.status === 'active') || null;
     const assignments = shift ? db.assignments.filter((a) => a.shift_id === shift.id && a.active) : [];
     const logs = shift ? db.logs.filter((l) => l.shift_id === shift.id) : [];
@@ -92,6 +150,7 @@ function createMemoryStore() {
       open_task_count: openTasks.length,
       recent_important: recent.filter((l) => l.priority !== 'Normal' || l.follow_up),
       actor_email: actorEmail || null,
+      needs_bootstrap: false,
     };
   }
 
@@ -532,6 +591,8 @@ function createMemoryStore() {
     kind: 'memory',
     listStations,
     listUnits,
+    createStation,
+    createUnit,
     ensureActiveShift,
     getCurrentShiftContext,
     createLog,

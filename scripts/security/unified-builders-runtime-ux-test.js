@@ -119,13 +119,27 @@ const { validateWorkflowDefinition } = require('../../api/lib/configuration/vali
         config: { assignment: { mode: 'role', role_key: 'legal', fallback: 'hub_admin' }, assignee_role: 'legal' },
       },
       { key: 'done', type: 'terminal.complete', name: 'Done' },
+      { key: 'reject', type: 'terminal.reject', name: 'Rejected' },
     ],
     connections: [
       { key: 'c1', source: 'start', target: 'review' },
-      { key: 'c2', source: 'review', target: 'done' },
+      {
+        key: 'c2',
+        source: 'review',
+        target: 'done',
+        source_handle: 'approved',
+        outcome_key: 'approved',
+      },
+      {
+        key: 'c3',
+        source: 'review',
+        target: 'reject',
+        source_handle: 'rejected',
+        outcome_key: 'rejected',
+      },
     ],
   });
-  assert('assigned human node validates', ok.ok);
+  assert('assigned human node validates', ok.ok, ok.issues && ok.issues.map((i) => i.code).join(','));
 }
 
 // Workflow canvas helpers present

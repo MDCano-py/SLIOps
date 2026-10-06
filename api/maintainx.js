@@ -585,6 +585,7 @@ const EMPLOYEE_PRESET_PERMISSIONS = [
   'view_parts_request_archive',
   'view_work_order_archive',
   'view_roll_off_swap_archive',
+  ...CONTROL_ROOM_OPERATOR_PERMS,
 ];
 
 // ============================================================

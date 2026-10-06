@@ -189,13 +189,5 @@ CREATE TABLE IF NOT EXISTS cr_schedule_assignments (
 CREATE INDEX IF NOT EXISTS idx_cr_schedule_station_date ON cr_schedule_assignments (station_id, work_date);
 CREATE INDEX IF NOT EXISTS idx_cr_schedule_operator ON cr_schedule_assignments (operator_email, work_date);
 
--- Seed a default station/unit so operators can log immediately after migrate
-INSERT INTO cr_stations (key, name)
-VALUES ('main', 'Main Station')
-ON CONFLICT (key) DO NOTHING;
-
-INSERT INTO cr_units (station_id, key, name)
-SELECT s.id, 'unit-1', 'Unit 1'
-FROM cr_stations s
-WHERE s.key = 'main'
-ON CONFLICT (station_id, key) DO NOTHING;
+-- No production station/unit seed. Bootstrap real sites during deploy
+-- (see docs/control-room/control-room-production-bootstrap.md).
