@@ -722,23 +722,51 @@ async function getRole(id) {
   return typeof raw === 'string' ? JSON.parse(raw) : raw;
 }
 
-// Seed built-in roles on first run. Idempotent — only writes roles that
-// don't already exist (so editing a built-in role doesn't get reverted).
+// Seed built-in roles on first run. Idempotent for new roles.
+// For existing built-ins, merge any newly required catalog permissions
+// (e.g. manage_sso) without removing admin customizations.
 async function seedBuiltInRoles() {
   const now = new Date().toISOString();
   const p = redis.pipeline();
   for (const r of BUILT_IN_ROLES) {
-    const existing = await redis.get(`role:${r.id}`);
-    if (existing) continue;
-    const record = {
-      ...r,
-      createdAt: now,
-      updatedAt: now,
-      createdBy: 'system:built-in',
-      updatedBy: 'system:built-in',
-    };
-    p.set(`role:${r.id}`, JSON.stringify(record));
-    p.sadd('roles:index', r.id);
+    const existingRaw = await redis.get(`role:${r.id}`);
+    if (!existingRaw) {
+      const record = {
+        ...r,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: 'system:built-in',
+        updatedBy: 'system:built-in',
+      };
+      p.set(`role:${r.id}`, JSON.stringify(record));
+      p.sadd('roles:index', r.id);
+      continue;
+    }
+    let existing;
+    try {
+      existing = typeof existingRaw === 'string' ? JSON.parse(existingRaw) : existingRaw;
+    } catch {
+      continue;
+    }
+    const have = new Set(Array.isArray(existing.permissions) ? existing.permissions : []);
+    const required = Array.isArray(r.permissions) ? r.permissions : [];
+    let changed = false;
+    for (const perm of required) {
+      if (!have.has(perm)) {
+        have.add(perm);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const updated = {
+        ...existing,
+        permissions: [...have],
+        updatedAt: now,
+        updatedBy: 'system:built-in-perm-merge',
+      };
+      p.set(`role:${r.id}`, JSON.stringify(updated));
+      p.sadd('roles:index', r.id);
+    }
   }
   await p.exec();
 }

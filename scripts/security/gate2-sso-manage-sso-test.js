@@ -72,6 +72,10 @@ async function main() {
   assert('PERMISSION_CATALOG includes manage_sso', mx.includes("id: 'manage_sso'"));
   assert('management built-in role includes manage_sso', /id: 'management'[\s\S]*'manage_sso'/.test(mx));
   assert(
+    'seedBuiltInRoles merges missing built-in permissions',
+    mx.includes('system:built-in-perm-merge') && mx.includes('built-in-perm-merge')
+  );
+  assert(
     'SSO write requires manage_sso (not view_management alone)',
     /isWrite[\s\S]{0,200}manage_sso'\]/.test(mx) &&
       /sso-admin\/[\s\S]{0,400}view_management/.test(mx)
