@@ -2,6 +2,7 @@
  * Control Room store selector.
  * CONTROL_ROOM_STORE=memory forces memory (tests).
  * Otherwise postgres when HUB_STORE_MODE=postgres and DATABASE_URL set.
+ * Memory auto-seed (Test Station) only when CONTROL_ROOM_MEMORY_SEED=1.
  */
 const { createMemoryStore } = require('./store-memory');
 const { createPostgresStore } = require('./store-postgres');

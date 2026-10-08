@@ -3,7 +3,8 @@
  */
 const templateStore = require('./store');
 const { rolesCanSee } = require('../spaces/normalize');
-const { canInspectSubmission, canActOnStep } = require('./runtime-rbac');
+const { canInspectSubmission, canActOnStep, isExternalAssigneeRole } = require('./runtime-rbac');
+const { mintTemplateExternalAction } = require('./external-action');
 const rbacPostgres = require('../rbac/postgres');
 const authErrors = require('../auth-errors');
 
@@ -188,6 +189,12 @@ async function handleTemplateRuntimeRoutes(path, req, res, ctx) {
       const step = detail.stepInstances.find((s) => s.id === m[2]);
       if (!step) return json(res, 404, { error: 'Step not found' });
       const actorWorkflowRoles = await loadActorWorkflowRoles(actorEmail);
+      if (isExternalAssigneeRole(step.assignee_role)) {
+        return json(res, 403, {
+          error: 'This step requires a secure external action link',
+          code: 'EXTERNAL_LINK_REQUIRED',
+        });
+      }
       if (!canActOnStep(permissions, isAdmin, step, actorWorkflowRoles)) {
         return json(res, 403, { error: 'You are not allowed to act on this step' });
       }
@@ -198,6 +205,49 @@ async function handleTemplateRuntimeRoutes(path, req, res, ctx) {
         actorEmail,
       });
       json(res, 200, result);
+    } catch (err) {
+      storeError(res, err);
+    }
+    return true;
+  }
+
+  // Mint hub action_link for an external assignee step (authenticated internal user).
+  m = path.match(/^\/hub\/submissions\/([^/]+)\/external-actions$/);
+  if (m && method === 'POST') {
+    const body = parseBody(req) || {};
+    try {
+      const detail = await templateStore.getSubmissionDetail(m[1]);
+      if (!detail) return json(res, 404, { error: 'Submission not found' });
+      const actorWorkflowRoles = await loadActorWorkflowRoles(actorEmail);
+      if (!canInspectSubmission(permissions, isAdmin, detail.submission, actorEmail, actorWorkflowRoles)) {
+        return json(res, 403, { error: 'Forbidden' });
+      }
+      const stepId = body.step_instance_id || body.stepInstanceId;
+      const step = detail.stepInstances.find((s) => s.id === stepId);
+      if (!step) return json(res, 404, { error: 'Step not found' });
+      if (step.step_index !== detail.submission.current_step_index || step.status !== 'pending') {
+        return json(res, 409, { error: 'Step is not the current actionable step', code: 'STEP_NOT_CURRENT' });
+      }
+      const minted = await mintTemplateExternalAction({
+        submissionId: m[1],
+        stepInstance: step,
+        recipientEmail: body.recipient_email || body.email,
+        expiresInHours: body.expires_in_hours || body.expiresInHours || 168,
+        createdBy: actorEmail,
+      });
+      // Return token once for local/testing; production email delivery is EC2/live.
+      json(res, 201, {
+        action_url: minted.action_url,
+        token: minted.token,
+        expires_at: minted.expires_at,
+        action_type: minted.action_type,
+        recipient_email: minted.recipient_email,
+        link_id: minted.link.id,
+        submission_id: minted.submission_id,
+        workflow_step_instance_id: minted.workflow_step_instance_id,
+        runtime: 'template',
+        secure_link: 'hub_action_links',
+      });
     } catch (err) {
       storeError(res, err);
     }

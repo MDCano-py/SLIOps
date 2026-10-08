@@ -4,7 +4,17 @@
 const { Pool } = require('pg');
 const { resolvePgSsl } = require('../hub/db/pg-ssl');
 
-const DEFAULT_WORKFLOW_ROLE_KEYS = ['admin', 'requester', 'manager', 'operations', 'ap', 'legal'];
+const DEFAULT_WORKFLOW_ROLE_KEYS = [
+  'admin',
+  'requester',
+  'manager',
+  'operations',
+  'ap',
+  'legal',
+  'client',
+  'vendor',
+  'external',
+];
 
 const SEED_ROLES = [
   { key: 'admin', name: 'Admin', description: 'Full workflow administration and sign-off', system_role: true },

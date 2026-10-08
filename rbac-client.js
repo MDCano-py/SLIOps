@@ -362,6 +362,7 @@
     NAV_ITEM_RULES,
     HUB_TAB_RULES,
     ROLE_PREVIEW_PRESETS,
+    isLocalOrDevPortal,
     isPortalNoAuthMode,
     enablePortalNoAuthMode,
     revealAllNav,

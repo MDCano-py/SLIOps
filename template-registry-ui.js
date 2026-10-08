@@ -354,32 +354,62 @@
     return data;
   }
 
+  function userFacingApiMessage(err) {
+    const code = err.body?.code || err.code;
+    if (code === 'POSTGRES_REQUIRED') {
+      return 'Forms and Documents need the hub database. An administrator must finish Postgres setup for this environment.';
+    }
+    if (err.status === 403) return 'You do not have permission to view this content.';
+    if (err.status === 401) return 'Your session expired. Sign in again, then retry.';
+    if (err.status >= 500) return 'The service is temporarily unavailable. Try again in a moment.';
+    return err.message || 'Could not load this content.';
+  }
+
   function renderApiErrorPanel(err, title) {
     const path = err.path || '/hub/templates';
     const status = err.status != null ? err.status : '—';
     const detail = err.body?.detail || err.body?.path || '';
+    const admin = canManage();
+    const userMsg = userFacingApiMessage(err);
+    const adminDiagnostics = admin
+      ? `<details class="tmpl-admin-diagnostics" style="margin-top:12px">
+            <summary class="hub-sub" style="cursor:pointer">Administrator diagnostics</summary>
+            <ul class="tmpl-validation-list" style="margin-top:8px">
+              <li><strong>API path:</strong> <code>${esc(path)}</code></li>
+              <li><strong>HTTP status:</strong> <code>${esc(status)}</code></li>
+              ${err.body?.code ? `<li><strong>Code:</strong> <code>${esc(err.body.code)}</code></li>` : ''}
+              ${detail ? `<li><strong>Detail:</strong> <code>${esc(detail)}</code></li>` : ''}
+            </ul>
+            ${
+              err.body?.code === 'POSTGRES_REQUIRED'
+                ? `<p class="hub-sub">Local setup:</p>
+            <ol class="tmpl-validation-list">
+              <li><code>cp .env.local.postgres.example .env.local.postgres</code></li>
+              <li>Start Postgres with the connection in that file</li>
+              <li><code>npm run db:migrate</code></li>
+              <li><code>npm run dev:pg</code></li>
+            </ol>
+            <p class="hub-sub">See <code>docs/local-forms-documents-postgres.md</code>.</p>`
+                : ''
+            }
+          </details>`
+      : '';
     return `
       <div class="hub-panel tmpl-panel">
         <div class="hub-panel-head">
           <div>
             <h2>${esc(title || 'Form & workflow templates')}</h2>
-            <p class="hub-sub" style="margin:4px 0 0">Could not load template data from the hub API.</p>
+            <p class="hub-sub" style="margin:4px 0 0">Something went wrong loading this page.</p>
           </div>
           <div class="hub-settings-actions">
-            ${canManage() ? '<button type="button" class="hub-btn hub-btn-primary" id="tmplNewBtnRetry">New Template</button>' : ''}
+            ${admin ? '<button type="button" class="hub-btn hub-btn-primary" id="tmplNewBtnRetry">New Template</button>' : ''}
             <button type="button" class="hub-btn hub-btn-ghost" id="tmplRetryBtn">Retry</button>
           </div>
         </div>
         <div class="hub-panel-body">
           <div class="tmpl-api-error">
-            <p class="tmpl-validation-fail">${esc(err.message || 'Request failed')}</p>
-            <ul class="tmpl-validation-list">
-              <li><strong>API path:</strong> <code>${esc(path)}</code></li>
-              <li><strong>HTTP status:</strong> <code>${esc(status)}</code></li>
-              ${detail ? `<li><strong>Detail:</strong> <code>${esc(detail)}</code></li>` : ''}
-            </ul>
-            <p class="hub-sub">If you see “Path not allowed by proxy”, the client may be calling the wrong URL. Template APIs must use <code>proxyFetch('/hub/templates…')</code>, not a double-wrapped <code>/api/maintainx?path=</code> URL.</p>
-            ${err.body?.code === 'POSTGRES_REQUIRED' ? '<p class="hub-sub">Template APIs require Postgres. Copy <code>.env.local.postgres.example</code> to <code>.env.local.postgres</code>, ensure Postgres is running, then restart <code>npm run dev</code>.</p>' : ''}
+            <p class="tmpl-validation-fail">${esc(userMsg)}</p>
+            ${adminDiagnostics}
           </div>
         </div>
       </div>`;

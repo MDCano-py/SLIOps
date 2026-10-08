@@ -36,6 +36,8 @@ const unsafeFooters = [
   'hub.js',
   'hub-workflow-builder.js',
   'app-spaces-ui.js',
+  'hub-workflow-simple-builder.js',
+  'hub-control-room.js',
 ].filter((f) => {
   const src = fs.readFileSync(path.join(root, f), 'utf8');
   return src.includes('? window : global)');

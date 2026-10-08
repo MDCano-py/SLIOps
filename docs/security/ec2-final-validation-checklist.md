@@ -1,7 +1,7 @@
 # EC2 Final Validation Checklist (one session)
 
-**Branch to deploy:** `control-room-phase2-secure-base`  
-**Release SHA:** see `docs/control-room/control-room-release-summary.md`  
+**Branch to deploy:** `feature/sliops-ui-refinement`  
+**Release SHA:** record `git rev-parse HEAD` after pull on EC2  
 **Do not invent secrets.** Fill `<PORTAL>`, `<PREV_SHA>` from live output.  
 **Staging defaults used below:** app root `/var/www/ops-hub-staging`, port `3010`, public `https://automation.streamlinescada.com/ops-hub-staging`.
 
@@ -43,10 +43,10 @@ Fix git remote/credentials; do not overwrite unknown local changes without backu
 ### COMMAND
 ```bash
 cd /var/www/ops-hub-staging
-git checkout control-room-phase2-secure-base
+git checkout feature/sliops-ui-refinement
 git pull --ff-only
 git rev-parse HEAD
-# Confirm SHA matches docs/control-room/control-room-release-summary.md
+# Confirm SHA matches the approved release tip from this checklist session
 npm ci --omit=dev
 ```
 ### EXPECTED RESULT
@@ -132,14 +132,16 @@ Edit `.env.staging` (or prod env file); do not restart until values are correct.
 ```bash
 cd /var/www/ops-hub-staging
 npm run db:migrate
-# Confirm 015 applied (Control Room schema — no fake station seed)
-psql "$DATABASE_URL" -c "SELECT id, applied_at FROM schema_migrations WHERE id LIKE '%015%' OR id LIKE '%control_room%';"
+# Confirm 015 / 016 / 017 applied in order
+psql "$DATABASE_URL" -c "SELECT id, applied_at FROM schema_migrations WHERE id IN ('015_control_room.sql','016_template_action_links.sql','017_vendor_identity.sql') ORDER BY id;"
 psql "$DATABASE_URL" -c "\dt cr_*"
+psql "$DATABASE_URL" -c "\d action_links"
+psql "$DATABASE_URL" -c "\dt vendor_contacts; \dt vendor_invitations; \dt vendor_sessions; \dt vendor_identity_audit"
 psql "$DATABASE_URL" -c "SELECT COUNT(*) AS stations FROM cr_stations;"
 curl -s http://127.0.0.1:3010/health | jq '{ok, hub_store_mode, store_ok, object_storage_configured, maintainx_configured, sso_enforcement, demo_bypass, staging_test_login_enabled}'
 ```
 ### EXPECTED RESULT
-`015_control_room.sql` listed in `schema_migrations`; `cr_*` tables exist; **station count may be 0** until bootstrap (§16a); health `ok=true`, `hub_store_mode=postgres`, `demo_bypass` falsey, `sso_enforcement` not off. Existing WOS tables unchanged.
+All three migrations listed: `015_control_room.sql`, `016_template_action_links.sql`, `017_vendor_identity.sql`. `cr_*` tables exist; `action_links.submission_id` / `workflow_step_instance_id` present; vendor identity tables present; **station count may be 0** until bootstrap (§16a); health `ok=true`, `hub_store_mode=postgres`, `demo_bypass` falsey, `sso_enforcement` not off. Existing WOS tables unchanged.
 ### IF IT FAILS
 Check `DATABASE_URL`/RDS SG; do not proceed to public smoke if health not ok. Do not invent station seed data.
 
@@ -387,17 +389,177 @@ Investigate 5xx; rotate if secrets leaked in logs.
 
 ---
 
+## 17b. Stale `manage_sso` remediation (portal permission arrays)
+
+Portal role assignment **copies** permission arrays. Users who received `manage_sso` from the old Management role may still hold it after Management was corrected.
+
+### COMMAND (dry-run — default)
+
+```bash
+cd /var/www/ops-hub-staging
+node scripts/security/remediate-stale-manage-sso.js
+# or: npm run security:remediate-stale-manage-sso
+```
+
+### EXPECTED RESULT
+Lists holders of `manage_sso`, proposed removals (stale Management-derived), and keeps (bootstrap / approved / custom). **No Redis writes.**
+
+### COMMAND (apply — explicit)
+
+```bash
+# Preserve known SSO admins:
+node scripts/security/remediate-stale-manage-sso.js --apply --approve=sso.admin@streamlinecorp.com
+```
+
+### EXPECTED RESULT
+Stale Management-derived users lose `manage_sso` only. Bootstrap admins untouched. Approved emails kept. Each removal logged to Redis `users:audit` with actor `system:manage_sso_remediation`.
+
+### IF IT FAILS
+Re-run dry-run; do not pass `--apply` until the KEEP/REMOVE list is reviewed. Do not invent Entra group mapping as a substitute.
+
+---
+
+## 17c. Vendor AuthBridge / Nginx exemptions (minimal)
+
+### COMMAND
+```bash
+# Confirm AuthBridge (or equivalent SSO gate) exempts ONLY external vendor entry paths.
+# Do NOT globally disable AuthBridge.
+#
+# Required exemptions (mount = /ops-hub-staging):
+#   /ops-hub-staging/vendor-workspace.html
+#   /ops-hub-staging/api/maintainx?path=/vendor/auth/consume
+#   /ops-hub-staging/api/maintainx?path=/vendor/auth/me
+#   /ops-hub-staging/api/maintainx?path=/vendor/auth/logout
+#   /ops-hub-staging/api/maintainx?path=/vendor/workspace
+#
+# Reference: docs/security/vendor-identity-authbridge-boundary.md
+# Nginx notes: deploy/nginx/ops-hub-staging.conf (comments)
+
+sudo nginx -t
+# After AuthBridge rule change, reload the IdP/edge config per runbook, then:
+curl -sI 'https://automation.streamlinescada.com/ops-hub-staging/vendor-workspace.html' | head -n 8
+```
+### EXPECTED RESULT
+Workspace HTML reachable without employee SSO redirect. Employee Hub routes still require Entra/AuthBridge. Node still requires invite token or `sliops_vendor_session`.
+### IF IT FAILS
+Do not broaden exemptions. Fix path matchers only for the list above.
+
+---
+
+## 17d. Vendor magic-link smoke test
+
+### COMMAND
+```bash
+# As Hub Admin (employee session) in Vendor Management detail:
+# 1) Open a vendor → Invite vendor → enter contact name/email
+# 2) Copy invite URL (email delivery is live/SES only — see §17f)
+# 3) Open invite URL in a private/incognito window (no employee cookie)
+# 4) Confirm redirect into Vendor Workspace; cookie `sliops_vendor_session` set (HttpOnly)
+# 5) Refresh — session resumes via /vendor/auth/me + /vendor/workspace
+# 6) Sign out from workspace — session cleared; workspace API returns 401
+
+# API negative checks (no vendor cookie):
+curl -sk 'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/vendor/workspace' \
+  -w '\nHTTP %{http_code}\n' -o /tmp/vw.json
+# Expect HTTP 401
+```
+### EXPECTED RESULT
+Invite consumes once; workspace shows only that vendor; unauthenticated workspace 401; no employee nav.
+### IF IT FAILS
+Confirm migration 017; check AuthBridge exemptions (§17c); do not re-enable shared passcode.
+
+---
+
+## 17e. Vendor A vs vendor B isolation
+
+### COMMAND
+```bash
+# Create/use two vendors (A and B). Invite distinct contacts.
+# With vendor A session cookie:
+curl -sk -b 'sliops_vendor_session=<A_COOKIE>' \
+  'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/vendor/workspace&ref=<B_REF>' \
+  -w '\nHTTP %{http_code}\n'
+# Expect HTTP 403 VENDOR_SCOPE_DENIED
+
+# Confirm A workspace without ref returns A only.
+# Confirm reused/expired/revoked invite tokens return 410/401 as designed.
+```
+### EXPECTED RESULT
+Vendor A cannot read vendor B; scope escape blocked; revoked session fails.
+### IF IT FAILS
+**Stop.** Treat as Critical authorization defect before accepting deploy.
+
+---
+
+## 17f. External workflow action + outbound email
+
+### COMMAND
+```bash
+# External Sign / secure action (template or hub):
+# 1) Mint action link (action.html?t=…) for an external assignee step
+# 2) Open link without employee session — complete Sign
+# 3) Confirm token single-use; reuse fails
+
+# Outbound email (live only):
+# - Vendor invite email (when SES/SMTP configured) contains magic-link URL
+# - Workflow assignment / signature emails still deliver
+# - Local/dev may show copyable invite URL only — that is expected
+
+# Local suite reference (run on laptop against staging tree if needed):
+npm run security:template-external-action-test
+npm run security:vendor-identity-scr-s05-test
+```
+### EXPECTED RESULT
+External action works without employee SSO; invite email validated on live host or URL hand-copied for first smoke; no raw tokens in logs.
+### IF IT FAILS
+Check `PORTAL_BASE_URL` / email worker; do not invent a second token crypto.
+
+---
+
+## 17g. Employee Vendor Management smoke
+
+### COMMAND
+```bash
+# Browser as employee with vendor RBAC (not vendor session):
+# 1) Open Vendor Management from Hub nav
+# 2) List / open vendor detail
+# 3) Invite / resend / revoke access controls visible
+# 4) Confirm employee still uses Entra session — never prompted for magic link
+# 5) Confirm production does NOT accept VENDOR_ACCESS_CODE / X-Vendor-Session:
+curl -sk -X POST -H 'Content-Type: application/json' -d '{"passcode":"anything"}' \
+  'https://automation.streamlinescada.com/ops-hub-staging/api/maintainx?path=/vendor-auth' \
+  -w '\nHTTP %{http_code}\n'
+# Expect HTTP 404 in staging/production
+```
+### EXPECTED RESULT
+Employee path intact; legacy shared passcode 404; SCR-S05 closed on live.
+### IF IT FAILS
+Do not set `VENDOR_ACCESS_CODE` on staging/prod; investigate `isVendorLegacyPasscodeAllowed`.
+
+---
+
 ## 18. Rollback
 
 ### COMMAND
 ```bash
 cd /var/www/ops-hub-staging
-git checkout -f <PREV_SHA>
+PREV_SHA=<PREV_SHA>
+git checkout -f "$PREV_SHA"
 npm ci --omit=dev
-# Restore previous nginx snippet from backup if needed, then:
+# Restore previous nginx / AuthBridge snippet from backup if vendor exemptions were added, then:
 sudo nginx -t && sudo systemctl reload nginx
 pm2 restart ops-hub-staging ops-hub-staging-worker
 curl -s http://127.0.0.1:3010/health | jq '{ok, hub_store_mode}'
+
+# Optional DB rollback notes (only if this release's migrations must be undone):
+# - 017: DROP TABLE vendor_identity_audit, vendor_sessions, vendor_invitations, vendor_contacts;
+#         DELETE FROM schema_migrations WHERE id='017_vendor_identity.sql';
+# - 016: reverse action_links ALTER carefully (restore request_id NOT NULL only if safe);
+#         DELETE FROM schema_migrations WHERE id='016_template_action_links.sql';
+# - 015: DROP only cr_* tables in dependency-safe order;
+#         DELETE FROM schema_migrations WHERE id='015_control_room.sql';
+# Do NOT drop hub_*, users, roles, vendor_master, or other WOS tables.
 ```
 ### EXPECTED RESULT
 Prior SHA running; health ok; login works on previous build.
@@ -410,7 +572,13 @@ Restore `.env.staging` from secure backup; escalate — do not delete RDS.
 
 - [ ] Remote sensitive path probe PASS (§11 + §16c)  
 - [ ] Health postgres + safety flags correct  
-- [ ] Migration `015_control_room.sql` applied; `cr_*` present; no fake station seed  
+- [ ] Migrations `015`, `016`, `017` applied; `cr_*` + vendor identity tables present; no fake station seed  
+- [ ] Stale `manage_sso` dry-run reviewed; apply only if KEEP/REMOVE approved (§17b)  
+- [ ] Vendor AuthBridge/Nginx exemptions minimal and verified (§17c)  
+- [ ] Vendor magic-link smoke PASS (§17d)  
+- [ ] Vendor A vs B isolation PASS (§17e)  
+- [ ] External workflow action + outbound email validated (§17f)  
+- [ ] Employee Vendor Management smoke PASS; legacy passcode 404 (§17g)  
 - [ ] Login/logout/reauth OK  
 - [ ] Standard cannot mutate SSO trust  
 - [ ] Admin can use SSO admin as intended  
@@ -419,5 +587,6 @@ Restore `.env.staging` from secure backup; escalate — do not delete RDS.
 - [ ] Postgres Control Room smoke PASS (§16b)  
 - [ ] Final WOS + Control Room regression smoke PASS (§16d)  
 - [ ] Request + S3/MaintainX smoke match configuration  
+- [ ] Rollback commands reviewed (§18)  
 - [ ] Logs clean of secrets / crash loops  
 

@@ -1252,4 +1252,4 @@
       simpleIdForRuntime,
     },
   };
-})(typeof window !== 'undefined' ? window : global);
+})(typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : typeof global !== 'undefined' ? global : this);

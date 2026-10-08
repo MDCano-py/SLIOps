@@ -76,12 +76,45 @@ async function main() {
     sh('docker info');
     dockerOk = true;
   } catch {
-    assert('Docker available for live Postgres apply', false, 'docker not running — static checks only');
-  }
-
-  if (!dockerOk) {
-    finish();
-    return;
+    // Fall back: prove 015 (and later migrations) apply on configured local DATABASE_URL
+    // via isolated schema — same coverage as db:fresh-migration-check when Docker is down.
+    try {
+      const { loadDbEnv } = require('../db/env');
+      loadDbEnv();
+      if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL unset');
+      const { migrateDatabase } = require('../db/migrate');
+      const schema = `cr_mig015_fb_${Date.now()}`;
+      const client = new Client({ connectionString: process.env.DATABASE_URL });
+      await client.connect();
+      await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await client.query(`CREATE SCHEMA "${schema}"`);
+      await client.end();
+      await migrateDatabase(process.env.DATABASE_URL, { schema });
+      const verify = new Client({ connectionString: process.env.DATABASE_URL });
+      await verify.connect();
+      await verify.query(`SET search_path TO "${schema}"`);
+      const mig = await verify.query(
+        `SELECT id FROM schema_migrations WHERE id IN ('015_control_room.sql','016_template_action_links.sql','017_vendor_identity.sql') ORDER BY id`
+      );
+      const ids = mig.rows.map((r) => r.id);
+      assert('Docker unavailable — fallback migrate via DATABASE_URL', true);
+      assert('fallback applied 015', ids.includes('015_control_room.sql'));
+      assert('fallback applied 016', ids.includes('016_template_action_links.sql'));
+      assert('fallback applied 017', ids.includes('017_vendor_identity.sql'));
+      const cr = await verify.query(
+        `SELECT COUNT(*)::int AS n FROM information_schema.tables WHERE table_schema=$1 AND table_name LIKE 'cr_%'`,
+        [schema]
+      );
+      assert('fallback cr_* tables present', cr.rows[0].n >= 8, `count=${cr.rows[0].n}`);
+      await verify.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await verify.end();
+      finish();
+      return;
+    } catch (err) {
+      assert('Docker available for live Postgres apply', false, `docker not running; fallback failed: ${err.message}`);
+      finish();
+      return;
+    }
   }
 
   console.log(`Starting ephemeral Postgres on localhost:${PG_PORT}…`);

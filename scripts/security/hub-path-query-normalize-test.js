@@ -7,6 +7,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 
 process.env.CONTROL_ROOM_STORE = 'memory';
+process.env.CONTROL_ROOM_MEMORY_SEED = '1';
 
 const {
   createMemoryStore,

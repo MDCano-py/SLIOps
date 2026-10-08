@@ -178,21 +178,39 @@ async function handleRbacRoutes(path, req, res, ctx) {
 
   if (userRolesMatch && method === 'PUT') {
     if (!requireAdminWrite(res, permissions, isAdmin)) return true;
-    const email = decodeURIComponent(userRolesMatch[1]);
+    const email = decodeURIComponent(userRolesMatch[1]).toLowerCase();
+    const actor = String(actorEmail || '').toLowerCase();
+    if (!actor) {
+      json(res, 401, { error: 'Authentication required', code: 'WOS_AUTH_REQUIRED' });
+      return true;
+    }
+    if (actor === email) {
+      json(res, 403, {
+        error: 'You cannot modify your own workflow roles',
+        code: 'SELF_ELEVATION_FORBIDDEN',
+      });
+      return true;
+    }
     const body = parseBody(req);
     if (body === null) {
       json(res, 400, { error: 'Invalid JSON body' });
       return true;
+    }
+    // Ignore any client-supplied actor identity in the body
+    if (body && typeof body === 'object') {
+      delete body.actor;
+      delete body.actorEmail;
+      delete body.by;
     }
     if (!postgres.isAvailable()) {
       json(res, 503, { error: 'Workflow role assignment requires Postgres (DATABASE_URL)' });
       return true;
     }
     try {
-      const role_keys = await postgres.setUserRoleKeys(email, body.role_keys || [], actorEmail);
+      const role_keys = await postgres.setUserRoleKeys(email, body.role_keys || [], actor);
       await rolesCatalog.refreshAllowedAssigneeRoleKeys(true);
       recordSecurityAudit('rbac.user_roles_set', {
-        actor: actorEmail,
+        actor,
         target: email,
         role_count: Array.isArray(role_keys) ? role_keys.length : 0,
       });

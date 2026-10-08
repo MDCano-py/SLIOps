@@ -132,6 +132,9 @@ function rowToRecord(row) {
   if (!row) return null;
   const payload = row.payload_json || {};
   const record = {
+    // Stable Postgres UUID — used for vendor contact/session binding. Prefer
+    // server-side use; external workspace views omit this field.
+    id: row.id || null,
     refNumber: row.ref_number,
     createdAt: row.requested_at ? new Date(row.requested_at).toISOString() : row.created_at,
     createdBy: payload.createdBy || {},

@@ -43,12 +43,16 @@ function main() {
   assert('Archive page shell styled in hub.css', hubCss.includes('#hubPageArchive .archive-pagination'));
   assert('Archive embedded pagination uses hub tokens', hubCss.includes('.hub-archive-embedded .archive-pagination'));
   assert('Archive route state set before tab switch', (() => {
-    const idx = indexHtml.indexOf('global._hubArchiveRoute');
+    const idx = indexHtml.indexOf('window._hubArchiveRoute');
     const switchIdx = indexHtml.indexOf('switchTab(target, routeOpts)', idx);
     return idx >= 0 && switchIdx > idx;
   })());
   assert('Archive filter click uses event delegation', archiveJs.includes('ensureArchiveFilterDelegation'));
-  assert('Archive load deferred until panel mount', archiveJs.includes('requestAnimationFrame'));
+  // Race-safe init (supersedes older rAF deferral): ignore stale async mounts.
+  assert(
+    'Archive load deferred until panel mount',
+    archiveJs.includes('archiveInitSeq') && archiveJs.includes('if (seq !== archiveInitSeq) return')
+  );
 
   /* Legacy BOL form typography */
   assert('BOL section headers pin white text in dark mode', indexHtml.includes('html[data-theme="dark"] #panel-bol .bol-scope .section-header'));

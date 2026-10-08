@@ -27,11 +27,17 @@ async function getAllVendorRecords() {
   return backend().getAllVendorRecords();
 }
 
+async function getVendorIdByRef(ref) {
+  if (!isVendorPostgresMode()) return null;
+  return pg.getVendorIdByRef(ref);
+}
+
 module.exports = {
   isVendorPostgresMode,
   readVendorRecord,
   writeVendorRecord,
   getAllVendorRecords,
+  getVendorIdByRef,
   deleteVendorRecordForTest: pg.deleteVendorRecordForTest,
   vendorPostgresHealthCheck: pg.healthCheck,
 };

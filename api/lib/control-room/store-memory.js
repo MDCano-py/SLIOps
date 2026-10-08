@@ -2,7 +2,7 @@
  * In-memory Control Room store for automated tests (no Postgres required).
  */
 const crypto = require('crypto');
-const { isTaskOverdue, detectScheduleOverlaps, detectCoverageGaps, buildHandoverPayload } = require('./logic');
+const { isTaskOverdue, detectScheduleOverlaps, detectCoverageGaps, buildHandoverPayload, buildGapsByDate } = require('./logic');
 
 function uuid() {
   return crypto.randomUUID();
@@ -26,8 +26,9 @@ function createMemoryStore() {
     schedule: [],
   };
 
-  // Optional test seed — production Postgres has no default stations.
-  if (process.env.CONTROL_ROOM_MEMORY_SEED !== '0') {
+  // Opt-in test seed only (CONTROL_ROOM_MEMORY_SEED=1). Never auto-seed in
+  // ordinary local/dev fallback — empty memory store shows needs_bootstrap.
+  if (String(process.env.CONTROL_ROOM_MEMORY_SEED || '') === '1') {
     const stationId = uuid();
     const unitId = uuid();
     db.stations.push({ id: stationId, key: 'test-main', name: 'Test Station', active: true });
@@ -454,16 +455,56 @@ function createMemoryStore() {
   async function listSchedule(filters = {}) {
     let rows = db.schedule.slice();
     if (filters.station_id) rows = rows.filter((s) => s.station_id === filters.station_id);
-    if (filters.work_date) rows = rows.filter((s) => s.work_date === filters.work_date);
+    if (filters.work_date) {
+      rows = rows.filter((s) => s.work_date === filters.work_date);
+    } else if (filters.work_date_from || filters.work_date_to) {
+      const from = filters.work_date_from || '0000-01-01';
+      const to = filters.work_date_to || '9999-12-31';
+      rows = rows.filter((s) => s.work_date >= from && s.work_date <= to);
+    }
     if (filters.operator_email) rows = rows.filter((s) => s.operator_email === filters.operator_email);
     const overlaps = detectScheduleOverlaps(rows);
     let gaps = [];
+    let gaps_by_date = undefined;
     if (filters.station_id && filters.work_date) {
       const dayStart = `${filters.work_date}T00:00:00.000Z`;
       const dayEnd = `${filters.work_date}T23:59:59.999Z`;
       gaps = detectCoverageGaps(rows, dayStart, dayEnd, filters.station_id);
+    } else if (filters.station_id && filters.work_date_from && filters.work_date_to) {
+      gaps_by_date = buildGapsByDate(rows, filters.station_id, filters.work_date_from, filters.work_date_to);
+      gaps = Object.values(gaps_by_date).flat();
     }
-    return { assignments: rows.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)), overlaps, gaps };
+    const result = {
+      assignments: rows.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)),
+      overlaps,
+      gaps,
+    };
+    if (gaps_by_date) result.gaps_by_date = gaps_by_date;
+    return result;
+  }
+
+  async function getScheduleById(id) {
+    return db.schedule.find((s) => s.id === id) || null;
+  }
+
+  async function updateSchedule(id, patch) {
+    const row = db.schedule.find((s) => s.id === id);
+    if (!row) return null;
+    if (patch.operator_email != null) row.operator_email = patch.operator_email;
+    if (patch.work_date != null) row.work_date = patch.work_date;
+    if (patch.starts_at != null) row.starts_at = patch.starts_at;
+    if (patch.ends_at != null) row.ends_at = patch.ends_at;
+    if (patch.role_context !== undefined) row.role_context = patch.role_context;
+    if (patch.updated_by != null) row.updated_by = patch.updated_by;
+    row.updated_at = nowIso();
+    return row;
+  }
+
+  async function deleteSchedule(id) {
+    const idx = db.schedule.findIndex((s) => s.id === id);
+    if (idx < 0) return false;
+    db.schedule.splice(idx, 1);
+    return true;
   }
 
   async function getSupervisorOverview(stationId) {
@@ -613,6 +654,9 @@ function createMemoryStore() {
     listHandovers,
     createSchedule,
     listSchedule,
+    getScheduleById,
+    updateSchedule,
+    deleteSchedule,
     getSupervisorOverview,
     listHistory,
     _db: db,

@@ -1,13 +1,42 @@
 # Control Room — Production Station/Unit Bootstrap
 
-**Do not** ship fake `Main Station` / `Unit 1` data in migrations.  
+**Do not** ship fake `Main Station` / `Unit 1` / `Test Station` data in migrations.  
 Migration `015_control_room.sql` creates empty `cr_stations` / `cr_units` only.
 
-Until at least one active station exists, Control Room returns `needs_bootstrap: true` and the UI shows a setup banner (no shift, no logging).
+`Test Station` appears only when the **in-memory test store** is used with
+`CONTROL_ROOM_MEMORY_SEED=1` (automated tests). Production Postgres never seeds it.
+
+Until at least one active station exists, Control Room returns `needs_bootstrap: true`
+and the UI shows a setup state (no shift, no logging).
 
 ---
 
-## 1. Add a station (SQL)
+## Preferred: authorized UI / API
+
+Hub Admin, Admin, or users with `control_room_supervisor` can create stations and units
+from the Control Room **Station setup** panel, or via API:
+
+```bash
+# Create station
+curl -sk -b 'sliops_session=<COOKIE>' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Plant A Control Room","key":"plant-a"}' \
+  'https://<PORTAL>/api/maintainx?path=/hub/control-room/stations'
+
+# Create unit (use station id from previous response)
+curl -sk -b 'sliops_session=<COOKIE>' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"station_id":"<STATION_UUID>","name":"Unit 100","key":"unit-100"}' \
+  'https://<PORTAL>/api/maintainx?path=/hub/control-room/units'
+```
+
+Use real operational names. Keys are lowercase slugs.
+
+---
+
+## Alternate: SQL
+
+### 1. Add a station
 
 ```sql
 INSERT INTO cr_stations (key, name, active)
@@ -19,11 +48,7 @@ ON CONFLICT (key) DO UPDATE
 RETURNING id, key, name;
 ```
 
-Use a stable lowercase `key` (slug). Use the real site name for `name`.
-
----
-
-## 2. Add units under that station (SQL)
+### 2. Add units under that station
 
 ```sql
 INSERT INTO cr_units (station_id, key, name, active)
@@ -40,11 +65,28 @@ ON CONFLICT (station_id, key) DO UPDATE
       updated_at = now();
 ```
 
-Replace keys/names with real production units.
+---
+
+## MaintainX mapping (recommendation — no auto-sync)
+
+Control Room stations/units are **authoritative in `cr_stations` / `cr_units`**.
+
+MaintainX locations and assets can inform naming and optional log fields
+(`maintainx_asset_id` on shift logs), but **do not auto-import or sync** MaintainX
+locations into CR tables until Streamline confirms a stable mapping, for example:
+
+| Control Room | MaintainX (candidate) |
+|--------------|------------------------|
+| Station `key` / `name` | Site or location name |
+| Unit `key` / `name` | Asset / location under that site |
+| Log `maintainx_asset_id` | MaintainX asset id (optional, per event) |
+
+Keep CR records independent so operator continuity is not blocked by MaintainX
+API availability or location hierarchy changes.
 
 ---
 
-## 3. Verify
+## Verify
 
 ```sql
 SELECT s.key AS station, u.key AS unit, u.name
@@ -54,10 +96,7 @@ WHERE s.active
 ORDER BY s.key, u.key;
 ```
 
-Then as an authorized operator:
-
 ```bash
-# After login session cookie available:
 curl -sk -b 'sliops_session=<COOKIE>' \
   'https://<PORTAL>/api/maintainx?path=/hub/control-room/meta' | jq '{stations, units}'
 curl -sk -b 'sliops_session=<COOKIE>' \
@@ -68,7 +107,7 @@ Expect `needs_bootstrap` false/absent and a `station` object.
 
 ---
 
-## 4. Deactivate (do not delete if history exists)
+## Deactivate (do not delete if history exists)
 
 ```sql
 UPDATE cr_units SET active = false, updated_at = now()
@@ -80,9 +119,3 @@ WHERE key = 'plant-a';
 ```
 
 Prefer deactivate over hard delete when logs/board rows reference the station.
-
----
-
-## Application note
-
-There is no Control Room admin UI for station CRUD in this release. Bootstrap is SQL (or a future admin tool). Hub Admin / DB access is required for this step.

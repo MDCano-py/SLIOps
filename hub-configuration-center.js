@@ -229,7 +229,7 @@
       state.enabled = false;
       setMsg(
         err.status === 503
-          ? 'Configuration Center is disabled. Set CONFIGURABLE_PLATFORM_ENABLED=1.'
+          ? 'Configuration Center is not enabled in this environment. Contact an administrator when the configurable platform is ready.'
           : err.message || 'Unable to load status',
         true
       );
@@ -294,7 +294,7 @@
       mount.appendChild(
         el('div', { className: 'hub-empty cfg-disabled' }, [
           el('h2', { text: 'Configuration Center unavailable' }),
-          el('p', { text: state.error || 'Enable CONFIGURABLE_PLATFORM_ENABLED=1 to continue.' }),
+          el('p', { text: state.error || 'Configuration Center is not enabled in this environment.' }),
         ])
       );
       return;
@@ -378,7 +378,7 @@
         type: 'button',
         className: 'hub-btn',
         text: 'Repair NDA wiring',
-        title: 'Diagnostic recovery — POST /hub/configuration/repair-nda-wiring (does not navigate)',
+        title: 'Repair NDA wiring (system recovery)',
         'data-cfg-action': 'repair-nda-wiring',
         onclick: async (ev) => {
           if (ev) {

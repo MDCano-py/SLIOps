@@ -594,20 +594,30 @@ function hashToken(token) {
 }
 
 async function createActionLink({
-  request_id,
-  workflow_step_id,
+  request_id = null,
+  workflow_step_id = null,
+  submission_id = null,
+  workflow_step_instance_id = null,
   recipient_email,
   action_type,
   expires_in_hours = 72,
 }) {
+  if (!request_id && !submission_id) {
+    throw new Error('createActionLink requires request_id or submission_id');
+  }
+  if (request_id && submission_id) {
+    throw new Error('createActionLink cannot bind both request_id and submission_id');
+  }
   const token = crypto.randomBytes(32).toString('base64url');
   const tokenHash = hashToken(token);
   const id = generateId();
   const expiresAt = new Date(Date.now() + expires_in_hours * 3600 * 1000).toISOString();
   const link = {
     id,
-    request_id,
-    workflow_step_id,
+    request_id: request_id || null,
+    workflow_step_id: workflow_step_id || null,
+    submission_id: submission_id || null,
+    workflow_step_instance_id: workflow_step_instance_id || null,
     token_hash: tokenHash,
     recipient_email: (recipient_email || '').toLowerCase(),
     action_type,

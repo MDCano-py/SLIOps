@@ -7,9 +7,23 @@ const { getControlRoomStore } = require('./store');
 const {
   CONTROL_ROOM_PERMS,
   hasCrPerm,
+  hasElevated,
   canViewControlRoom,
   canAccessCrResource,
 } = require('./permissions');
+
+function slugifyKey(raw) {
+  return String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function canManageStations(permissions) {
+  return hasElevated(permissions) || hasCrPerm(permissions, CONTROL_ROOM_PERMS.supervisor);
+}
 
 function json(res, status, body) {
   res.status(status).json(body);
@@ -84,7 +98,67 @@ async function handleControlRoomRoutes(rawPath, req, res, ctx) {
     if (!canViewControlRoom(permissions)) return json(res, 403, authErrors.wosForbiddenBody());
     const stations = await store.listStations();
     const units = await store.listUnits(q.station_id || stations[0]?.id);
-    return json(res, 200, { stations, units, store: store.kind });
+    const body = { stations, units };
+    // Store kind is a diagnostic — only for hub/admin
+    if (hasElevated(permissions)) body.store = store.kind;
+    return json(res, 200, body);
+  }
+
+  // POST /hub/control-room/stations — authorized bootstrap (no fake defaults)
+  if (path === '/hub/control-room/stations' && method === 'POST') {
+    if (!requireActor()) return true;
+    if (!canManageStations(permissions)) return json(res, 403, authErrors.wosForbiddenBody());
+    if (typeof store.createStation !== 'function') {
+      return json(res, 501, { error: 'Station create not supported by this store', code: 'CR_STORE_UNSUPPORTED' });
+    }
+    const body = parseBody(req) || {};
+    const name = String(body.name || '').trim();
+    const key = slugifyKey(body.key || name);
+    if (!name || !key) {
+      return json(res, 400, { error: 'Station name is required', code: 'CR_STATION_INVALID' });
+    }
+    try {
+      const station = await store.createStation({ key, name });
+      recordSecurityAudit('control_room.station_create', {
+        actor: actorEmail,
+        station_id: station.id,
+        key: station.key,
+      });
+      return json(res, 201, { station });
+    } catch (err) {
+      return json(res, 400, { error: err.message || 'Could not create station', code: 'CR_STATION_CREATE_FAILED' });
+    }
+  }
+
+  // POST /hub/control-room/units — authorized bootstrap
+  if (path === '/hub/control-room/units' && method === 'POST') {
+    if (!requireActor()) return true;
+    if (!canManageStations(permissions)) return json(res, 403, authErrors.wosForbiddenBody());
+    if (typeof store.createUnit !== 'function') {
+      return json(res, 501, { error: 'Unit create not supported by this store', code: 'CR_STORE_UNSUPPORTED' });
+    }
+    const body = parseBody(req) || {};
+    const name = String(body.name || '').trim();
+    const stationId = body.station_id || q.station_id;
+    const key = slugifyKey(body.key || name);
+    if (!stationId || !name || !key) {
+      return json(res, 400, {
+        error: 'station_id and unit name are required',
+        code: 'CR_UNIT_INVALID',
+      });
+    }
+    try {
+      const unit = await store.createUnit({ station_id: stationId, key, name });
+      recordSecurityAudit('control_room.unit_create', {
+        actor: actorEmail,
+        station_id: stationId,
+        unit_id: unit.id,
+        key: unit.key,
+      });
+      return json(res, 201, { unit });
+    } catch (err) {
+      return json(res, 400, { error: err.message || 'Could not create unit', code: 'CR_UNIT_CREATE_FAILED' });
+    }
   }
 
   // POST /hub/control-room/shifts/ensure — ensure active shift + assignment
@@ -379,6 +453,8 @@ async function handleControlRoomRoutes(rawPath, req, res, ctx) {
     const result = await store.listSchedule({
       station_id: q.station_id,
       work_date: q.work_date,
+      work_date_from: q.work_date_from,
+      work_date_to: q.work_date_to,
       operator_email: q.operator_email,
     });
     return json(res, 200, result);
@@ -395,17 +471,131 @@ async function handleControlRoomRoutes(rawPath, req, res, ctx) {
       const cur = await store.ensureActiveShift({ actorEmail });
       stationId = cur.station?.id;
     }
+    const operatorEmail = String(body.operator_email).trim().toLowerCase();
+    const operatorUserId = body.operator_user_id
+      ? String(body.operator_user_id).trim()
+      : operatorEmail;
+    const existing = await store.listSchedule({
+      station_id: stationId,
+      work_date: body.work_date,
+    });
+    const candidate = {
+      id: 'pending',
+      station_id: stationId,
+      operator_email: operatorEmail,
+      starts_at: body.starts_at,
+      ends_at: body.ends_at,
+    };
+    const { detectScheduleOverlaps } = require('./logic');
+    const overlaps = detectScheduleOverlaps([...(existing.assignments || []), candidate]);
+    if (overlaps.length) {
+      return json(res, 409, {
+        error: 'Schedule assignment overlaps an existing assignment for this station or operator.',
+        code: 'CR_SCHEDULE_OVERLAP',
+        overlaps,
+      });
+    }
     const assignment = await store.createSchedule({
       ...body,
       station_id: stationId,
+      operator_email: operatorEmail,
       created_by: actorEmail,
     });
     recordSecurityAudit('control_room.schedule_create', {
       actor: actorEmail,
       schedule_id: assignment.id,
       operator_email: assignment.operator_email,
+      operator_user_id: operatorUserId,
     });
-    return json(res, 201, { assignment });
+    return json(res, 201, {
+      assignment: { ...assignment, operator_user_id: operatorUserId },
+    });
+  }
+
+  const scheduleIdMatch = path.match(/^\/hub\/control-room\/schedule\/([^/]+)$/);
+  if (scheduleIdMatch && method === 'PATCH') {
+    if (!requirePerm(CONTROL_ROOM_PERMS.scheduleManage)) return true;
+    const scheduleId = decodeURIComponent(scheduleIdMatch[1]);
+    const body = parseBody(req) || {};
+    const existingRow = await store.getScheduleById(scheduleId);
+    if (!existingRow) return json(res, 404, { error: 'Schedule assignment not found' });
+    const next = {
+      operator_email:
+        body.operator_email != null
+          ? String(body.operator_email).trim().toLowerCase()
+          : existingRow.operator_email,
+      work_date: body.work_date != null ? body.work_date : existingRow.work_date,
+      starts_at: body.starts_at != null ? body.starts_at : existingRow.starts_at,
+      ends_at: body.ends_at != null ? body.ends_at : existingRow.ends_at,
+      role_context: body.role_context !== undefined ? body.role_context : existingRow.role_context,
+    };
+    if (new Date(next.ends_at) <= new Date(next.starts_at)) {
+      return json(res, 400, { error: 'ends_at must be after starts_at' });
+    }
+    const dayList = await store.listSchedule({
+      station_id: existingRow.station_id,
+      work_date: next.work_date,
+    });
+    const candidate = {
+      id: scheduleId,
+      station_id: existingRow.station_id,
+      operator_email: next.operator_email,
+      starts_at: next.starts_at,
+      ends_at: next.ends_at,
+    };
+    const { detectScheduleOverlaps } = require('./logic');
+    const peers = (dayList.assignments || []).filter((a) => a.id !== scheduleId);
+    const overlaps = detectScheduleOverlaps([...peers, candidate]);
+    if (overlaps.length) {
+      return json(res, 409, {
+        error: 'Schedule assignment overlaps an existing assignment for this station or operator.',
+        code: 'CR_SCHEDULE_OVERLAP',
+        overlaps,
+      });
+    }
+    const assignment = await store.updateSchedule(scheduleId, {
+      ...next,
+      updated_by: actorEmail,
+    });
+    recordSecurityAudit('control_room.schedule_update', {
+      actor: actorEmail,
+      schedule_id: scheduleId,
+      operator_email: assignment.operator_email,
+    });
+    return json(res, 200, { assignment });
+  }
+
+  if (scheduleIdMatch && method === 'DELETE') {
+    if (!requirePerm(CONTROL_ROOM_PERMS.scheduleManage)) return true;
+    const scheduleId = decodeURIComponent(scheduleIdMatch[1]);
+    const existingRow = await store.getScheduleById(scheduleId);
+    if (!existingRow) return json(res, 404, { error: 'Schedule assignment not found' });
+    await store.deleteSchedule(scheduleId);
+    recordSecurityAudit('control_room.schedule_delete', {
+      actor: actorEmail,
+      schedule_id: scheduleId,
+      operator_email: existingRow.operator_email,
+    });
+    return json(res, 200, { deleted: true, id: scheduleId });
+  }
+
+  // Employee directory for schedule assignment (authenticated CR viewers/managers)
+  if (path === '/hub/control-room/directory' && method === 'GET') {
+    if (!requireActor()) return true;
+    if (
+      !hasCrPerm(permissions, CONTROL_ROOM_PERMS.scheduleManage) &&
+      !hasCrPerm(permissions, CONTROL_ROOM_PERMS.scheduleView) &&
+      !canViewControlRoom(permissions)
+    ) {
+      return json(res, 403, authErrors.wosForbiddenBody());
+    }
+    const { listEmployees } = require('../user-directory');
+    const employees = await listEmployees({ q: q.q || q.search || '' });
+    return json(res, 200, {
+      employees,
+      source: 'local_directory',
+      note: 'Uses SLIOps provisioned users. Microsoft Graph is not required.',
+    });
   }
 
   // History

@@ -54,7 +54,7 @@ function main() {
   assert('applyRoute gated on HubUI', indexHtml.includes('window.HubUI.navigateShell'));
   assert('applyRoute supports force re-apply', indexHtml.includes('function resetRouteCache'));
   assert('_hubArchiveRoute set before switchTab', (() => {
-    const idx = indexHtml.indexOf('global._hubArchiveRoute');
+    const idx = indexHtml.indexOf('window._hubArchiveRoute');
     const switchIdx = indexHtml.indexOf('switchTab(target, routeOpts)', idx);
     return idx >= 0 && switchIdx > idx;
   })());

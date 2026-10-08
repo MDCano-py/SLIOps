@@ -312,7 +312,7 @@ async function handleHubRoute(path, req, res, ctx) {
     return json(res, 200, n);
   }
 
-  // ----- Client action (public) -----
+  // ----- Client action (public) — hub requests OR template submissions via same action_links -----
   const actionGet = path.match(/^\/hub\/action\/([^/]+)$/);
   if (actionGet && method === 'GET') {
     const token = actionGet[1];
@@ -323,6 +323,15 @@ async function handleHubRoute(path, req, res, ctx) {
     if (new Date(link.expires_at) < new Date()) {
       return json(res, 410, { error: 'Action link expired' });
     }
+    if (link.submission_id) {
+      try {
+        const { buildTemplateActionPayload } = require('../templates/external-action');
+        const payload = await buildTemplateActionPayload(link);
+        return json(res, 200, payload);
+      } catch (err) {
+        return json(res, err.status || 500, { error: err.message, code: err.code || 'ERROR' });
+      }
+    }
     const request = await store.getRequest(link.request_id);
     const webDoc = await store.getWebDocumentByRequestId(link.request_id);
     const docTypeKey = webDoc?.document_type_key || request?.request_type || '';
@@ -332,6 +341,7 @@ async function handleHubRoute(path, req, res, ctx) {
       : null;
     return json(res, 200, {
       action_type: link.action_type,
+      runtime: 'hub',
       request: filterRequestForRole(request, { clientView: true }),
       web_document: webDoc,
       form_definition: formDefinition,
@@ -373,6 +383,22 @@ async function handleHubRoute(path, req, res, ctx) {
       ? (req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.socket?.remoteAddress || '')
       : (req.socket?.remoteAddress || '');
     const userAgent = req.headers['user-agent'] || '';
+
+    if (link.submission_id) {
+      try {
+        const { completeTemplateExternalAction } = require('../templates/external-action');
+        const result = await completeTemplateExternalAction({
+          link,
+          action,
+          body,
+          clientIp: String(clientIp),
+          userAgent: String(userAgent),
+        });
+        return json(res, 200, result);
+      } catch (err) {
+        return json(res, err.status || 500, { error: err.message, code: err.code || 'ERROR' });
+      }
+    }
 
     if (action === 'fill') {
       const webDoc = await store.getWebDocumentByRequestId(link.request_id);

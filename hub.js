@@ -1173,6 +1173,218 @@
       ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
       : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
     btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    const ui = getUiThemePreference();
+    btn.hidden = ui === 'classic-99';
+    btn.title = ui === 'classic-99' ? 'Light/dark applies to Modern Glass' : 'Toggle light/dark';
+  }
+
+  function getUiThemePreference() {
+    try {
+      const v = localStorage.getItem('sli.uiTheme');
+      return v === 'classic-99' ? 'classic-99' : 'modern-glass';
+    } catch {
+      return 'modern-glass';
+    }
+  }
+
+  function applyUiThemePreference(theme) {
+    const next = theme === 'classic-99' ? 'classic-99' : 'modern-glass';
+    document.documentElement.setAttribute('data-ui-theme', next);
+    try {
+      localStorage.setItem('sli.uiTheme', next);
+    } catch {
+      /* ignore */
+    }
+    const sel = document.getElementById('hubUiThemeSelect');
+    if (sel && sel.value !== next) sel.value = next;
+    const appearanceSel = document.getElementById('hubAppearanceUiTheme');
+    if (appearanceSel && appearanceSel.value !== next) appearanceSel.value = next;
+    syncThemeToggleIcon();
+  }
+
+  function wireUiThemeSelect() {
+    const sel = document.getElementById('hubUiThemeSelect');
+    if (!sel || sel.dataset.wired) return;
+    sel.dataset.wired = '1';
+    sel.value = getUiThemePreference();
+    sel.addEventListener('change', () => applyUiThemePreference(sel.value));
+  }
+
+  let _searchTimer = null;
+  let _searchActive = -1;
+  let _searchItems = [];
+
+  function closeGlobalSearch() {
+    const dd = document.getElementById('hubSearchDropdown');
+    const input = document.getElementById('hubGlobalSearch');
+    if (dd) {
+      dd.hidden = true;
+      dd.innerHTML = '';
+    }
+    if (input) input.setAttribute('aria-expanded', 'false');
+    _searchActive = -1;
+    _searchItems = [];
+  }
+
+  function openSearchItem(item) {
+    closeGlobalSearch();
+    if (!item) return;
+    if (item.kind === 'request' && item.id) {
+      openRequestDetail(item.id);
+      return;
+    }
+    if (item.kind === 'nav' && item.tab && typeof global.switchTab === 'function') {
+      global.switchTab(item.tab);
+    }
+  }
+
+  function renderSearchDropdown(items, query) {
+    const dd = document.getElementById('hubSearchDropdown');
+    const input = document.getElementById('hubGlobalSearch');
+    if (!dd) return;
+    _searchItems = items || [];
+    _searchActive = _searchItems.length ? 0 : -1;
+    if (!_searchItems.length) {
+      dd.innerHTML = `<div class="hub-search-empty">No matches for “${esc(query)}”</div>`;
+      dd.hidden = false;
+      if (input) input.setAttribute('aria-expanded', 'true');
+      return;
+    }
+    const groups = {};
+    _searchItems.forEach((it, idx) => {
+      const g = it.group || 'Results';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push({ it, idx });
+    });
+    dd.innerHTML = Object.keys(groups)
+      .map((g) => {
+        const rows = groups[g]
+          .map(
+            ({ it, idx }) =>
+              `<button type="button" class="hub-search-item${idx === _searchActive ? ' is-active' : ''}" role="option" data-search-idx="${idx}" id="hubSearchOpt${idx}">
+            <strong>${esc(it.title)}</strong>
+            <span>${esc(it.subtitle || '')}</span>
+          </button>`
+          )
+          .join('');
+        return `<div class="hub-search-group-label">${esc(g)}</div>${rows}`;
+      })
+      .join('');
+    dd.hidden = false;
+    if (input) input.setAttribute('aria-expanded', 'true');
+    dd.querySelectorAll('[data-search-idx]').forEach((btn) => {
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const idx = Number(btn.getAttribute('data-search-idx'));
+        openSearchItem(_searchItems[idx]);
+      });
+    });
+  }
+
+  function highlightSearchActive() {
+    const dd = document.getElementById('hubSearchDropdown');
+    if (!dd) return;
+    dd.querySelectorAll('.hub-search-item').forEach((el) => {
+      const idx = Number(el.getAttribute('data-search-idx'));
+      el.classList.toggle('is-active', idx === _searchActive);
+    });
+    const active = dd.querySelector('.hub-search-item.is-active');
+    if (active) active.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function runGlobalSearch(query) {
+    const q = String(query || '').trim();
+    if (q.length < 2) {
+      closeGlobalSearch();
+      return;
+    }
+    const items = [];
+    try {
+      if (canAccessHubTab('hub-requests')) {
+        const data = await fetchOpenRequests({ search: q, limit: '8' });
+        const list = data.requests || data.items || [];
+        list.slice(0, 8).forEach((r) => {
+          items.push({
+            kind: 'request',
+            id: r.id,
+            group: 'Requests',
+            title: (r.request_number || '') + (r.title ? ' · ' + r.title : ''),
+            subtitle: [typeLabel(r.request_type, registryCache), r.status].filter(Boolean).join(' · '),
+          });
+        });
+      }
+    } catch {
+      /* permission or network — omit request hits */
+    }
+    const navHits = [
+      { tab: 'hub-dashboard', label: 'Dashboard', group: 'Pages' },
+      { tab: 'hub-requests', label: 'Requests', group: 'Pages' },
+      { tab: 'hub-my-tasks', label: 'My Work', group: 'Pages' },
+      { tab: 'hub-control-room', label: 'Control Room', group: 'Pages' },
+      { tab: 'hub-documents', label: 'Documents', group: 'Pages' },
+      { tab: 'hub-reports', label: 'Reports', group: 'Pages' },
+      { tab: 'hub-analytics', label: 'Analytics', group: 'Pages' },
+      { tab: 'hub-forms', label: 'Forms', group: 'Pages' },
+      { tab: 'hub-settings', label: 'Settings', group: 'Pages' },
+    ].filter((n) => canAccessHubTab(n.tab) && n.label.toLowerCase().includes(q.toLowerCase()));
+    navHits.slice(0, 5).forEach((n) => {
+      items.push({ kind: 'nav', tab: n.tab, group: n.group, title: n.label, subtitle: 'Go to page' });
+    });
+    renderSearchDropdown(items, q);
+  }
+
+  function wireGlobalSearch() {
+    const input = document.getElementById('hubGlobalSearch');
+    const wrap = document.getElementById('hubSearchWrap');
+    if (!input || input.dataset.wired) return;
+    input.dataset.wired = '1';
+    input.addEventListener('input', () => {
+      clearTimeout(_searchTimer);
+      const q = input.value;
+      _searchTimer = setTimeout(() => runGlobalSearch(q), 220);
+    });
+    input.addEventListener('keydown', (e) => {
+      const dd = document.getElementById('hubSearchDropdown');
+      const open = dd && !dd.hidden;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeGlobalSearch();
+        return;
+      }
+      if (e.key === 'ArrowDown' && open && _searchItems.length) {
+        e.preventDefault();
+        _searchActive = (_searchActive + 1) % _searchItems.length;
+        highlightSearchActive();
+        return;
+      }
+      if (e.key === 'ArrowUp' && open && _searchItems.length) {
+        e.preventDefault();
+        _searchActive = (_searchActive - 1 + _searchItems.length) % _searchItems.length;
+        highlightSearchActive();
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (open && _searchActive >= 0 && _searchItems[_searchActive]) {
+          openSearchItem(_searchItems[_searchActive]);
+          return;
+        }
+        const q = input.value?.trim();
+        if (typeof global.switchTab === 'function') global.switchTab('hub-requests');
+        const inp = document.getElementById('hubFilterSearch');
+        if (inp && q) {
+          inp.value = q;
+          initRequestsList();
+        }
+        closeGlobalSearch();
+      }
+    });
+    input.addEventListener('focus', () => {
+      if (String(input.value || '').trim().length >= 2) runGlobalSearch(input.value);
+    });
+    document.addEventListener('click', (e) => {
+      if (wrap && !wrap.contains(e.target)) closeGlobalSearch();
+    });
   }
 
   function wireShellNav() {
@@ -1211,17 +1423,9 @@
         tr.classList.remove('is-selected');
       });
     });
-    document.getElementById('hubGlobalSearch')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const q = e.target.value?.trim();
-        if (typeof global.switchTab === 'function') global.switchTab('hub-requests');
-        const inp = document.getElementById('hubFilterSearch');
-        if (inp && q) {
-          inp.value = q;
-          initRequestsList();
-        }
-      }
-    });
+    wireGlobalSearch();
+    wireUiThemeSelect();
+    applyUiThemePreference(getUiThemePreference());
   }
 
   function renderKpiRow(summary, el) {
@@ -1702,48 +1906,65 @@
       ['manager', 'Manager'],
       ['admin', 'Admin'],
     ];
-    detail.innerHTML = `<div class="hub-panel hub-settings-detail-panel">
-      <div class="hub-panel-head"><h2>General settings</h2><p class="hub-sub" style="margin:4px 0 0">Portal defaults stored in hub_settings (portal:general).</p></div>
+    const devSection = settings._demoSeedToggleVisible
+      ? `<section class="hub-settings-group hub-settings-group--dev" aria-labelledby="hubSetDevHeading">
+            <div class="hub-settings-group-head">
+              <h3 id="hubSetDevHeading">Development controls</h3>
+              <p class="hub-settings-field-hint">Visible only in authorized non-production environments.</p>
+            </div>
+            <label class="hub-settings-check">
+              <input type="checkbox" id="hubSetDemoSeed" ${settings.demoSeedEnabled ? 'checked' : ''} />
+              <span>Show staging demo seed controls for hub admins</span>
+            </label>
+          </section>`
+      : '';
+    detail.innerHTML = `<div class="hub-panel hub-settings-detail-panel hub-settings-general-panel">
+      <div class="hub-panel-head">
+        <div>
+          <h2>General settings</h2>
+          <p class="hub-sub" style="margin:4px 0 0">Portal identity and defaults for this environment.</p>
+        </div>
+      </div>
       <div class="hub-panel-body pad">
-        <div class="hub-settings-form">
-          <label class="hub-settings-field">
-            <span>Portal display name</span>
-            <input type="text" id="hubSetDisplayName" maxlength="120" value="${esc(settings.displayName || '')}" />
-          </label>
-          <label class="hub-settings-field">
-            <span>Default landing page</span>
-            <select id="hubSetLanding">${landingOpts
-              .map(
-                ([v, l]) =>
-                  `<option value="${esc(v)}"${settings.defaultLandingPage === v ? ' selected' : ''}>${esc(l)}</option>`
-              )
-              .join('')}</select>
-            <span class="hub-settings-field-hint">Preference saved for future sign-in redirect.</span>
-          </label>
-          <label class="hub-settings-field">
-            <span>Default requester role</span>
-            <select id="hubSetRequesterRole">${roleOpts
-              .map(
-                ([v, l]) =>
-                  `<option value="${esc(v)}"${settings.defaultRequesterRole === v ? ' selected' : ''}>${esc(l)}</option>`
-              )
-              .join('')}</select>
-            <span class="hub-settings-field-hint">Preference saved for future request defaults.</span>
-          </label>
-          ${
-            settings._demoSeedToggleVisible
-              ? `<label class="hub-settings-check">
-            <input type="checkbox" id="hubSetDemoSeed" ${settings.demoSeedEnabled ? 'checked' : ''} />
-            <span>Show staging demo seed controls for hub admins (requires STAGING_DEMO_DATA_ENABLED)</span>
-          </label>`
-              : ''
-          }
-        </div>
-        <div id="hubGeneralSettingsStatus" class="hub-settings-status" hidden></div>
-        <div class="hub-settings-actions">
-          <button type="button" class="hub-btn hub-btn-primary" id="hubGeneralSaveBtn">Save</button>
-          <button type="button" class="hub-btn hub-btn-ghost" id="hubGeneralCancelBtn">Cancel</button>
-        </div>
+        <form class="hub-settings-form hub-settings-form--stacked" id="hubGeneralSettingsForm" onsubmit="return false;">
+          <section class="hub-settings-group" aria-labelledby="hubSetIdentityHeading">
+            <h3 id="hubSetIdentityHeading" class="hub-settings-group-title">Portal identity</h3>
+            <label class="hub-settings-field">
+              <span>Portal display name</span>
+              <input type="text" id="hubSetDisplayName" maxlength="120" value="${esc(settings.displayName || '')}" />
+              <span class="hub-settings-field-hint">Shown in the hub shell and browser-facing labels.</span>
+            </label>
+          </section>
+          <section class="hub-settings-group" aria-labelledby="hubSetDefaultsHeading">
+            <h3 id="hubSetDefaultsHeading" class="hub-settings-group-title">Defaults</h3>
+            <label class="hub-settings-field">
+              <span>Default landing page</span>
+              <select id="hubSetLanding">${landingOpts
+                .map(
+                  ([v, l]) =>
+                    `<option value="${esc(v)}"${settings.defaultLandingPage === v ? ' selected' : ''}>${esc(l)}</option>`
+                )
+                .join('')}</select>
+              <span class="hub-settings-field-hint">Where operators land after sign-in when no deeper link is provided.</span>
+            </label>
+            <label class="hub-settings-field">
+              <span>Default requester role</span>
+              <select id="hubSetRequesterRole">${roleOpts
+                .map(
+                  ([v, l]) =>
+                    `<option value="${esc(v)}"${settings.defaultRequesterRole === v ? ' selected' : ''}>${esc(l)}</option>`
+                )
+                .join('')}</select>
+              <span class="hub-settings-field-hint">Used as the starting role preference for new requests.</span>
+            </label>
+          </section>
+          ${devSection}
+          <div id="hubGeneralSettingsStatus" class="hub-settings-status" hidden></div>
+          <div class="hub-settings-actions">
+            <button type="button" class="hub-btn hub-btn-primary" id="hubGeneralSaveBtn">Save</button>
+            <button type="button" class="hub-btn hub-btn-ghost" id="hubGeneralCancelBtn">Cancel</button>
+          </div>
+        </form>
       </div>
     </div>`;
     const statusEl = detail.querySelector('#hubGeneralSettingsStatus');
@@ -1814,8 +2035,15 @@
     detail.innerHTML = `<div class="hub-panel hub-settings-detail-panel">
       <div class="hub-panel-head"><h2>Appearance</h2></div>
       <div class="hub-panel-body pad">
-        <p class="hub-sub" style="margin-top:0">Theme preference is saved in this browser via localStorage.</p>
-        <div class="hub-settings-theme-options" role="radiogroup" aria-label="Theme mode">
+        <p class="hub-sub" style="margin-top:0">UI theme and light/dark preference are saved in this browser via localStorage.</p>
+        <label class="hub-settings-field">
+          <span>UI theme</span>
+          <select id="hubAppearanceUiTheme">
+            <option value="modern-glass"${getUiThemePreference() === 'modern-glass' ? ' selected' : ''}>Modern Glass</option>
+            <option value="classic-99"${getUiThemePreference() === 'classic-99' ? ' selected' : ''}>Classic 99</option>
+          </select>
+        </label>
+        <div class="hub-settings-theme-options" role="radiogroup" aria-label="Color mode">
           ${['light', 'dark', 'system']
             .map(
               (mode) => `<label class="hub-settings-theme-opt">
@@ -1825,18 +2053,25 @@
             )
             .join('')}
         </div>
+        <p class="hub-sub">Light/dark applies to Modern Glass. Classic 99 uses its own palette.</p>
         <div id="hubAppearanceStatus" class="hub-settings-status" hidden></div>
         <div class="hub-settings-actions">
-          <button type="button" class="hub-btn hub-btn-primary" id="hubAppearanceApplyBtn">Apply theme</button>
-          <button type="button" class="hub-btn hub-btn-ghost" id="hubAppearanceToggleBtn">Toggle like top bar</button>
+          <button type="button" class="hub-btn hub-btn-primary" id="hubAppearanceApplyBtn">Apply</button>
+          <button type="button" class="hub-btn hub-btn-ghost" id="hubAppearanceToggleBtn">Toggle light/dark</button>
         </div>
       </div>
     </div>`;
     const statusEl = detail.querySelector('#hubAppearanceStatus');
+    detail.querySelector('#hubAppearanceUiTheme')?.addEventListener('change', (e) => {
+      applyUiThemePreference(e.target.value);
+      showSettingsStatus(statusEl, 'UI theme: ' + e.target.value, 'success');
+    });
     detail.querySelector('#hubAppearanceApplyBtn')?.addEventListener('click', () => {
+      const ui = detail.querySelector('#hubAppearanceUiTheme')?.value || 'modern-glass';
+      applyUiThemePreference(ui);
       const picked = detail.querySelector('input[name="hubThemeMode"]:checked')?.value || 'light';
       applyThemePreference(picked);
-      showSettingsStatus(statusEl, 'Theme applied: ' + picked, 'success');
+      showSettingsStatus(statusEl, 'Applied: ' + ui + ' / ' + picked, 'success');
     });
     detail.querySelector('#hubAppearanceToggleBtn')?.addEventListener('click', () => {
       const dark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -1845,7 +2080,7 @@
       detail.querySelectorAll('input[name="hubThemeMode"]').forEach((el) => {
         el.checked = el.value === picked;
       });
-      showSettingsStatus(statusEl, 'Theme toggled: ' + picked, 'success');
+      showSettingsStatus(statusEl, 'Color mode: ' + picked, 'success');
     });
   }
 
@@ -1983,7 +2218,7 @@
           </div>`;
         }
       } catch {
-        healthHtml = `<div class="hub-settings-inline-warn"><strong>Service health unavailable</strong><span>Could not reach /health</span></div>`;
+        healthHtml = `<div class="hub-settings-inline-warn"><strong>Service health unavailable</strong><span>Could not reach the health endpoint</span></div>`;
       }
       if (loading) loading.remove();
       wrap.insertAdjacentHTML('beforeend', healthHtml + '<div id="hubSettingsDeliveryHost"></div>');
@@ -2097,17 +2332,35 @@
       renderAccessRestricted(root, 'Configuration Center');
       return;
     }
-    // Reveal nav only when feature is enabled (status check inside UI)
+    // Reveal nav only when Configuration platform is enabled
     const navBtn = document.querySelector('[data-hub-tab="hub-configuration"]');
-    if (navBtn) navBtn.hidden = false;
+    if (navBtn) navBtn.hidden = true;
     if (global.HubConfigurationCenter && typeof global.HubConfigurationCenter.init === 'function') {
       await global.HubConfigurationCenter.init();
+      let enabled = false;
+      try {
+        const st = await hubFetch('/hub/configuration/status');
+        if (st.ok) {
+          const data = await st.json();
+          enabled = !!data.enabled;
+        }
+      } catch {
+        enabled = false;
+      }
+      if (navBtn) navBtn.hidden = !enabled;
+      if (!enabled) {
+        root.innerHTML = `<div class="hub-panel"><div class="hub-panel-body pad">
+          <h2 style="margin-top:0">Configuration Center</h2>
+          <p class="hub-sub">This admin workspace is not enabled for this environment. Direct links still work for authorized operators once the platform flag is turned on after migrations are ready.</p>
+          <p class="hub-sub">Ordinary users should use New Request, Forms, and Documents instead.</p>
+        </div></div>`;
+        return;
+      }
       if (global._hubOpenCfgDocumentId && typeof global.HubConfigurationCenter.openDocument === 'function') {
         const id = global._hubOpenCfgDocumentId;
         global._hubOpenCfgDocumentId = null;
         await global.HubConfigurationCenter.openDocument(id);
       } else if (global._hubOpenCfgSection && typeof global.HubConfigurationCenter.openDocument === 'function') {
-        // Section-only navigation already applied inside init via root._hubOpenCfgSection
         global._hubOpenCfgSection = null;
       }
     } else {
@@ -3119,14 +3372,34 @@
               onCancel: showTypeList,
               systemManaged: global.HubRequestFormShell ? global.HubRequestFormShell.isLegacySystemManaged(key) : true,
               description: docTypeMeta?.description || '',
+              initialValues: (() => {
+                const id =
+                  (global.HubIdentity && global.HubIdentity.getCachedIdentity && global.HubIdentity.getCachedIdentity()) ||
+                  {};
+                return {
+                  requester_name: id.name || '',
+                  requester_email: id.email || global._hubUserEmail || '',
+                  contact_email: id.email || global._hubUserEmail || '',
+                  contact_name: id.name || '',
+                };
+              })(),
               onSubmit: async (data) => {
+                const id =
+                  (global.HubIdentity &&
+                    (global.HubIdentity.getCachedIdentity() ||
+                      (await global.HubIdentity.loadIdentity()))) ||
+                  {};
+                const sessionEmail =
+                  (global.HubIdentity && global.HubIdentity.enforceSubmitterEmail(null, id)) ||
+                  global._hubUserEmail;
                 const body = {
                   request_type: key,
                   title: data.title,
                   description: data.description || '',
                   location: data.location || '',
                   priority: data.priority || 'normal',
-                  requester_email: global._hubUserEmail,
+                  requester_email: sessionEmail,
+                  requester_name: id.name || undefined,
                   content_json: data,
                   form_payload: data,
                 };
@@ -3267,6 +3540,20 @@
         updateTopbarUser();
         refreshNotifications();
         initDevTools();
+        // Configuration Center nav stays hidden unless platform flag + permission
+        (async () => {
+          const navBtn = document.querySelector('[data-hub-tab="hub-configuration"]');
+          if (!navBtn) return;
+          navBtn.hidden = true;
+          try {
+            const st = await hubFetch('/hub/configuration/status');
+            if (!st.ok) return;
+            const data = await st.json().catch(() => ({}));
+            if (data.enabled && canAccessHubTab('hub-configuration')) navBtn.hidden = false;
+          } catch {
+            /* keep hidden */
+          }
+        })();
         if (global.AppSpacesUI && typeof global.AppSpacesUI.refreshLaunchNav === 'function') {
           global.AppSpacesUI.refreshLaunchNav();
         }
@@ -3303,6 +3590,8 @@
     applyPortalSettingsUi,
     getThemePreference,
     applyThemePreference,
+    getUiThemePreference,
+    applyUiThemePreference,
     openRequestDetail,
     mirrorToHub,
     initDashboard,
@@ -3310,6 +3599,8 @@
     initRequestsList,
     fetchRegistry,
     hubFetch,
+    loadPermissionsFromMe,
+    applyHubNavPermissions,
     _test: {
       buildWorkflowsHash(query) {
         if (query && query.type === 'document') return '#/documents/templates';

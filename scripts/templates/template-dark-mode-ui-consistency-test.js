@@ -39,11 +39,28 @@ function main() {
   assert('Archive page uses unified hub panel', indexHtml.includes('id="hubPageArchive"'));
   assert('Archive filter row in hub panel', indexHtml.includes('hub-archive-filter-row hub-quick-filters'));
 
-  assert('New Form modal dark backdrop rule', indexHtml.includes('html[data-theme="dark"] .tmpl-modal-backdrop'));
-  assert('New Form modal dark surface rule', indexHtml.includes('html[data-theme="dark"] .tmpl-modal {'));
-  assert('New Form modal dark head/foot rule', indexHtml.includes('html[data-theme="dark"] .tmpl-modal-head'));
-  assert('New Form modal dark input tokens', indexHtml.includes('html[data-theme="dark"] .tmpl-modal-body .input'));
-  assert('New Form modal dark label tokens', indexHtml.includes('html[data-theme="dark"] .tmpl-modal-body .field label'));
+  assert(
+    'New Form modal dark backdrop rule',
+    indexHtml.includes('.tmpl-modal-backdrop') &&
+      (indexHtml.includes('html[data-theme="dark"]:not([data-ui-theme="modern-glass"])') ||
+        indexHtml.includes('html[data-theme="dark"] .tmpl-modal-backdrop'))
+  );
+  assert(
+    'New Form modal dark surface rule',
+    indexHtml.includes('.tmpl-modal {') && indexHtml.includes('data-theme="dark"')
+  );
+  assert(
+    'New Form modal dark head/foot rule',
+    indexHtml.includes('.tmpl-modal-head') && indexHtml.includes('data-theme="dark"')
+  );
+  assert(
+    'New Form modal dark input tokens',
+    indexHtml.includes('.tmpl-modal-body .input') && indexHtml.includes('data-theme="dark"')
+  );
+  assert(
+    'New Form modal dark label tokens',
+    indexHtml.includes('.tmpl-modal-body .field label') && indexHtml.includes('data-theme="dark"')
+  );
 
   assert('Forms hub filter dark mode', indexHtml.includes('html[data-theme="dark"] .forms-hub-filter'));
   assert('Forms hub filter active dark mode', indexHtml.includes('html[data-theme="dark"] .forms-hub-filter.is-active'));

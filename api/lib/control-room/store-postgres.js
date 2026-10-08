@@ -2,7 +2,7 @@
  * Postgres Control Room store — uses hub pool/tx.
  */
 const hubPg = require('../hub/db/postgres');
-const { isTaskOverdue, detectScheduleOverlaps, detectCoverageGaps, buildHandoverPayload } = require('./logic');
+const { isTaskOverdue, detectScheduleOverlaps, detectCoverageGaps, buildHandoverPayload, buildGapsByDate } = require('./logic');
 
 const { pool, tx, nowIso, generateId } = hubPg;
 
@@ -16,6 +16,30 @@ function createPostgresStore() {
       ? await pool.query('SELECT * FROM cr_units WHERE active = true AND station_id=$1 ORDER BY name', [stationId])
       : await pool.query('SELECT * FROM cr_units WHERE active = true ORDER BY name');
     return r.rows;
+  }
+
+  async function createStation({ key, name }) {
+    const r = await pool.query(
+      `INSERT INTO cr_stations (key, name, active)
+       VALUES ($1, $2, true)
+       ON CONFLICT (key) DO UPDATE
+         SET name = EXCLUDED.name, active = true, updated_at = now()
+       RETURNING *`,
+      [key, name]
+    );
+    return r.rows[0];
+  }
+
+  async function createUnit({ station_id, key, name }) {
+    const r = await pool.query(
+      `INSERT INTO cr_units (station_id, key, name, active)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (station_id, key) DO UPDATE
+         SET name = EXCLUDED.name, active = true, updated_at = now()
+       RETURNING *`,
+      [station_id, key, name]
+    );
+    return r.rows[0];
   }
 
   function emptyBootstrap(actorEmail) {
@@ -503,6 +527,15 @@ function createPostgresStore() {
     if (filters.work_date) {
       params.push(filters.work_date);
       clauses.push(`work_date=$${params.length}`);
+    } else {
+      if (filters.work_date_from) {
+        params.push(filters.work_date_from);
+        clauses.push(`work_date>=$${params.length}`);
+      }
+      if (filters.work_date_to) {
+        params.push(filters.work_date_to);
+        clauses.push(`work_date<=$${params.length}`);
+      }
     }
     if (filters.operator_email) {
       params.push(filters.operator_email);
@@ -514,6 +547,7 @@ function createPostgresStore() {
     ).rows;
     const overlaps = detectScheduleOverlaps(assignments);
     let gaps = [];
+    let gaps_by_date = undefined;
     if (filters.station_id && filters.work_date) {
       gaps = detectCoverageGaps(
         assignments,
@@ -521,8 +555,46 @@ function createPostgresStore() {
         `${filters.work_date}T23:59:59.999Z`,
         filters.station_id
       );
+    } else if (filters.station_id && filters.work_date_from && filters.work_date_to) {
+      gaps_by_date = buildGapsByDate(
+        assignments,
+        filters.station_id,
+        filters.work_date_from,
+        filters.work_date_to
+      );
+      gaps = Object.values(gaps_by_date).flat();
     }
-    return { assignments, overlaps, gaps };
+    const result = { assignments, overlaps, gaps };
+    if (gaps_by_date) result.gaps_by_date = gaps_by_date;
+    return result;
+  }
+
+  async function getScheduleById(id) {
+    const r = await pool.query(`SELECT * FROM cr_schedule_assignments WHERE id=$1`, [id]);
+    return r.rows[0] || null;
+  }
+
+  async function updateSchedule(id, patch) {
+    const cur = await getScheduleById(id);
+    if (!cur) return null;
+    const operator_email = patch.operator_email != null ? patch.operator_email : cur.operator_email;
+    const work_date = patch.work_date != null ? patch.work_date : cur.work_date;
+    const starts_at = patch.starts_at != null ? patch.starts_at : cur.starts_at;
+    const ends_at = patch.ends_at != null ? patch.ends_at : cur.ends_at;
+    const role_context = patch.role_context !== undefined ? patch.role_context : cur.role_context;
+    const r = await pool.query(
+      `UPDATE cr_schedule_assignments
+       SET operator_email=$2, work_date=$3, starts_at=$4, ends_at=$5, role_context=$6,
+           updated_by=$7, updated_at=now()
+       WHERE id=$1 RETURNING *`,
+      [id, operator_email, work_date, starts_at, ends_at, role_context, patch.updated_by || null]
+    );
+    return r.rows[0] || null;
+  }
+
+  async function deleteSchedule(id) {
+    const r = await pool.query(`DELETE FROM cr_schedule_assignments WHERE id=$1 RETURNING id`, [id]);
+    return r.rowCount > 0;
   }
 
   async function getSupervisorOverview(stationId) {
@@ -640,6 +712,8 @@ function createPostgresStore() {
     kind: 'postgres',
     listStations,
     listUnits,
+    createStation,
+    createUnit,
     ensureActiveShift,
     getCurrentShiftContext,
     createLog,
@@ -660,6 +734,9 @@ function createPostgresStore() {
     listHandovers,
     createSchedule,
     listSchedule,
+    getScheduleById,
+    updateSchedule,
+    deleteSchedule,
     getSupervisorOverview,
     listHistory,
   };

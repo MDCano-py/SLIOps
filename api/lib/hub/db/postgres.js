@@ -978,16 +978,28 @@ async function createActionLink(input) {
   const tokenHash = hashToken(token);
   const hours = input.expires_in_hours || 168;
   const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+  const requestId = input.request_id || null;
+  const submissionId = input.submission_id || null;
+  if (!requestId && !submissionId) {
+    throw new Error('createActionLink requires request_id or submission_id');
+  }
+  if (requestId && submissionId) {
+    throw new Error('createActionLink cannot bind both request_id and submission_id');
+  }
 
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO action_links (id, request_id, document_id, workflow_step_id, token_hash, recipient_email, action_type, expires_at, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())`,
+      `INSERT INTO action_links (
+         id, request_id, document_id, workflow_step_id, submission_id, workflow_step_instance_id,
+         token_hash, recipient_email, action_type, expires_at, created_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())`,
       [
         id,
-        input.request_id,
+        requestId,
         input.document_id || null,
         input.workflow_step_id || null,
+        submissionId,
+        input.workflow_step_instance_id || null,
         tokenHash,
         input.recipient_email,
         input.action_type,
@@ -997,7 +1009,19 @@ async function createActionLink(input) {
   });
 
   return {
-    link: { id, ...input, token_hash: tokenHash, expires_at: expiresAt.toISOString(), created_at: nowIso() },
+    link: {
+      id,
+      request_id: requestId,
+      document_id: input.document_id || null,
+      workflow_step_id: input.workflow_step_id || null,
+      submission_id: submissionId,
+      workflow_step_instance_id: input.workflow_step_instance_id || null,
+      recipient_email: input.recipient_email,
+      action_type: input.action_type,
+      token_hash: tokenHash,
+      expires_at: expiresAt.toISOString(),
+      created_at: nowIso(),
+    },
     token,
   };
 }

@@ -95,6 +95,14 @@ async function deleteVendorRecordForTest(ref) {
   await pool.query('DELETE FROM vendor_master WHERE ref_number = $1', [ref]);
 }
 
+async function getVendorIdByRef(ref) {
+  const r = await pool.query(
+    'SELECT id FROM vendor_master WHERE ref_number = $1 LIMIT 1',
+    [ref]
+  );
+  return r.rows[0]?.id || null;
+}
+
 async function healthCheck() {
   try {
     await pool.query('SELECT 1');
@@ -109,5 +117,6 @@ module.exports = {
   writeVendorRecord,
   getAllVendorRecords,
   deleteVendorRecordForTest,
+  getVendorIdByRef,
   healthCheck,
 };

@@ -1,0 +1,1153 @@
+/**
+ * SLIOps UI themes — Modern Glass (default) + Classic 99
+ * Applied via html[data-ui-theme="modern-glass|classic-99"]
+ * Color mode continues to use html[data-theme="dark"] for Modern Glass.
+ *
+ * Modern Glass surface hierarchy:
+ *   Level 1 — Application shell (sidebar, toolbar): strongest separation
+ *   Level 2 — Content panels / KPIs: elevated frosted glass
+ *   Level 3 — Overlays (menus, dropdowns, modals): stronger blur + contrast
+ * Dense tables / form inputs stay mostly opaque for readability.
+ */
+
+/* ========== Modern Glass — tokens ========== */
+html[data-ui-theme="modern-glass"] {
+  --glass-background:
+    radial-gradient(
+      ellipse at 15% 10%,
+      rgba(41, 135, 113, 0.18),
+      transparent 42%
+    ),
+    radial-gradient(
+      ellipse at 85% 85%,
+      rgba(130, 183, 170, 0.22),
+      transparent 48%
+    ),
+    radial-gradient(
+      ellipse at 50% 50%,
+      rgba(255, 255, 255, 0.35),
+      transparent 70%
+    ),
+    #e4ece9;
+  --glass-bg-soft: rgba(255, 255, 255, 0.38);
+  --glass-surface: rgba(248, 252, 250, 0.48);
+  --glass-surface-strong: rgba(255, 255, 255, 0.58);
+  --glass-overlay: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.82);
+  --glass-border-soft: rgba(255, 255, 255, 0.55);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --glass-shadow-shell: 0 18px 48px rgba(16, 45, 43, 0.16), 0 2px 8px rgba(16, 45, 43, 0.05);
+  --glass-shadow-panel: 0 10px 36px rgba(16, 45, 43, 0.07), var(--glass-inset);
+  --glass-shadow-overlay: 0 22px 54px rgba(16, 45, 43, 0.18), 0 4px 12px rgba(16, 45, 43, 0.06), var(--glass-inset);
+  --glass-blur-shell: blur(24px) saturate(155%);
+  --glass-blur-panel: blur(20px) saturate(145%);
+  --glass-blur-overlay: blur(28px) saturate(165%);
+  --glass-radius-shell: 28px;
+  --glass-radius-panel: 22px;
+  --glass-radius-control: 14px;
+  --glass-dense: rgba(255, 255, 255, 0.9);
+  --sli-sidebar: #102d2b;
+  --sli-sidebar-deep: #0b211f;
+  --sli-green: #087c70;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] {
+  --glass-background:
+    radial-gradient(
+      ellipse at 12% 8%,
+      rgba(45, 180, 155, 0.2),
+      transparent 44%
+    ),
+    radial-gradient(
+      ellipse at 88% 90%,
+      rgba(25, 90, 82, 0.45),
+      transparent 50%
+    ),
+    #061012;
+  --glass-bg-soft: rgba(12, 34, 36, 0.42);
+  --glass-surface: rgba(16, 40, 44, 0.52);
+  --glass-surface-strong: rgba(14, 36, 40, 0.68);
+  --glass-overlay: rgba(10, 28, 30, 0.86);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-soft: rgba(255, 255, 255, 0.08);
+  --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-shadow-shell: 0 22px 56px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.28);
+  --glass-shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.38), var(--glass-inset);
+  --glass-shadow-overlay: 0 26px 60px rgba(0, 0, 0, 0.55), var(--glass-inset);
+  --glass-blur-shell: blur(26px) saturate(145%);
+  --glass-blur-panel: blur(22px) saturate(140%);
+  --glass-blur-overlay: blur(30px) saturate(155%);
+  --glass-dense: rgba(10, 24, 26, 0.94);
+  --sli-sidebar: #0a1c1b;
+  --sli-sidebar-deep: #061413;
+  --sli-green: #2dd4bf;
+}
+
+/* Shared glass material utility (opt-in class) */
+html[data-ui-theme="modern-glass"] .glass-surface {
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-panel);
+  backdrop-filter: var(--glass-blur-panel);
+  -webkit-backdrop-filter: var(--glass-blur-panel);
+  border-radius: var(--glass-radius-panel);
+}
+
+/* ========== Level 0: Canvas ========== */
+html[data-ui-theme="modern-glass"] body.hub-mode,
+html[data-ui-theme="modern-glass"].hub-boot-hub body {
+  background: var(--glass-background);
+}
+
+html[data-ui-theme="modern-glass"] .hub-shell {
+  --sli-canvas: #eef3f1;
+  --sli-glass: var(--glass-surface);
+  --sli-glass-border: var(--glass-border);
+  --sli-radius-panel: var(--glass-radius-panel);
+  --sli-radius-shell: var(--glass-radius-shell);
+  --hub-surface: var(--glass-surface-strong);
+  --hub-surface-2: var(--glass-bg-soft);
+  --hub-border: rgba(20, 37, 35, 0.08);
+  --hub-shadow: var(--glass-shadow-panel);
+  --hub-radius: 12px;
+  --hub-radius-md: var(--glass-radius-panel);
+  --hub-radius-lg: var(--glass-radius-shell);
+  background: var(--glass-background);
+  padding: 16px;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-shell {
+  --sli-canvas: #071113;
+  --hub-border: rgba(255, 255, 255, 0.08);
+  --hub-surface: var(--glass-surface-strong);
+  --hub-surface-2: var(--glass-bg-soft);
+}
+
+/* ========== Level 1: Application shell ========== */
+html[data-ui-theme="modern-glass"] .hub-sidebar {
+  width: 240px;
+  max-width: 100%;
+  border-radius: var(--glass-radius-shell);
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.06) 0%, transparent 42%),
+    linear-gradient(180deg, var(--sli-sidebar) 0%, var(--sli-sidebar-deep, #0b211f) 100%);
+  box-shadow: var(--glass-shadow-shell);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-height: 0;
+  max-height: 100%;
+  align-self: stretch;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+html[data-ui-theme="modern-glass"] .hub-nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(143, 180, 176, 0.45) transparent;
+}
+html[data-ui-theme="modern-glass"] .hub-nav::-webkit-scrollbar {
+  width: 5px;
+}
+html[data-ui-theme="modern-glass"] .hub-nav::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+html[data-ui-theme="modern-glass"] .hub-nav::-webkit-scrollbar-thumb {
+  background: rgba(143, 180, 176, 0.4);
+  border-radius: 999px;
+}
+html[data-ui-theme="modern-glass"] .hub-nav::-webkit-scrollbar-thumb:hover {
+  background: rgba(45, 212, 191, 0.55);
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-sidebar {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--glass-shadow-shell), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-ui-theme="modern-glass"] .hub-workspace {
+  border-radius: var(--glass-radius-shell);
+  background: transparent;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  z-index: 1;
+}
+
+html[data-ui-theme="modern-glass"] .hub-main-row {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  gap: 12px;
+  padding: 0 2px 4px;
+}
+
+html[data-ui-theme="modern-glass"] .hub-main-col {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 4px 12px;
+  scrollbar-gutter: stable;
+}
+
+html[data-ui-theme="modern-glass"] .hub-topbar {
+  margin: 0 0 14px;
+  padding: 11px 16px;
+  background: var(--glass-surface-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: var(--glass-shadow-panel);
+  backdrop-filter: var(--glass-blur-shell);
+  -webkit-backdrop-filter: var(--glass-blur-shell);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+}
+
+html[data-ui-theme="modern-glass"] .hub-topbar-search {
+  max-width: 360px;
+  border-radius: var(--glass-radius-control);
+  background: var(--glass-bg-soft);
+  border: 1px solid var(--glass-border-soft);
+  box-shadow: inset 0 1px 2px rgba(16, 45, 43, 0.04);
+  position: relative;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-topbar-search {
+  background: rgba(0, 0, 0, 0.28);
+  border-color: var(--glass-border-soft);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+html[data-ui-theme="modern-glass"] .hub-page {
+  padding: 2px 4px 28px;
+  max-width: 1400px;
+}
+
+html[data-ui-theme="modern-glass"] .hub-page-head {
+  margin-bottom: 18px;
+  padding: 4px 2px 2px;
+}
+
+html[data-ui-theme="modern-glass"] .hub-page-head h1 {
+  font-size: 1.5rem;
+  letter-spacing: -0.03em;
+  font-weight: 700;
+}
+
+html[data-ui-theme="modern-glass"] .hub-sub {
+  max-width: 52rem;
+}
+
+/* ========== Level 2: Content panels ========== */
+html[data-ui-theme="modern-glass"] .hub-panel,
+html[data-ui-theme="modern-glass"] .hub-panel.hub-panel--glass {
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius-panel);
+  box-shadow: var(--glass-shadow-panel);
+  backdrop-filter: var(--glass-blur-panel);
+  -webkit-backdrop-filter: var(--glass-blur-panel);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+html[data-ui-theme="modern-glass"] .hub-panel-head {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, transparent 100%);
+  border-bottom: 1px solid rgba(20, 37, 35, 0.06);
+  padding: 12px 16px;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-panel-head {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 100%);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-ui-theme="modern-glass"] .hub-panel-body {
+  background: transparent;
+}
+
+html[data-ui-theme="modern-glass"] .hub-panel-body:not(.pad) {
+  background: transparent;
+}
+
+/* Ensure panel chrome does not fall back to opaque hub-surface */
+html[data-ui-theme="modern-glass"] .hub-shell .hub-panel {
+  background-color: transparent;
+  background-image: none;
+  background: var(--glass-surface);
+}
+
+html[data-ui-theme="modern-glass"] .hub-kpi-row {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+html[data-ui-theme="modern-glass"] .hub-kpi {
+  border-radius: 18px;
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-panel);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  padding: 14px 16px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+html[data-ui-theme="modern-glass"] .hub-kpi:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 36px rgba(16, 45, 43, 0.08), var(--glass-inset);
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-kpi:hover {
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4), var(--glass-inset);
+}
+
+html[data-ui-theme="modern-glass"] .hub-inspector {
+  background: var(--glass-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius-panel);
+  box-shadow: var(--glass-shadow-panel);
+  backdrop-filter: var(--glass-blur-panel);
+  -webkit-backdrop-filter: var(--glass-blur-panel);
+  overflow: hidden;
+}
+
+html[data-ui-theme="modern-glass"] .hub-empty,
+html[data-ui-theme="modern-glass"] .hub-access-restricted {
+  background: var(--glass-bg-soft);
+  border: 1px dashed var(--glass-border-soft);
+  border-radius: var(--glass-radius-panel);
+  padding: 28px 20px;
+  text-align: center;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+html[data-ui-theme="modern-glass"] .hub-access-restricted {
+  border-style: solid;
+  margin: 8px 0;
+}
+
+/* Dense operational surfaces — more opaque for readability */
+html[data-ui-theme="modern-glass"] .hub-table-wrap,
+html[data-ui-theme="modern-glass"] .hub-panel.hub-panel--dense,
+html[data-ui-theme="modern-glass"] .cr-quick-log,
+html[data-ui-theme="modern-glass"] form.cr-quick-log,
+html[data-ui-theme="modern-glass"] .hub-settings-form,
+html[data-ui-theme="modern-glass"] .tmpl-studio,
+html[data-ui-theme="modern-glass"] .hub-table,
+html[data-ui-theme="modern-glass"] .input,
+html[data-ui-theme="modern-glass"] select.input,
+html[data-ui-theme="modern-glass"] textarea.input,
+html[data-ui-theme="modern-glass"] .hub-users-mount .card,
+html[data-ui-theme="modern-glass"] .hub-legacy-content .card {
+  background: var(--glass-dense);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-ui-theme="modern-glass"] .hub-table {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(20, 37, 35, 0.06);
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-table {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-ui-theme="modern-glass"] .hub-btn-primary {
+  background: var(--sli-green, #087c70);
+  border-radius: 11px;
+  border: none;
+  box-shadow: 0 2px 8px rgba(8, 124, 112, 0.25);
+}
+
+html[data-ui-theme="modern-glass"] .hub-btn-ghost,
+html[data-ui-theme="modern-glass"] .hub-btn-secondary {
+  border-radius: 11px;
+  background: var(--glass-bg-soft);
+  border: 1px solid var(--glass-border-soft);
+  backdrop-filter: blur(8px);
+}
+
+html[data-ui-theme="modern-glass"] .hub-nav-link {
+  border-radius: 12px;
+  border-left: none;
+  padding: 9px 12px;
+}
+
+html[data-ui-theme="modern-glass"] .hub-nav-link.is-active {
+  background: var(--sli-sidebar-active, #23554f);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+html[data-ui-theme="modern-glass"] .hub-ui-theme-select,
+html[data-ui-theme="modern-glass"] .hub-topbar-icon-btn,
+html[data-ui-theme="modern-glass"] .hub-user-chip {
+  background: var(--glass-bg-soft);
+  border: 1px solid var(--glass-border-soft);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px;
+}
+
+/* ========== Level 3: Interactive overlays (modals / popovers / menus) ========== */
+html[data-ui-theme="modern-glass"] {
+  --glass-modal-surface: rgba(255, 255, 255, 0.72);
+  --glass-modal-border: rgba(255, 255, 255, 0.82);
+  --glass-modal-shadow:
+    0 28px 70px rgba(16, 45, 43, 0.2),
+    0 12px 28px rgba(16, 45, 43, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --glass-modal-blur: blur(26px) saturate(150%);
+  --glass-backdrop: rgba(16, 45, 43, 0.32);
+  --glass-backdrop-blur: blur(12px) saturate(130%);
+  --glass-modal-input: rgba(255, 255, 255, 0.94);
+  --glass-modal-input-border: rgba(16, 45, 43, 0.14);
+  --glass-modal-focus: 0 0 0 3px rgba(8, 124, 112, 0.28);
+  --glass-modal-footer: rgba(248, 252, 250, 0.55);
+  --glass-modal-header-line: rgba(16, 45, 43, 0.08);
+  --glass-modal-radius: 24px;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] {
+  --glass-modal-surface: rgba(12, 32, 36, 0.88);
+  --glass-modal-border: rgba(255, 255, 255, 0.14);
+  --glass-modal-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.62),
+    0 12px 28px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --glass-modal-blur: blur(28px) saturate(155%);
+  --glass-backdrop: rgba(0, 0, 0, 0.58);
+  --glass-backdrop-blur: blur(14px) saturate(120%);
+  --glass-modal-input: rgba(8, 22, 24, 0.96);
+  --glass-modal-input-border: rgba(255, 255, 255, 0.14);
+  --glass-modal-focus: 0 0 0 3px rgba(45, 212, 191, 0.32);
+  --glass-modal-footer: rgba(8, 22, 24, 0.55);
+  --glass-modal-header-line: rgba(255, 255, 255, 0.1);
+}
+
+/* Dropdown / popover panels */
+html[data-ui-theme="modern-glass"] .hub-search-dropdown,
+html[data-ui-theme="modern-glass"] .hub-account-menu,
+html[data-ui-theme="modern-glass"] .hub-notif-panel,
+html[data-ui-theme="modern-glass"] .sl-person-search-list {
+  background: var(--glass-modal-surface);
+  border: 1px solid var(--glass-modal-border);
+  border-radius: 16px;
+  box-shadow: var(--glass-modal-shadow);
+  backdrop-filter: var(--glass-modal-blur);
+  -webkit-backdrop-filter: var(--glass-modal-blur);
+}
+
+html[data-ui-theme="modern-glass"] .sl-person-search-status.is-verified {
+  color: var(--sli-green, #087c70);
+}
+
+/* Dim + blur page behind every modal family */
+html[data-ui-theme="modern-glass"] .sl-modal-overlay,
+html[data-ui-theme="modern-glass"] .sl-modal-backdrop,
+html[data-ui-theme="modern-glass"] .modal-backdrop,
+html[data-ui-theme="modern-glass"] .tmpl-modal-backdrop {
+  background: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop-blur);
+  -webkit-backdrop-filter: var(--glass-backdrop-blur);
+}
+
+/* Glass modal / dialog surfaces */
+html[data-ui-theme="modern-glass"] .sl-modal,
+html[data-ui-theme="modern-glass"] .sl-modal-backdrop .sl-modal,
+html[data-ui-theme="modern-glass"] .modal,
+html[data-ui-theme="modern-glass"] .tmpl-modal {
+  background: var(--glass-modal-surface);
+  border: 1px solid var(--glass-modal-border);
+  border-radius: var(--glass-modal-radius);
+  box-shadow: var(--glass-modal-shadow);
+  backdrop-filter: var(--glass-modal-blur);
+  -webkit-backdrop-filter: var(--glass-modal-blur);
+  color: var(--ink, #102d2b);
+  overflow: hidden;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .sl-modal,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .modal,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .tmpl-modal {
+  color: var(--ink, #e8eef0);
+}
+
+/* Header / body / footer structure */
+html[data-ui-theme="modern-glass"] .sl-modal-header,
+html[data-ui-theme="modern-glass"] .sl-modal-head,
+html[data-ui-theme="modern-glass"] .modal-head,
+html[data-ui-theme="modern-glass"] .tmpl-modal-head {
+  background: transparent;
+  border-bottom: 1px solid var(--glass-modal-header-line);
+  padding: 18px 22px 14px;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-title,
+html[data-ui-theme="modern-glass"] .modal-title,
+html[data-ui-theme="modern-glass"] .tmpl-modal-head h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: inherit;
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-sub,
+html[data-ui-theme="modern-glass"] .modal-sub,
+html[data-ui-theme="modern-glass"] .sl-modal-body > p:first-child {
+  color: var(--ink-soft, #4a6460);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .sl-modal-sub,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .modal-sub,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .sl-modal-body > p:first-child {
+  color: var(--ink-soft, #a8b8ba);
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-body,
+html[data-ui-theme="modern-glass"] .modal-body,
+html[data-ui-theme="modern-glass"] .tmpl-modal-body {
+  padding: 18px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  max-height: min(60vh, 520px);
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-actions,
+html[data-ui-theme="modern-glass"] .modal-actions,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 22px 18px;
+  background: var(--glass-modal-footer);
+  border-top: 1px solid var(--glass-modal-header-line);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Close control */
+html[data-ui-theme="modern-glass"] .sl-modal-close,
+html[data-ui-theme="modern-glass"] .modal-close,
+html[data-ui-theme="modern-glass"] .hub-inspector-close {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-mute, #6b7f7c);
+  font-size: 1.25rem;
+  line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-close:hover,
+html[data-ui-theme="modern-glass"] .modal-close:hover,
+html[data-ui-theme="modern-glass"] .hub-inspector-close:hover {
+  background: rgba(16, 45, 43, 0.06);
+  border-color: var(--glass-modal-header-line);
+  color: var(--ink, #102d2b);
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .sl-modal-close:hover,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .modal-close:hover,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .hub-inspector-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8eef0;
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-close:focus-visible,
+html[data-ui-theme="modern-glass"] .modal-close:focus-visible {
+  outline: none;
+  box-shadow: var(--glass-modal-focus);
+}
+
+/* Solid, readable controls inside glass shells */
+html[data-ui-theme="modern-glass"] .sl-modal .input,
+html[data-ui-theme="modern-glass"] .sl-modal select.input,
+html[data-ui-theme="modern-glass"] .sl-modal textarea.input,
+html[data-ui-theme="modern-glass"] .sl-modal input[type="text"],
+html[data-ui-theme="modern-glass"] .sl-modal input[type="email"],
+html[data-ui-theme="modern-glass"] .sl-modal input[type="date"],
+html[data-ui-theme="modern-glass"] .sl-modal input[type="datetime-local"],
+html[data-ui-theme="modern-glass"] .sl-modal input[type="time"],
+html[data-ui-theme="modern-glass"] .sl-modal input[type="number"],
+html[data-ui-theme="modern-glass"] .sl-modal select,
+html[data-ui-theme="modern-glass"] .sl-modal textarea,
+html[data-ui-theme="modern-glass"] .modal .input,
+html[data-ui-theme="modern-glass"] .modal select.input,
+html[data-ui-theme="modern-glass"] .modal textarea.input,
+html[data-ui-theme="modern-glass"] .tmpl-modal .input,
+html[data-ui-theme="modern-glass"] .tmpl-modal select.input,
+html[data-ui-theme="modern-glass"] .tmpl-modal textarea.input {
+  background: var(--glass-modal-input);
+  border: 1px solid var(--glass-modal-input-border);
+  border-radius: 12px;
+  color: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal .input:focus,
+html[data-ui-theme="modern-glass"] .sl-modal select.input:focus,
+html[data-ui-theme="modern-glass"] .sl-modal textarea.input:focus,
+html[data-ui-theme="modern-glass"] .sl-modal input:focus,
+html[data-ui-theme="modern-glass"] .sl-modal select:focus,
+html[data-ui-theme="modern-glass"] .sl-modal textarea:focus,
+html[data-ui-theme="modern-glass"] .modal .input:focus,
+html[data-ui-theme="modern-glass"] .tmpl-modal .input:focus,
+html[data-ui-theme="modern-glass"] .tmpl-modal select.input:focus,
+html[data-ui-theme="modern-glass"] .tmpl-modal textarea.input:focus {
+  outline: none;
+  border-color: var(--sli-green, #087c70);
+  box-shadow: var(--glass-modal-focus);
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-field-label {
+  margin-top: 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Overlay action buttons */
+html[data-ui-theme="modern-glass"] .sl-modal-actions .primary,
+html[data-ui-theme="modern-glass"] .sl-modal-actions .hub-btn-primary,
+html[data-ui-theme="modern-glass"] .modal-actions .primary,
+html[data-ui-theme="modern-glass"] .modal-actions .hub-btn-primary,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot .hub-btn-primary,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot .primary {
+  background: var(--sli-green, #087c70);
+  border: 1px solid transparent;
+  color: #fff;
+  border-radius: 12px;
+  min-height: 40px;
+  padding: 0 16px;
+  font-weight: 600;
+  box-shadow: 0 8px 18px rgba(8, 124, 112, 0.22);
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-actions .primary:hover,
+html[data-ui-theme="modern-glass"] .modal-actions .primary:hover,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot .hub-btn-primary:hover,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot .primary:hover {
+  filter: brightness(1.05);
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-actions .secondary,
+html[data-ui-theme="modern-glass"] .sl-modal-actions .hub-btn-ghost,
+html[data-ui-theme="modern-glass"] .sl-modal-actions .hub-btn-secondary,
+html[data-ui-theme="modern-glass"] .modal-actions .secondary,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot .hub-btn-ghost,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot .secondary {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--glass-modal-input-border);
+  color: inherit;
+  border-radius: 12px;
+  min-height: 40px;
+  padding: 0 16px;
+  font-weight: 600;
+}
+
+html[data-ui-theme="modern-glass"][data-theme="dark"] .sl-modal-actions .secondary,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .modal-actions .secondary,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .tmpl-modal-foot .secondary,
+html[data-ui-theme="modern-glass"][data-theme="dark"] .tmpl-modal-foot .hub-btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #e8eef0;
+}
+
+html[data-ui-theme="modern-glass"] .sl-modal-actions .primary:focus-visible,
+html[data-ui-theme="modern-glass"] .sl-modal-actions .secondary:focus-visible,
+html[data-ui-theme="modern-glass"] .modal-actions button:focus-visible,
+html[data-ui-theme="modern-glass"] .tmpl-modal-foot button:focus-visible {
+  outline: none;
+  box-shadow: var(--glass-modal-focus);
+}
+
+/* Danger confirm stays distinct */
+html[data-ui-theme="modern-glass"] .sl-modal-actions .primary[style*="red"],
+html[data-ui-theme="modern-glass"] .sl-modal-actions .primary.is-danger,
+html[data-ui-theme="modern-glass"] .modal-actions .primary-warn {
+  background: #b42318 !important;
+  border-color: #912018 !important;
+  box-shadow: 0 8px 18px rgba(180, 35, 24, 0.28) !important;
+}
+
+/* Inspector drawer — elevated glass when open */
+html[data-ui-theme="modern-glass"] .hub-inspector.is-open {
+  background: var(--glass-modal-surface);
+  border: 1px solid var(--glass-modal-border);
+  box-shadow: var(--glass-modal-shadow);
+  backdrop-filter: var(--glass-modal-blur);
+  -webkit-backdrop-filter: var(--glass-modal-blur);
+  border-radius: 18px;
+}
+
+@media (max-width: 900px) {
+  html[data-ui-theme="modern-glass"] .hub-shell {
+    padding: 10px;
+    gap: 10px;
+  }
+  html[data-ui-theme="modern-glass"] .hub-sidebar {
+    border-radius: 20px;
+  }
+  html[data-ui-theme="modern-glass"] .hub-topbar {
+    border-radius: 16px;
+  }
+}
+
+/* Search dropdown (shared chrome; glass theme overrides above) */
+.hub-search-wrap {
+  position: relative;
+  flex: 1;
+  max-width: 360px;
+}
+.hub-search-wrap .hub-topbar-search {
+  max-width: none;
+  width: 100%;
+}
+.hub-search-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 80;
+  background: #fff;
+  border: 1px solid var(--hub-border, #dfe7e4);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(16, 45, 43, 0.14);
+  max-height: 360px;
+  overflow: auto;
+  padding: 6px;
+}
+html[data-theme="dark"] .hub-search-dropdown {
+  background: #0d1b1e;
+  border-color: #22383c;
+}
+.hub-search-dropdown[hidden] { display: none !important; }
+.hub-search-group-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hub-muted);
+  padding: 8px 10px 4px;
+}
+.hub-search-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--hub-text);
+  font-family: inherit;
+}
+.hub-search-item:hover,
+.hub-search-item.is-active {
+  background: var(--hub-teal-soft, rgba(8, 124, 112, 0.12));
+}
+.hub-search-item strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.hub-search-item span {
+  font-size: 0.72rem;
+  color: var(--hub-muted);
+}
+.hub-search-empty {
+  padding: 14px 10px;
+  font-size: 0.8rem;
+  color: var(--hub-muted);
+}
+.hub-ui-theme-select {
+  appearance: none;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--hub-border);
+  background: var(--hub-surface);
+  color: var(--hub-text);
+  cursor: pointer;
+  max-width: 132px;
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ========== Classic 99 ========== */
+html[data-ui-theme="classic-99"] {
+  /* Classic ignores modern dark tokens for authenticity */
+}
+html[data-ui-theme="classic-99"] .hub-shell {
+  --hub-bg: #008080;
+  --hub-surface: #c0c0c0;
+  --hub-surface-2: #d4d0c8;
+  --hub-border: #808080;
+  --hub-text: #000000;
+  --hub-muted: #404040;
+  --hub-sidebar: #c0c0c0;
+  --hub-sidebar-2: #c0c0c0;
+  --hub-teal: #087267;
+  --hub-teal-strong: #065a52;
+  --hub-teal-soft: #087267;
+  --hub-shadow: none;
+  --hub-radius: 0;
+  --hub-radius-md: 0;
+  --hub-radius-lg: 0;
+  --hub-font: 'Tahoma', 'MS Sans Serif', 'Segoe UI', sans-serif;
+  background: #008080;
+  padding: 8px;
+  gap: 8px;
+  font-size: 12px;
+  color: #000;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html[data-ui-theme="classic-99"] .hub-sidebar {
+  width: 210px;
+  border-radius: 0;
+  background: #c0c0c0 !important;
+  color: #000;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  box-shadow: none;
+}
+
+html[data-ui-theme="classic-99"] .hub-sidebar-brand {
+  background: #087267;
+  color: #fff;
+  margin: 2px;
+  padding: 6px 8px;
+  border-bottom: none;
+}
+html[data-ui-theme="classic-99"] .hub-sidebar-brand-text,
+html[data-ui-theme="classic-99"] .hub-sidebar-brand-text strong {
+  color: #fff !important;
+}
+html[data-ui-theme="classic-99"] .hub-sidebar-brand img {
+  filter: none;
+  height: 22px;
+}
+
+html[data-ui-theme="classic-99"] .hub-nav-group > summary,
+html[data-ui-theme="classic-99"] .hub-nav-group-label {
+  color: #000;
+  font-family: inherit;
+}
+
+html[data-ui-theme="classic-99"] .hub-nav-link {
+  color: #000;
+  border-radius: 0;
+  border-left: none;
+  padding: 4px 8px;
+}
+html[data-ui-theme="classic-99"] .hub-nav-link:hover {
+  background: #000080;
+  color: #fff;
+}
+html[data-ui-theme="classic-99"] .hub-nav-link.is-active {
+  background: #000080 !important;
+  color: #fff !important;
+  border-left: none;
+}
+html[data-ui-theme="classic-99"] .hub-nav-link svg {
+  opacity: 1;
+}
+html[data-ui-theme="classic-99"] .hub-sidebar-foot {
+  color: #404040;
+}
+
+html[data-ui-theme="classic-99"] .hub-workspace {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  border-radius: 0;
+}
+
+html[data-ui-theme="classic-99"] .hub-topbar {
+  background: #c0c0c0;
+  border: none;
+  border-bottom: 2px solid;
+  border-bottom-color: #808080 #fff #fff #808080;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 4px 8px;
+  margin: 0;
+  backdrop-filter: none;
+}
+
+html[data-ui-theme="classic-99"] .hub-topbar-search {
+  border-radius: 0;
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  max-width: 280px;
+  padding: 2px 6px;
+}
+
+html[data-ui-theme="classic-99"] .hub-search-dropdown {
+  border-radius: 0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  background: #c0c0c0;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.25);
+}
+
+html[data-ui-theme="classic-99"] .hub-search-item.is-active,
+html[data-ui-theme="classic-99"] .hub-search-item:hover {
+  background: #000080;
+  color: #fff;
+}
+html[data-ui-theme="classic-99"] .hub-search-item.is-active span,
+html[data-ui-theme="classic-99"] .hub-search-item:hover span {
+  color: #c0c0c0;
+}
+
+html[data-ui-theme="classic-99"] .hub-ui-theme-select,
+html[data-ui-theme="classic-99"] .hub-topbar-icon-btn,
+html[data-ui-theme="classic-99"] .hub-user-chip,
+html[data-ui-theme="classic-99"] .hub-btn,
+html[data-ui-theme="classic-99"] .hub-btn-primary,
+html[data-ui-theme="classic-99"] .hub-btn-ghost,
+html[data-ui-theme="classic-99"] .hub-btn-secondary {
+  border-radius: 0 !important;
+  border: 2px solid !important;
+  border-color: #fff #404040 #404040 #fff !important;
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+  font-weight: 600;
+}
+html[data-ui-theme="classic-99"] .hub-btn-primary {
+  background: #c0c0c0 !important;
+}
+html[data-ui-theme="classic-99"] .hub-btn:active,
+html[data-ui-theme="classic-99"] .hub-btn-primary:active {
+  border-color: #404040 #fff #fff #404040 !important;
+}
+
+html[data-ui-theme="classic-99"] .hub-panel {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  margin-bottom: 10px;
+}
+html[data-ui-theme="classic-99"] .hub-panel-head {
+  background: #087267;
+  color: #fff;
+  border-bottom: none;
+  padding: 4px 8px;
+}
+html[data-ui-theme="classic-99"] .hub-panel-head h2,
+html[data-ui-theme="classic-99"] .hub-panel-head .hub-sub,
+html[data-ui-theme="classic-99"] .hub-panel-head span {
+  color: #fff !important;
+}
+html[data-ui-theme="classic-99"] .hub-panel-body {
+  background: #c0c0c0;
+}
+html[data-ui-theme="classic-99"] .hub-panel-body.pad {
+  padding: 8px;
+}
+
+html[data-ui-theme="classic-99"] .hub-kpi {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  border-radius: 0;
+  box-shadow: none;
+}
+html[data-ui-theme="classic-99"] .hub-kpi-label {
+  color: #000;
+}
+html[data-ui-theme="classic-99"] .hub-kpi-value {
+  color: #000;
+  font-size: 1.2rem;
+}
+
+html[data-ui-theme="classic-99"] .hub-page-head h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: #000;
+}
+html[data-ui-theme="classic-99"] .hub-sub,
+html[data-ui-theme="classic-99"] .hub-page-meta,
+html[data-ui-theme="classic-99"] .hub-empty {
+  color: #404040;
+}
+
+html[data-ui-theme="classic-99"] .hub-table {
+  background: #fff;
+  border: 2px solid;
+  border-color: #808080 #fff #fff #808080;
+  font-size: 11px;
+}
+html[data-ui-theme="classic-99"] .hub-table th {
+  background: #c0c0c0;
+  color: #000;
+  border-bottom: 1px solid #808080;
+  font-weight: 700;
+  padding: 3px 6px;
+}
+html[data-ui-theme="classic-99"] .hub-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #dfdfdf;
+  color: #000;
+}
+html[data-ui-theme="classic-99"] .hub-table tbody tr:hover,
+html[data-ui-theme="classic-99"] .hub-table tbody tr.is-selected {
+  background: #000080 !important;
+  color: #fff !important;
+}
+html[data-ui-theme="classic-99"] .hub-table tbody tr:hover td,
+html[data-ui-theme="classic-99"] .hub-table tbody tr.is-selected td {
+  color: #fff !important;
+}
+
+html[data-ui-theme="classic-99"] .input,
+html[data-ui-theme="classic-99"] select.input,
+html[data-ui-theme="classic-99"] textarea.input,
+html[data-ui-theme="classic-99"] input[type="text"],
+html[data-ui-theme="classic-99"] input[type="search"],
+html[data-ui-theme="classic-99"] textarea,
+html[data-ui-theme="classic-99"] select {
+  border-radius: 0 !important;
+  border: 2px solid !important;
+  border-color: #808080 #fff #fff #808080 !important;
+  background: #fff !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+
+html[data-ui-theme="classic-99"] .hub-inline-tabs .hub-btn,
+html[data-ui-theme="classic-99"] .hub-tab {
+  border-radius: 0;
+}
+html[data-ui-theme="classic-99"] .hub-account-menu,
+html[data-ui-theme="classic-99"] .hub-notif-panel {
+  border-radius: 0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  background: #c0c0c0;
+  box-shadow: 4px 4px 0 rgba(0,0,0,0.25);
+}
+
+/* Classic 99 overlays stay opaque / beveled — never inherit Modern Glass */
+html[data-ui-theme="classic-99"] .sl-modal-overlay,
+html[data-ui-theme="classic-99"] .sl-modal-backdrop,
+html[data-ui-theme="classic-99"] .modal-backdrop,
+html[data-ui-theme="classic-99"] .tmpl-modal-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-ui-theme="classic-99"] .sl-modal,
+html[data-ui-theme="classic-99"] .modal,
+html[data-ui-theme="classic-99"] .tmpl-modal {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  border-radius: 0;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.35);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  color: #000;
+}
+
+html[data-ui-theme="classic-99"] .sl-modal-header,
+html[data-ui-theme="classic-99"] .sl-modal-head,
+html[data-ui-theme="classic-99"] .modal-head,
+html[data-ui-theme="classic-99"] .tmpl-modal-head,
+html[data-ui-theme="classic-99"] .sl-modal-actions,
+html[data-ui-theme="classic-99"] .modal-actions,
+html[data-ui-theme="classic-99"] .tmpl-modal-foot {
+  background: #c0c0c0;
+  border-color: #808080;
+  border-radius: 0;
+  backdrop-filter: none;
+}
+
+html[data-ui-theme="classic-99"] .sl-modal-actions .primary,
+html[data-ui-theme="classic-99"] .modal-actions .primary,
+html[data-ui-theme="classic-99"] .tmpl-modal-foot .primary {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  color: #000;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html[data-ui-theme="classic-99"] .sl-modal-actions .secondary,
+html[data-ui-theme="classic-99"] .modal-actions .secondary,
+html[data-ui-theme="classic-99"] .tmpl-modal-foot .secondary {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #404040 #404040 #fff;
+  color: #000;
+  border-radius: 0;
+}
+
+html[data-ui-theme="classic-99"] .hub-access-restricted,
+html[data-ui-theme="classic-99"] .cr-workspace,
+html[data-ui-theme="classic-99"] .cr-summary-grid {
+  /* inherit classic surfaces */
+}

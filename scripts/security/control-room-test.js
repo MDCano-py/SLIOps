@@ -156,8 +156,8 @@ async function main() {
     canAccessCrResource(['hub_admin'], CONTROL_ROOM_PERMS.supervisor, {})
   );
 
-  // Empty master data (no fake production seed)
-  process.env.CONTROL_ROOM_MEMORY_SEED = '0';
+  // Empty master data (no fake production seed) — seed is opt-in only
+  delete process.env.CONTROL_ROOM_MEMORY_SEED;
   resetControlRoomStoreForTests(createMemoryStore());
   let empty = await call('GET', '/hub/control-room/current', {
     actorEmail: 'op@sliops.test',
@@ -173,8 +173,50 @@ async function main() {
     body: { summary: 'blocked without station' },
   });
   assert('empty stations → log create 409 CR_NEEDS_BOOTSTRAP', empty.status === 409 && empty.body.code === 'CR_NEEDS_BOOTSTRAP');
-  delete process.env.CONTROL_ROOM_MEMORY_SEED;
 
+  // Bootstrap API without seed
+  delete process.env.CONTROL_ROOM_MEMORY_SEED;
+  resetControlRoomStoreForTests(createMemoryStore());
+  let boot = await call('POST', '/hub/control-room/stations', {
+    actorEmail: 'op@sliops.test',
+    permissions: OPERATOR,
+    body: { name: 'Plant Op Attempt' },
+  });
+  assert('operator cannot create station', boot.status === 403);
+  boot = await call('POST', '/hub/control-room/stations', {
+    actorEmail: 'sup@sliops.test',
+    permissions: SUPERVISOR,
+    body: { name: 'Plant A Control Room', key: 'plant-a' },
+  });
+  assert('supervisor creates station', boot.status === 201 && boot.body.station?.key === 'plant-a');
+  const bootStationId = boot.body.station.id;
+  boot = await call('POST', '/hub/control-room/units', {
+    actorEmail: 'sup@sliops.test',
+    permissions: SUPERVISOR,
+    body: { station_id: bootStationId, name: 'Unit 100', key: 'unit-100' },
+  });
+  assert('supervisor creates unit', boot.status === 201 && boot.body.unit?.key === 'unit-100');
+  boot = await call('GET', '/hub/control-room/current', {
+    actorEmail: 'op@sliops.test',
+    permissions: OPERATOR,
+  });
+  assert(
+    'after bootstrap current has station',
+    boot.status === 200 && boot.body.station?.name === 'Plant A Control Room' && !boot.body.needs_bootstrap
+  );
+  boot = await call('GET', '/hub/control-room/meta', {
+    actorEmail: 'op@sliops.test',
+    permissions: OPERATOR,
+  });
+  assert('meta omits store kind for operators', boot.status === 200 && boot.body.store == null);
+  boot = await call('GET', '/hub/control-room/meta', {
+    actorEmail: 'admin@sliops.test',
+    permissions: ['hub_admin'],
+  });
+  assert('meta includes store kind for hub_admin', boot.status === 200 && boot.body.store === 'memory');
+
+  // Opt-in test seed for remaining suite scenarios
+  process.env.CONTROL_ROOM_MEMORY_SEED = '1';
   resetControlRoomStoreForTests(createMemoryStore());
   const store = getControlRoomStore();
   assert('17. memory store kind (Postgres path available separately)', store.kind === 'memory');
@@ -393,13 +435,19 @@ async function main() {
     body: {
       station_id: stationId,
       operator_email: op,
+      operator_user_id: 'entra-oid-op-test',
       work_date: workDate,
       starts_at: `${workDate}T08:00:00.000Z`,
       ends_at: `${workDate}T16:00:00.000Z`,
       role_context: 'operator',
     },
   });
-  assert('12. schedule assignment', r.status === 201 && r.body.assignment?.operator_email === op);
+  assert(
+    '12. schedule assignment',
+    r.status === 201 &&
+      r.body.assignment?.operator_email === op &&
+      r.body.assignment?.operator_user_id === 'entra-oid-op-test'
+  );
 
   r = await call('POST', '/hub/control-room/schedule', {
     actorEmail: sup,
@@ -413,7 +461,24 @@ async function main() {
       role_context: 'operator',
     },
   });
-  assert('12b. second assignment', r.status === 201);
+  assert(
+    '12b. overlapping assignment rejected 409',
+    r.status === 409 && r.body.code === 'CR_SCHEDULE_OVERLAP'
+  );
+
+  r = await call('POST', '/hub/control-room/schedule', {
+    actorEmail: sup,
+    permissions: SUPERVISOR,
+    body: {
+      station_id: stationId,
+      operator_email: 'other@sliops.test',
+      work_date: workDate,
+      starts_at: `${workDate}T16:00:00.000Z`,
+      ends_at: `${workDate}T20:00:00.000Z`,
+      role_context: 'operator',
+    },
+  });
+  assert('12c. non-overlapping second assignment', r.status === 201);
 
   r = await call('GET', '/hub/control-room/schedule', {
     actorEmail: op,
@@ -423,8 +488,130 @@ async function main() {
   assert(
     '13. overlap/gap handling',
     r.status === 200 &&
-      (r.body.overlaps || []).length >= 1 &&
+      Array.isArray(r.body.overlaps) &&
       Array.isArray(r.body.gaps)
+  );
+
+  // Directory endpoint (schedule managers)
+  const { setEmployeeDirectoryForTests } = require(path.join(ROOT, 'api/lib/user-directory.js'));
+  setEmployeeDirectoryForTests(() => [
+    { id: 'oid-1', email: op, name: 'Operator One', external_id: 'oid-1' },
+    { id: 'oid-2', email: 'other@sliops.test', name: 'Other Op', external_id: 'oid-2' },
+  ]);
+  r = await call('GET', '/hub/control-room/directory', {
+    actorEmail: sup,
+    permissions: SUPERVISOR,
+    query: { q: 'operator' },
+  });
+  assert(
+    '12d. directory searchable for schedule managers',
+    r.status === 200 &&
+      (r.body.employees || []).some((e) => e.email === op) &&
+      r.body.source === 'local_directory'
+  );
+  r = await call('GET', '/hub/control-room/directory', {
+    actorEmail: 'nobody@sliops.test',
+    permissions: [],
+  });
+  assert('12e. directory denied without CR view', r.status === 403);
+  setEmployeeDirectoryForTests(null);
+
+  // Week range + PATCH/DELETE
+  r = await call('GET', '/hub/control-room/schedule', {
+    actorEmail: op,
+    permissions: OPERATOR,
+    query: {
+      station_id: stationId,
+      work_date_from: workDate,
+      work_date_to: workDate,
+    },
+  });
+  assert(
+    '12f. week/range list returns gaps_by_date',
+    r.status === 200 &&
+      Array.isArray(r.body.assignments) &&
+      r.body.gaps_by_date &&
+      Array.isArray(r.body.gaps_by_date[workDate])
+  );
+
+  const schedId = (
+    await call('GET', '/hub/control-room/schedule', {
+      actorEmail: op,
+      permissions: OPERATOR,
+      query: { station_id: stationId, work_date: workDate },
+    })
+  ).body.assignments.find((a) => a.operator_email === op)?.id;
+
+  r = await call('PATCH', '/hub/control-room/schedule/' + encodeURIComponent(schedId), {
+    actorEmail: op,
+    permissions: OPERATOR,
+    body: { ends_at: `${workDate}T17:00:00.000Z` },
+  });
+  assert('12g. operator cannot PATCH schedule 403', r.status === 403);
+
+  r = await call('PATCH', '/hub/control-room/schedule/' + encodeURIComponent(schedId), {
+    actorEmail: sup,
+    permissions: SUPERVISOR,
+    body: {
+      starts_at: `${workDate}T09:00:00.000Z`,
+      ends_at: `${workDate}T15:00:00.000Z`,
+    },
+  });
+  assert(
+    '12h. supervisor PATCH schedule',
+    r.status === 200 && r.body.assignment?.starts_at === `${workDate}T09:00:00.000Z`
+  );
+
+  r = await call('PATCH', '/hub/control-room/schedule/' + encodeURIComponent(schedId), {
+    actorEmail: sup,
+    permissions: SUPERVISOR,
+    body: {
+      starts_at: `${workDate}T16:30:00.000Z`,
+      ends_at: `${workDate}T19:00:00.000Z`,
+    },
+  });
+  assert('12i. PATCH overlap rejected 409', r.status === 409 && r.body.code === 'CR_SCHEDULE_OVERLAP');
+
+  const overnightDate = '2026-10-06';
+  r = await call('POST', '/hub/control-room/schedule', {
+    actorEmail: sup,
+    permissions: SUPERVISOR,
+    body: {
+      station_id: stationId,
+      operator_email: 'night@sliops.test',
+      work_date: overnightDate,
+      starts_at: '2026-10-06T23:00:00.000Z',
+      ends_at: '2026-10-07T07:00:00.000Z',
+      role_context: 'operator',
+    },
+  });
+  assert('12j. overnight shift create', r.status === 201);
+  const nightId = r.body.assignment?.id;
+
+  r = await call('DELETE', '/hub/control-room/schedule/' + encodeURIComponent(nightId), {
+    actorEmail: op,
+    permissions: OPERATOR,
+  });
+  assert('12k. operator cannot DELETE 403', r.status === 403);
+
+  r = await call('DELETE', '/hub/control-room/schedule/' + encodeURIComponent(nightId), {
+    actorEmail: sup,
+    permissions: SUPERVISOR,
+  });
+  assert('12l. supervisor DELETE schedule', r.status === 200 && r.body.deleted === true);
+
+  // Date formatting helpers
+  const { formatDateTimeRange, eachDateInclusive } = require(path.join(ROOT, 'api/lib/control-room/logic.js'));
+  const overnightLabel = formatDateTimeRange('2026-10-06T23:00:00.000Z', '2026-10-07T07:00:00.000Z', 'UTC');
+  assert(
+    '12m. overnight range readable (no raw ISO)',
+    !overnightLabel.includes('T23:') &&
+      overnightLabel.includes('–') &&
+      /Oct/.test(overnightLabel)
+  );
+  assert(
+    '12n. eachDateInclusive week length',
+    eachDateInclusive('2026-10-05', '2026-10-11').length === 7
   );
 
   // Operator cannot manage schedule

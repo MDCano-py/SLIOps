@@ -190,14 +190,18 @@
         }
       });
     } catch (err) {
+      const code = err.body?.code || err.code;
       const msg =
         err.status === 403
           ? 'You do not have permission to open this launch entry.'
           : err.status === 404 || err.status === 410
             ? 'This launch entry is unavailable.'
-            : err.message;
+            : code === 'POSTGRES_REQUIRED'
+              ? 'This form needs the hub database. Ask an administrator if the problem continues.'
+              : err.message || 'Could not open this form.';
       root.innerHTML = `<div class="hub-panel"><div class="hub-panel-body pad"><div class="tmpl-api-error"><strong>Cannot open form</strong><p>${esc(msg)}</p>
-        <button type="button" class="hub-btn hub-btn-ghost" id="tmplRuntimeBack">Back to New Request</button></div></div></div>`;
+        <button type="button" class="hub-btn hub-btn-ghost" id="tmplRuntimeBack">Back to New Request</button>
+        <button type="button" class="hub-btn hub-btn-ghost" id="tmplRuntimeRetry">Retry</button></div></div></div>`;
       root.querySelector('#tmplRuntimeBack')?.addEventListener('click', () => {
         if (typeof options.onCancel === 'function') {
           options.onCancel();
@@ -205,6 +209,9 @@
         }
         if (typeof global.switchTab === 'function') global.switchTab('hub-new-request');
         if (global.streamlineRouter) global.streamlineRouter.setHash('#/new-request');
+      });
+      root.querySelector('#tmplRuntimeRetry')?.addEventListener('click', () => {
+        renderLaunchForm(root, entryId, options);
       });
     }
   }

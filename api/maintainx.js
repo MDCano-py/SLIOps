@@ -236,9 +236,17 @@ function verifyVendorToken(token) {
   }
 }
 
+function isVendorLegacyPasscodeAllowed() {
+  // SCR-S05 — shared passcode / X-Vendor-Session is non-production only.
+  const env = (process.env.NODE_ENV || '').toLowerCase();
+  if (env === 'production' || env === 'staging') return false;
+  if (String(process.env.VENDOR_LEGACY_PASSCODE || '').toLowerCase() === 'off') return false;
+  return !!process.env.VENDOR_ACCESS_CODE;
+}
+
 function requireVendorAuth(req, res) {
-  if (!process.env.VENDOR_ACCESS_CODE) {
-    res.status(500).json({ error: 'Server misconfigured: VENDOR_ACCESS_CODE not set' });
+  if (!isVendorLegacyPasscodeAllowed()) {
+    res.status(404).json({ error: 'Not found' });
     return false;
   }
   const token = req.headers['x-vendor-session'] || '';
@@ -680,7 +688,8 @@ const BUILT_IN_ROLES = [
   {
     id: 'management',
     name: 'Management',
-    description: 'Everything EXCEPT edit_vendor_info and edit_vendor_workflow. Can view and submit vendor work, manage compliance/documents, delete archive records, and manage user permissions.',
+    description:
+      'Operations leadership: vendor compliance/docs, archive delete, user permission admin, and Control Room supervisor. SSO trust (manage_sso) is separate and must be granted explicitly.',
     permissions: [
       'view_home',
       'view_hub_dashboard',
@@ -708,7 +717,6 @@ const BUILT_IN_ROLES = [
       'delete_jsa_archive',
       'delete_bol_archive',
       'admin',
-      'manage_sso',
       ...CONTROL_ROOM_SUPERVISOR_PERMS,
     ],
     isProtected: true,
@@ -784,6 +792,11 @@ async function seedBuiltInRoles() {
         have.add(perm);
         changed = true;
       }
+    }
+    // manage_sso stays separate from Management — strip if present on canonical management role
+    if (r.id === 'management' && have.has('manage_sso') && !required.includes('manage_sso')) {
+      have.delete('manage_sso');
+      changed = true;
     }
     if (changed) {
       const updated = {
@@ -2287,10 +2300,12 @@ module.exports = async function handler(req, res) {
   // still hits this gate.
   const ssoEnforced = (process.env.SSO_ENFORCEMENT || 'on').toLowerCase() !== 'off';
   if (ssoEnforced && req.method !== 'OPTIONS') {
+    const { isVendorIdentityPublicPath } = require('./lib/vendor/identity/routes');
     const isPublicPath =
       pathOnly === '/me' ||
       pathOnly === '/vendor-auth' ||
       pathOnly === '/vendor-session' ||
+      isVendorIdentityPublicPath(pathOnly) ||
       pathOnly === '/photo-cleanup' ||
       pathOnly === '/swp-number' ||
       pathOnly.startsWith('/archive-wipe-orphans') ||
@@ -2580,6 +2595,13 @@ module.exports = async function handler(req, res) {
       displayName: userRecord.displayName || null,
       firstName: userRecord.firstName || null,
       lastName: userRecord.lastName || null,
+      // Optional profile fields — only when provisioned (never invented)
+      phone: userRecord.phone || userRecord.phoneNumber || null,
+      department: userRecord.department || null,
+      jobTitle: userRecord.jobTitle || userRecord.job_title || null,
+      // Stable directory id when AuthBridge/Entra provisioned it (no Graph / no browser tokens)
+      external_id: userRecord.external_id || userRecord.oid || null,
+      oid: userRecord.oid || null,
       role: primaryRole,
       role_keys: roleKeys,
       permissions: userRecord.permissions || [],
@@ -3001,8 +3023,9 @@ module.exports = async function handler(req, res) {
   }
 
   // ---- Vendor management endpoints ----
-  // POST   /vendor-auth                    — verify passcode, return session token
-  // GET    /vendor-session                 — verify current session token (for resume)
+  // POST   /vendor-auth                    — LEGACY passcode (non-prod only; SCR-S05)
+  // GET    /vendor-session                 — LEGACY session check (non-prod only)
+  // /vendor/auth/* + /vendor/workspace     — production vendor contact identity
   // GET    /vendors                        — list all vendors (metadata + summary)
   // POST   /vendors                        — create a new vendor record
   // GET    /vendors/{ref}                  — fetch full record by reference number
@@ -3013,9 +3036,31 @@ module.exports = async function handler(req, res) {
   // GET    /vendor-doc?url=...             — proxy-fetch a doc (so blob URL stays private)
   // DELETE /vendor-docs/{ref}/{filename}   — delete an uploaded doc
 
-  // ---- Auth: verify passcode, issue session token ----
+  // ---- Vendor contact identity (magic-link + vendor session) ----
+  {
+    const { handleVendorIdentityRoute } = require('./lib/vendor/identity/routes');
+    let identityPath = path;
+    if (typeof identityPath === 'string' && identityPath.includes('?')) {
+      const qi = identityPath.indexOf('?');
+      const embedded = new URLSearchParams(identityPath.slice(qi + 1));
+      identityPath = identityPath.slice(0, qi);
+      if (!req.query || typeof req.query !== 'object') req.query = {};
+      for (const [k, v] of embedded.entries()) {
+        if (k === 'path') continue;
+        if (req.query[k] == null) req.query[k] = v;
+      }
+    }
+    const handled = await handleVendorIdentityRoute(identityPath, req, res, {
+      vendorStore,
+      requirePermissions,
+      auth,
+    });
+    if (handled) return;
+  }
+
+  // ---- Auth: verify passcode, issue session token (LEGACY — SCR-S05) ----
   if (path === '/vendor-auth') {
-    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+    if (!isVendorLegacyPasscodeAllowed()) {
       return res.status(404).json({ error: 'Not found' });
     }
     if (req.method !== 'POST') {
@@ -3048,7 +3093,7 @@ module.exports = async function handler(req, res) {
   }
 
   if (path === '/vendor-session') {
-    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+    if (!isVendorLegacyPasscodeAllowed()) {
       return res.status(404).json({ error: 'Not found' });
     }
     // Lightweight check used by the portal on page load to see if an existing
@@ -3071,14 +3116,17 @@ module.exports = async function handler(req, res) {
 
   if (vendorMatch || vendorWorkflowMatch || vendorDocStatusMatch || vendorZipMatch || vendorRecordMatch || vendorDocMatch || vendorDocFetchMatch) {
     // Prefer Hub SSO RBAC for Management UI (local/staging/production).
-    // Legacy vendor passcode sessions remain only when X-Vendor-Session is present.
+    // Legacy vendor passcode sessions: non-prod only (SCR-S05).
     let ctx = null;
     const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
     const isWorkflowPost = vendorWorkflowMatch && req.method === 'POST';
     const isDocStatusPost = vendorDocStatusMatch && req.method === 'POST';
     const vendorSessionHeader = req.headers['x-vendor-session'] || '';
     const useLegacyVendorPasscode =
-      !!vendorSessionHeader && !!process.env.VENDOR_ACCESS_CODE && !auth.getActorEmail(req) && !isPortalAuthRelaxed(req);
+      !!vendorSessionHeader &&
+      isVendorLegacyPasscodeAllowed() &&
+      !auth.getActorEmail(req) &&
+      !isPortalAuthRelaxed(req);
 
     if (useLegacyVendorPasscode) {
       if (!requireVendorAuth(req, res)) return;
@@ -3937,13 +3985,40 @@ module.exports = async function handler(req, res) {
         }
 
         // PUT /users/{email}/permissions — replace permissions
+        // Actor identity comes only from verified session / AuthBridge (ctx), never request body.
         if (req.method === 'PUT' && isPermsPath) {
           const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
           const perms = Array.isArray(body.permissions) ? body.permissions : [];
-          const actor = String(ctx.actorEmail || auth.getActorEmail(req) || 'unknown').toLowerCase();
+          const actor = String(ctx.actorEmail || auth.getActorEmail(req) || '').toLowerCase();
+          if (!actor) {
+            return res.status(401).json({ error: 'Authentication required', code: 'WOS_AUTH_REQUIRED' });
+          }
           // Bootstrap admins can't have their permissions changed (always full)
           if (isBootstrapAdmin(email)) {
             return res.status(400).json({ error: 'Cannot modify a bootstrap admin (always has full permissions)' });
+          }
+          // Prevent self-elevation / self privilege edits
+          if (actor === email) {
+            return res.status(403).json({
+              error: 'You cannot modify your own permissions',
+              code: 'SELF_ELEVATION_FORBIDDEN',
+            });
+          }
+          // Privilege ceiling: non-bootstrap actors may only grant permissions they hold
+          // (including manage_sso — SSO trust stays separate from Management).
+          if (!isBootstrapAdmin(actor)) {
+            const actorRec = await getUserPermissions(actor);
+            const actorPerms = new Set(
+              Array.isArray(actorRec?.permissions) ? actorRec.permissions : []
+            );
+            const blocked = perms.filter((p) => !actorPerms.has(p));
+            if (blocked.length) {
+              return res.status(403).json({
+                error: 'Cannot grant permissions you do not hold',
+                code: 'PRIVILEGE_CEILING',
+                permissions: blocked,
+              });
+            }
           }
           const existing = await redis.get(`user:${email}`);
           const isNew = !existing;
@@ -3956,7 +4031,16 @@ module.exports = async function handler(req, res) {
           if (isBootstrapAdmin(email)) {
             return res.status(400).json({ error: 'Cannot remove a bootstrap admin' });
           }
-          const actor = String(ctx.actorEmail || auth.getActorEmail(req) || 'unknown').toLowerCase();
+          const actor = String(ctx.actorEmail || auth.getActorEmail(req) || '').toLowerCase();
+          if (!actor) {
+            return res.status(401).json({ error: 'Authentication required', code: 'WOS_AUTH_REQUIRED' });
+          }
+          if (actor === email) {
+            return res.status(403).json({
+              error: 'You cannot remove your own user record',
+              code: 'SELF_ELEVATION_FORBIDDEN',
+            });
+          }
           await deleteUserRecord(email, actor);
           return res.status(200).json({ deleted: true });
         }

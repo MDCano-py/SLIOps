@@ -57,9 +57,9 @@ UserA and UserB remain equivalent Standard identities (`employee` / field_techni
 | `employee` | Core view tabs + **CR operator pack**; no management | Standard UI | Non-admin + CR ops | Shared ops + own submissions; CR shared by capability | none | IDOR / step / CR |
 | `requester` | employee views + `view_management` + `submit_new_vendor` (**no CR**) | Mgmt tab limited | Vendor submit | Shared | **no manage_sso** | gate2-sso neg |
 | `accounts_payable` | Vendor view/edit/docs (**no CR**) | Vendor full | Vendor mutations | Vendors | none | rbac-authz |
-| `management` | Near-full incl. `admin`, `hub_admin`, **`manage_sso`**, **CR supervisor pack** | Admin | Admin + SSO write + CR supervisor | Broad | trust write | gate2-sso / CR |
+| `management` | Near-full incl. `admin`, `hub_admin`, **CR supervisor pack** — **not** `manage_sso` | Admin | Admin + CR supervisor | Broad | **no trust write by default** | gate2-sso / CR / design7 |
 
-**Seed caveat:** existing Redis `role:management` may lack `manage_sso` until re-seeded or manually updated (`INFRASTRUCTURE_CHANGE_REQUIRED` / ops task).
+**SSO trust:** `manage_sso` is granted explicitly (Hub Admin / dedicated grant). Seed merge strips `manage_sso` from Redis `role:management` if present.
 
 ---
 

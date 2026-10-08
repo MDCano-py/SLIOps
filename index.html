@@ -21,6 +21,13 @@
         document.documentElement.setAttribute('data-theme', 'dark');
       }
     } catch (e) { /* localStorage may be blocked — fall through to light */ }
+    try {
+      var ui = localStorage.getItem('sli.uiTheme');
+      if (ui !== 'classic-99' && ui !== 'modern-glass') ui = 'modern-glass';
+      document.documentElement.setAttribute('data-ui-theme', ui);
+    } catch (e2) {
+      document.documentElement.setAttribute('data-ui-theme', 'modern-glass');
+    }
   })();
 
   // Hub-first boot: hide legacy portal chrome on every load until route hydration.
@@ -4534,6 +4541,66 @@
     margin-top: 10px;
   }
   .sl-modal-field-label:first-child { margin-top: 0; }
+  .sl-person-search {
+    position: relative;
+  }
+  .sl-person-search-list {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+    max-height: 220px;
+    overflow: auto;
+    background: var(--paper, #fff);
+    border: 1px solid var(--line, #d5dedb);
+    border-radius: 10px;
+    box-shadow: 0 12px 28px rgba(16, 45, 43, 0.14);
+  }
+  .sl-person-search-list[hidden] { display: none !important; }
+  .sl-person-search-option {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    color: var(--ink);
+    font: inherit;
+  }
+  .sl-person-search-option:hover,
+  .sl-person-search-option.is-active,
+  .sl-person-search-option[aria-selected="true"] {
+    background: rgba(8, 124, 112, 0.12);
+  }
+  .sl-person-search-option strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .sl-person-search-option span {
+    font-size: 12px;
+    color: var(--ink-soft, #5a6f6c);
+  }
+  .sl-person-search-status {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ink-soft, #5a6f6c);
+    min-height: 16px;
+  }
+  .sl-person-search-status.is-verified { color: var(--teal-700, #087c70); font-weight: 600; }
+  .sl-person-search-status.is-manual { color: var(--warn-ink, #b45309); }
+  .sl-person-search-empty {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
   .sl-modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -5472,15 +5539,20 @@
   .archive-toolbar {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 10px;
     padding: 16px 20px;
     border-bottom: 1px solid var(--line);
     background: var(--bg);
   }
   .archive-search {
-    flex: 1;
-    min-width: 220px;
+    flex: 1 1 220px;
+    min-width: 200px;
+    max-width: 480px;
     position: relative;
+    background: transparent;
+    border: none;
+    padding: 0;
   }
   .archive-search svg {
     position: absolute;
@@ -5491,15 +5563,20 @@
     height: 16px;
     color: var(--ink-mute);
     pointer-events: none;
+    z-index: 1;
   }
   .archive-search .input {
     padding-left: 36px;
+    width: 100%;
+    height: 36px;
+    box-sizing: border-box;
   }
   .archive-filters {
     display: flex;
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
+    flex: 1 1 auto;
   }
   .archive-filters .input {
     height: 36px;
@@ -8180,39 +8257,40 @@
   }
   .tmpl-modal-foot { border-bottom: 0; border-top: 1px solid var(--border, #e2e8f0); justify-content: flex-end; gap: 8px; }
   .tmpl-modal-body { padding: 16px 20px; }
-  html[data-theme="dark"] .tmpl-modal-backdrop {
+  /* Flat dark tmpl modals — Classic / non-glass only (Modern Glass uses hub-themes.css) */
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-backdrop {
     background: rgba(0, 0, 0, 0.62);
   }
-  html[data-theme="dark"] .tmpl-modal {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal {
     background: var(--paper, #1a2426);
     color: var(--ink, #e8eef0);
     box-shadow: var(--shadow-md);
   }
-  html[data-theme="dark"] .tmpl-modal-head,
-  html[data-theme="dark"] .tmpl-modal-foot {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-head,
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-foot {
     background: #121a1c;
     border-color: #2a4248;
   }
-  html[data-theme="dark"] .tmpl-modal-head h3 {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-head h3 {
     color: var(--ink, #e8eef0);
   }
-  html[data-theme="dark"] .tmpl-modal-body .field label {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body .field label {
     color: var(--ink, #e8eef0);
   }
-  html[data-theme="dark"] .tmpl-modal-body .input,
-  html[data-theme="dark"] .tmpl-modal-body select.input,
-  html[data-theme="dark"] .tmpl-modal-body textarea.input {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body .input,
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body select.input,
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body textarea.input {
     background: #121a1c;
     border-color: #2a4248;
     color: #e2e8f0;
   }
-  html[data-theme="dark"] .tmpl-modal-body .input:focus,
-  html[data-theme="dark"] .tmpl-modal-body select.input:focus,
-  html[data-theme="dark"] .tmpl-modal-body textarea.input:focus {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body .input:focus,
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body select.input:focus,
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body textarea.input:focus {
     border-color: var(--teal-600, #3aa9af);
     box-shadow: 0 0 0 3px rgba(62, 169, 175, 0.2);
   }
-  html[data-theme="dark"] .tmpl-modal-body .hub-sub {
+  html[data-theme="dark"]:not([data-ui-theme="modern-glass"]) .tmpl-modal-body .hub-sub {
     color: var(--ink-soft, #aab8ba);
   }
   .tmpl-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -8819,6 +8897,7 @@
   }
 </style>
 <link rel="stylesheet" href="hub.css" />
+<link rel="stylesheet" href="hub-themes.css" />
 </head>
 <body class="hub-mode">
 
@@ -9087,12 +9166,20 @@
         </aside>
         <div class="hub-workspace">
           <header class="hub-topbar">
-            <div class="hub-topbar-search">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-              <input type="search" id="hubGlobalSearch" placeholder="Search requests, work orders, documents…" aria-label="Search hub" />
+            <div class="hub-search-wrap" id="hubSearchWrap">
+              <div class="hub-topbar-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input type="search" id="hubGlobalSearch" placeholder="Search requests…" aria-label="Search hub" autocomplete="off" aria-autocomplete="list" aria-controls="hubSearchDropdown" aria-expanded="false" />
+              </div>
+              <div class="hub-search-dropdown" id="hubSearchDropdown" role="listbox" hidden></div>
             </div>
             <div class="hub-topbar-actions">
-              <button type="button" class="hub-topbar-icon-btn" id="hubThemeToggle" aria-label="Toggle theme" title="Toggle theme"></button>
+              <label class="visually-hidden" for="hubUiThemeSelect">UI theme</label>
+              <select id="hubUiThemeSelect" class="hub-ui-theme-select" title="UI theme" aria-label="UI theme">
+                <option value="modern-glass">Modern Glass</option>
+                <option value="classic-99">Classic 99</option>
+              </select>
+              <button type="button" class="hub-topbar-icon-btn" id="hubThemeToggle" aria-label="Toggle theme" title="Toggle light/dark"></button>
               <button type="button" class="hub-topbar-icon-btn hub-notif-btn" id="hubNotificationsBtn" aria-label="Notifications" title="Notifications">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                 <span class="hub-notif-badge" id="hubNotifBadge" hidden></span>
@@ -9126,7 +9213,7 @@
                   <button type="button" class="hub-btn hub-btn-primary" data-hub-tab="hub-new-request">+ New Request</button>
                 </div>
                 <div id="hubDevToolsPanel" class="hub-dev-tools" hidden aria-live="polite">
-                  <p class="hub-dev-warning"><strong>Staging test data.</strong> Seeded hub records are tagged <code>demo: true</code> for safe cleanup. This control never runs in production. Clear demo data before leadership demos if you need a clean queue.</p>
+                  <p class="hub-dev-warning"><strong>Staging test data.</strong> Seeded hub records are tagged for safe cleanup. This control never runs in production. Clear demo data before leadership demos if you need a clean queue.</p>
                   <div class="hub-dev-actions">
                     <button type="button" class="hub-btn hub-btn-secondary" id="hubSeedDemoBtn">Seed staging test data</button>
                     <button type="button" class="hub-btn hub-btn-ghost" id="hubClearDemoBtn">Clear staging test data</button>
@@ -9325,7 +9412,7 @@
                   </button>
                   <button type="button" class="hub-settings-card hub-settings-card--action" data-hub-settings-card="health">
                     <strong>System health</strong>
-                    <span>Store mode, Postgres, delivery queues, and service status</span>
+                    <span>Service status, data store, and delivery queues</span>
                     <span class="hub-settings-card-foot">View health details</span>
                   </button>
                 </div>
@@ -9376,12 +9463,6 @@
                 <div id="hubWorkflowsRoot"><div class="hub-loading">Loading workflows…</div></div>
               </div>
               <div class="hub-page" id="hubPageUsers" data-hub-page="hub-users" hidden>
-                <div class="hub-page-head">
-                  <div>
-                    <h1>User Management</h1>
-                    <p class="hub-sub">Manage hub users, roles, and permissions.</p>
-                  </div>
-                </div>
                 <div id="hubUsersRestricted" hidden></div>
                 <div id="hubUsersMount" class="hub-users-mount"></div>
               </div>
@@ -9466,16 +9547,22 @@
         </div>
 
         <div class="row-2">
-          <div class="field" id="f-contact">
-            <label for="contact">Your Email <span class="req-mark">*</span></label>
-            <input class="input" type="email" id="contact" name="contact" placeholder="you@company.com" autocomplete="email" required>
-            <div class="err">Please enter a valid email</div>
+          <div class="field" id="f-contact-name">
+            <label for="contact-name">Your Name</label>
+            <input class="input hub-identity-readonly" type="text" id="contact-name" name="contactName" placeholder="Loading…" autocomplete="name" readonly>
           </div>
 
-          <div class="field" id="f-phone">
-            <label for="phone">Phone <span class="opt">— optional</span></label>
-            <input class="input" type="tel" id="phone" name="phone" placeholder="(555) 123-4567" autocomplete="tel">
+          <div class="field" id="f-contact">
+            <label for="contact">Your Email <span class="req-mark">*</span></label>
+            <input class="input hub-identity-readonly" type="email" id="contact" name="contact" placeholder="Loading…" autocomplete="email" required readonly>
+            <div class="err">Please enter a valid email</div>
+            <div class="hub-sub" style="margin-top:4px">Authenticated submitter — not editable. Contact phone below is optional.</div>
           </div>
+        </div>
+
+        <div class="field" id="f-phone">
+          <label for="phone">Phone <span class="opt">— optional</span></label>
+          <input class="input" type="tel" id="phone" name="phone" placeholder="(555) 123-4567" autocomplete="tel">
         </div>
 
         <div class="parts-section">
@@ -9703,16 +9790,22 @@
           </div>
 
           <div class="row-2">
-            <div class="field" id="wo-f-contact">
-              <label for="wo-contact">Your Email <span class="req-mark">*</span></label>
-              <input class="input" type="email" id="wo-contact" placeholder="you@company.com" autocomplete="email" required>
-              <div class="err">Please enter a valid email</div>
+            <div class="field" id="wo-f-contact-name">
+              <label for="wo-contact-name">Your Name</label>
+              <input class="input hub-identity-readonly" type="text" id="wo-contact-name" placeholder="Loading…" autocomplete="name" readonly>
             </div>
 
-            <div class="field" id="wo-f-phone">
-              <label for="wo-phone">Phone <span class="opt">— optional</span></label>
-              <input class="input" type="tel" id="wo-phone" placeholder="(555) 123-4567" autocomplete="tel">
+            <div class="field" id="wo-f-contact">
+              <label for="wo-contact">Your Email <span class="req-mark">*</span></label>
+              <input class="input hub-identity-readonly" type="email" id="wo-contact" placeholder="Loading…" autocomplete="email" required readonly>
+              <div class="err">Please enter a valid email</div>
+              <div class="hub-sub" style="margin-top:4px">Authenticated submitter — not editable.</div>
             </div>
+          </div>
+
+          <div class="field" id="wo-f-phone">
+            <label for="wo-phone">Phone <span class="opt">— optional</span></label>
+            <input class="input" type="tel" id="wo-phone" placeholder="(555) 123-4567" autocomplete="tel">
           </div>
 
           <div class="field" id="wo-f-photos">
@@ -12873,7 +12966,7 @@ function goBack() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--ink-mute);pointer-events:none;" aria-hidden="true">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
-                <input class="input" type="search" id="permsUserSearch" placeholder="Search users by email…">
+                <input class="input" type="search" id="permsUserSearch" placeholder="Search by name or email…" aria-label="Search users">
               </div>
               <div class="archive-filters">
                 <button type="button" class="secondary" id="permsAddUserBtn" style="white-space:nowrap;">+ Add User</button>
@@ -12885,8 +12978,8 @@ function goBack() {
                 </button>
               </div>
             </div>
-            <div class="perms-info-banner" id="permsSsoBanner">
-              <strong>SSO not yet enabled.</strong> Permissions are being captured and saved, but enforcement won't activate until Microsoft sign-in is wired up. You can configure users now so everything is ready when SSO goes live.
+            <div class="perms-info-banner" id="permsSsoBanner" style="display:none;" hidden>
+              <!-- Filled only in unsigned preview mode by loadPermissionsView -->
             </div>
             <div class="archive-list" id="permsUserList">
               <div class="archive-empty">Loading users…</div>
@@ -13735,8 +13828,14 @@ function goBack() {
     let valid = true;
 
     const locVal = document.getElementById('location').value;
-    const contactVal = document.getElementById('contact').value.trim();
+    let contactVal = document.getElementById('contact').value.trim();
     const phoneVal = document.getElementById('phone').value.trim();
+    if (window.HubIdentity) {
+      const id = window.HubIdentity.getCachedIdentity() || (await window.HubIdentity.loadIdentity());
+      contactVal = window.HubIdentity.enforceSubmitterEmail(contactVal, id) || contactVal;
+      const contactEl = document.getElementById('contact');
+      if (contactEl && contactVal) contactEl.value = contactVal;
+    }
 
     if (!locVal) { document.getElementById('f-location').classList.add('invalid'); valid = false; }
     if (!isValidEmail(contactVal)) { document.getElementById('f-contact').classList.add('invalid'); valid = false; }
@@ -14052,15 +14151,39 @@ function goBack() {
       overlay.style.display = 'flex';
     }
 
+    function focusableInModal() {
+      const modal = document.getElementById('slModal');
+      if (!modal) return [];
+      return Array.from(
+        modal.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+    }
+
     // Close on overlay click (outside the modal box)
     overlay.addEventListener('click', e => {
       if (e.target === overlay) close(undefined);
     });
     closeBtn.addEventListener('click', () => close(undefined));
-    // Close on Escape
+    // Escape closes; Tab cycles focus inside the open modal
     document.addEventListener('keydown', e => {
-      if (overlay.style.display !== 'none' && e.key === 'Escape') {
+      if (overlay.style.display === 'none') return;
+      if (e.key === 'Escape') {
         close(undefined);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const nodes = focusableInModal();
+      if (!nodes.length) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     });
 
@@ -14099,7 +14222,7 @@ function goBack() {
             const danger = !!opts.danger;
             actsEl.innerHTML = `
               <button type="button" class="secondary" id="slModalCancel">${escapeHtml(opts.cancelLabel || 'Cancel')}</button>
-              <button type="button" class="${danger ? 'primary' : 'primary'}" id="slModalConfirm" ${danger ? 'style="background:var(--red-ink);border-color:#991b1b;"' : ''}>${escapeHtml(opts.confirmLabel || 'Confirm')}</button>
+              <button type="button" class="primary${danger ? ' is-danger' : ''}" id="slModalConfirm"${danger ? ' style="background:var(--red-ink);border-color:#991b1b;"' : ''}>${escapeHtml(opts.confirmLabel || 'Confirm')}</button>
             `;
             document.getElementById('slModalCancel').addEventListener('click', () => close(false));
             const confirmBtn = document.getElementById('slModalConfirm');
@@ -14169,12 +14292,14 @@ function goBack() {
 
       // WOS-95 — multi-field create dialog (replaces stacked window.prompt calls)
       // opts.fields: [{ name, label, type?, placeholder?, defaultValue?, hint?, required? }]
+      // type: 'person-search' → searchable directory combobox (email + optional idField)
       // resolves object of values or undefined if cancelled
       form(opts) {
         closeIfOpen();
         return new Promise(resolve => {
           activeResolver = resolve;
           const fields = Array.isArray(opts.fields) ? opts.fields : [];
+          const personState = {};
           open(opts, () => {
             const rows = fields.map((f, i) => {
               const id = 'slModalField_' + i;
@@ -14182,6 +14307,18 @@ function goBack() {
               let control;
               if (f.multiline) {
                 control = `<textarea class="input" id="${id}" rows="3" placeholder="${escapeAttr(f.placeholder || '')}">${escapeHtml(f.defaultValue || '')}</textarea>`;
+              } else if (inputType === 'person-search') {
+                const display = f.defaultLabel || f.defaultValue || '';
+                control = `<div class="sl-person-search" id="${id}_wrap">
+                  <input class="input sl-person-search-input" type="search" id="${id}" role="combobox"
+                    aria-expanded="false" aria-autocomplete="list" aria-controls="${id}_list"
+                    placeholder="${escapeAttr(f.placeholder || 'Search by name or email')}"
+                    value="${escapeAttr(display)}" autocomplete="off" />
+                  <input type="hidden" id="${id}_email" value="${escapeAttr(f.defaultValue || '')}" />
+                  <input type="hidden" id="${id}_uid" value="${escapeAttr(f.defaultId || '')}" />
+                  <div class="sl-person-search-status" id="${id}_status" aria-live="polite"></div>
+                  <ul class="sl-person-search-list" id="${id}_list" role="listbox" hidden></ul>
+                </div>`;
               } else if (inputType === 'select' && Array.isArray(f.options)) {
                 const optsHtml = f.options.map((o) => {
                   const val = o && typeof o === 'object' ? String(o.value ?? '') : String(o);
@@ -14207,15 +14344,218 @@ function goBack() {
             `;
             const errEl = document.getElementById('slModalError');
             const okBtn = document.getElementById('slModalOk');
+
+            function wirePersonSearch(f, i) {
+              const id = 'slModalField_' + i;
+              const input = document.getElementById(id);
+              const list = document.getElementById(id + '_list');
+              const status = document.getElementById(id + '_status');
+              const emailEl = document.getElementById(id + '_email');
+              const uidEl = document.getElementById(id + '_uid');
+              if (!input || !list) return;
+              let people = Array.isArray(f.people) ? f.people.slice() : [];
+              let activeIdx = -1;
+              let searchTimer = null;
+              const allowManual = f.allowManual !== false;
+
+              function setStatus(kind, text) {
+                if (!status) return;
+                status.textContent = text || '';
+                status.className = 'sl-person-search-status' + (kind ? ' is-' + kind : '');
+              }
+
+              function selectPerson(p) {
+                if (!p) return;
+                emailEl.value = p.email || '';
+                uidEl.value = p.id || p.email || '';
+                input.value = (p.name ? p.name + ' · ' : '') + (p.email || '');
+                personState[i] = { email: emailEl.value, id: uidEl.value, verified: true };
+                setStatus('verified', 'Directory user');
+                list.hidden = true;
+                input.setAttribute('aria-expanded', 'false');
+                activeIdx = -1;
+              }
+
+              function applyManualFromInput() {
+                const raw = String(input.value || '').trim();
+                const emailMatch = raw.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
+                const email = (emailMatch ? emailMatch[0] : raw).toLowerCase();
+                const hit = people.find((p) => p.email === email);
+                if (hit) {
+                  selectPerson(hit);
+                  return;
+                }
+                if (allowManual && email.includes('@')) {
+                  emailEl.value = email;
+                  uidEl.value = email;
+                  personState[i] = { email, id: email, verified: false };
+                  setStatus('manual', 'Manual contact — not found in directory');
+                } else if (!raw) {
+                  emailEl.value = '';
+                  uidEl.value = '';
+                  personState[i] = { email: '', id: '', verified: false };
+                  setStatus('', '');
+                } else {
+                  emailEl.value = '';
+                  uidEl.value = '';
+                  personState[i] = { email: '', id: '', verified: false };
+                  setStatus('', allowManual ? 'Select a person or enter a full email' : 'Select a directory user');
+                }
+              }
+
+              function renderList(items) {
+                activeIdx = -1;
+                if (!items.length) {
+                  list.innerHTML = `<li class="sl-person-search-empty">${allowManual ? 'No matches — enter a full email to use a manual contact' : 'No matching people'}</li>`;
+                  list.hidden = false;
+                  input.setAttribute('aria-expanded', 'true');
+                  return;
+                }
+                list.innerHTML = items
+                  .slice(0, 40)
+                  .map(
+                    (p, idx) =>
+                      `<li role="option"><button type="button" class="sl-person-search-option" data-idx="${idx}" aria-selected="false"><strong>${escapeHtml(p.name || p.email)}</strong><span>${escapeHtml(p.email)}</span></button></li>`
+                  )
+                  .join('');
+                list._items = items.slice(0, 40);
+                list.hidden = false;
+                input.setAttribute('aria-expanded', 'true');
+                list.querySelectorAll('.sl-person-search-option').forEach((btn) => {
+                  btn.addEventListener('click', () => {
+                    const p = list._items[Number(btn.getAttribute('data-idx'))];
+                    selectPerson(p);
+                  });
+                });
+              }
+
+              function filterLocal(q) {
+                const query = String(q || '').trim().toLowerCase();
+                if (!query) return people.slice(0, 40);
+                return people.filter(
+                  (p) =>
+                    (p.email && p.email.includes(query)) ||
+                    (p.name && p.name.toLowerCase().includes(query))
+                );
+              }
+
+              async function runSearch(q) {
+                if (typeof f.searchPeople === 'function') {
+                  try {
+                    const remote = await f.searchPeople(q);
+                    if (Array.isArray(remote)) people = remote;
+                  } catch {
+                    /* keep local */
+                  }
+                }
+                renderList(filterLocal(q));
+              }
+
+              input.addEventListener('focus', () => {
+                runSearch(input.value);
+              });
+              input.addEventListener('input', () => {
+                errEl.textContent = '';
+                emailEl.value = '';
+                uidEl.value = '';
+                personState[i] = { email: '', id: '', verified: false };
+                setStatus('', '');
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(() => runSearch(input.value), 160);
+              });
+              input.addEventListener('blur', () => {
+                setTimeout(() => {
+                  list.hidden = true;
+                  input.setAttribute('aria-expanded', 'false');
+                  applyManualFromInput();
+                }, 140);
+              });
+              input.addEventListener('keydown', (e) => {
+                const items = list._items || [];
+                if (e.key === 'ArrowDown' && !list.hidden && items.length) {
+                  e.preventDefault();
+                  activeIdx = Math.min(items.length - 1, activeIdx + 1);
+                } else if (e.key === 'ArrowUp' && !list.hidden && items.length) {
+                  e.preventDefault();
+                  activeIdx = Math.max(0, activeIdx - 1);
+                } else if (e.key === 'Enter' && !list.hidden && activeIdx >= 0 && items[activeIdx]) {
+                  e.preventDefault();
+                  selectPerson(items[activeIdx]);
+                  return;
+                } else if (e.key === 'Escape') {
+                  list.hidden = true;
+                  input.setAttribute('aria-expanded', 'false');
+                  return;
+                } else {
+                  return;
+                }
+                list.querySelectorAll('.sl-person-search-option').forEach((btn, idx) => {
+                  const on = idx === activeIdx;
+                  btn.classList.toggle('is-active', on);
+                  btn.setAttribute('aria-selected', on ? 'true' : 'false');
+                  if (on) btn.scrollIntoView({ block: 'nearest' });
+                });
+              });
+
+              if (f.defaultValue) {
+                const hit = people.find((p) => p.email === String(f.defaultValue).toLowerCase());
+                if (hit) selectPerson(hit);
+                else {
+                  emailEl.value = String(f.defaultValue).toLowerCase();
+                  uidEl.value = f.defaultId || emailEl.value;
+                  personState[i] = {
+                    email: emailEl.value,
+                    id: uidEl.value,
+                    verified: !!f.defaultId && f.defaultId !== emailEl.value,
+                  };
+                  setStatus(
+                    personState[i].verified ? 'verified' : 'manual',
+                    personState[i].verified ? 'Directory user' : 'Manual contact — not found in directory'
+                  );
+                }
+              }
+            }
+
             const readValues = () => {
               const out = {};
               fields.forEach((f, i) => {
-                const el = document.getElementById('slModalField_' + i);
-                out[f.name] = el ? el.value : '';
+                if (f.type === 'person-search') {
+                  const st = personState[i] || {};
+                  const emailEl = document.getElementById('slModalField_' + i + '_email');
+                  const uidEl = document.getElementById('slModalField_' + i + '_uid');
+                  const input = document.getElementById('slModalField_' + i);
+                  let email = (emailEl && emailEl.value) || st.email || '';
+                  if (!email && input) {
+                    const m = String(input.value || '').match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
+                    if (m) email = m[0].toLowerCase();
+                  }
+                  out[f.name] = email;
+                  if (f.idField) out[f.idField] = (uidEl && uidEl.value) || st.id || email;
+                  out[f.name + '_verified'] = !!(st.verified || (uidEl && uidEl.value && uidEl.value !== email));
+                } else {
+                  const el = document.getElementById('slModalField_' + i);
+                  out[f.name] = el ? el.value : '';
+                }
               });
               return out;
             };
             const submit = () => {
+              fields.forEach((f, i) => {
+                if (f.type !== 'person-search') return;
+                const input = document.getElementById('slModalField_' + i);
+                const emailEl = document.getElementById('slModalField_' + i + '_email');
+                const uidEl = document.getElementById('slModalField_' + i + '_uid');
+                if (!input || !emailEl) return;
+                if (emailEl.value) return;
+                const raw = String(input.value || '').trim();
+                const m = raw.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
+                const email = (m ? m[0] : raw).toLowerCase();
+                if (email.includes('@')) {
+                  emailEl.value = email;
+                  if (uidEl && !uidEl.value) uidEl.value = email;
+                  personState[i] = { email, id: uidEl ? uidEl.value : email, verified: false };
+                }
+              });
               const values = readValues();
               if (typeof opts.validate === 'function') {
                 const err = opts.validate(values);
@@ -14235,6 +14575,10 @@ function goBack() {
             okBtn.addEventListener('click', submit);
             document.getElementById('slModalCancel').addEventListener('click', () => close(undefined));
             fields.forEach((f, i) => {
+              if (f.type === 'person-search') {
+                wirePersonSearch(f, i);
+                return;
+              }
               const el = document.getElementById('slModalField_' + i);
               if (!el) return;
               el.addEventListener('input', () => { errEl.textContent = ''; });
@@ -15263,8 +15607,14 @@ function goBack() {
     const assetId = woAssetCombo.getSelectedId();
     const teamId = woTeamCombo.getSelectedId();
     const brief = document.getElementById('wo-brief').value.trim();
-    const contact = document.getElementById('wo-contact').value.trim();
+    let contact = document.getElementById('wo-contact').value.trim();
     const phone = document.getElementById('wo-phone').value.trim();
+    if (window.HubIdentity) {
+      const id = window.HubIdentity.getCachedIdentity() || (await window.HubIdentity.loadIdentity());
+      contact = window.HubIdentity.enforceSubmitterEmail(contact, id) || contact;
+      const contactEl = document.getElementById('wo-contact');
+      if (contactEl && contact) contactEl.value = contact;
+    }
     const priority = document.getElementById('wo-priority').value;
     const type = document.getElementById('wo-type').value;
     const category = document.getElementById('wo-category').value;
@@ -16502,15 +16852,21 @@ function goBack() {
     }
 
     // Try to autofill employee name from SSO if available
-    proxyFetch('/me').then(r => r.json()).then(data => {
-      const empField = document.getElementById('jsa-employee');
-      let filled = false;
-      if (data.name && !empField.value) { empField.value = data.name; filled = true; }
-      else if (data.email && !empField.value) { empField.value = data.email.split('@')[0]; filled = true; }
-      // Setting .value programmatically doesn't fire 'input', so trigger the
-      // auto-link manually if SSO populated the field.
-      if (filled) syncEmployeeAutoFill();
-    }).catch(() => {});
+    if (window.HubIdentity) {
+      window.HubIdentity.applyToForm({ nameEl: document.getElementById('jsa-employee') }).then((id) => {
+        if (id && (id.name || id.email) && typeof syncEmployeeAutoFill === 'function') {
+          try { syncEmployeeAutoFill(); } catch (e) { /* optional */ }
+        }
+      });
+    } else {
+      proxyFetch('/me').then(r => r.json()).then(data => {
+        const empField = document.getElementById('jsa-employee');
+        let filled = false;
+        if (data.name && !empField.value) { empField.value = data.name; filled = true; }
+        else if (data.email && !empField.value) { empField.value = data.email.split('@')[0]; filled = true; }
+        if (filled) syncEmployeeAutoFill();
+      }).catch(() => {});
+    }
   }
 
   // ============================================================
@@ -21633,6 +21989,38 @@ function goBack() {
   // wrap most of the portal in IIFEs.
   window._meLoad = meLoadPromise;
 
+  // Prefill authenticated identity on legacy request forms (Parts, WO, JSA, SWP).
+  // Session /me only — never localStorage as identity source.
+  function applyPortalIdentityPrefill() {
+    if (!window.HubIdentity) return;
+    window.HubIdentity.applyToForm({
+      nameEl: document.getElementById('contact-name'),
+      emailEl: document.getElementById('contact'),
+      phoneEl: document.getElementById('phone'),
+    });
+    window.HubIdentity.applyToForm({
+      nameEl: document.getElementById('wo-contact-name'),
+      emailEl: document.getElementById('wo-contact'),
+      phoneEl: document.getElementById('wo-phone'),
+    });
+    window.HubIdentity.applyToForm({
+      nameEl: document.getElementById('jsa-employee'),
+    }).then((id) => {
+      if (id && id.name && typeof syncEmployeeAutoFill === 'function') {
+        try { syncEmployeeAutoFill(); } catch (e) { /* optional */ }
+      }
+    });
+    window.HubIdentity.applyToForm({
+      nameEl: document.getElementById('jsaf-pic-name'),
+    });
+  }
+  if (meLoadPromise) {
+    meLoadPromise.then(() => applyPortalIdentityPrefill()).catch(() => applyPortalIdentityPrefill());
+  } else {
+    applyPortalIdentityPrefill();
+  }
+  window.applyPortalIdentityPrefill = applyPortalIdentityPrefill;
+
   // Cache for the current user's permissions, populated from /me.
   // Empty until /me resolves; the gate fallback handles that case.
   let currentUserPermissions = [];
@@ -23262,6 +23650,7 @@ function goBack() {
           ${(v.documentWarningSummary && v.documentWarningSummary.length) ? `<div class="vendor-detail-meta" style="margin-top:4px;font-size:12px;color:var(--red-ink);"><strong>Doc warnings:</strong> ${escapeHtml(v.documentWarningSummary.join(' · '))}</div>` : ''}
         </div>
         <div class="vendor-detail-actions">
+          <button type="button" class="secondary" id="vendorInviteBtn" title="Invite vendor contact via magic link">Invite vendor</button>
           <button type="button" class="secondary" id="vendorPrintBtn" title="Open printable vendor record">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="width:14px;height:14px;display:inline-block;vertical-align:-2px;margin-right:5px;">
               <polyline points="6 9 6 2 18 2 18 9"/>
@@ -23376,6 +23765,18 @@ function goBack() {
         </div>
       </div>
 
+      <!-- External vendor access (contacts / magic-link invites) -->
+      <div class="vendor-info-card" id="vendorAccessCard">
+        <div class="vendor-info-head">Vendor access</div>
+        <div class="vendor-info-body">
+          <p style="margin:0 0 8px;font-size:13px;color:var(--ink-mute);">
+            External contacts sign in with a one-time email magic link. Employees continue using Entra.
+          </p>
+          <div id="vendorContactsList" style="font-size:13px;color:var(--ink-mute);">Loading contacts…</div>
+          <div id="vendorInviteResult" style="margin-top:8px;font-size:12px;word-break:break-all;"></div>
+        </div>
+      </div>
+
       <!-- Activity / History -->
       <div class="vendor-info-card">
         <div class="vendor-info-head">Activity</div>
@@ -23386,6 +23787,7 @@ function goBack() {
     `;
 
     wireVendorDetailControls();
+    loadVendorAccessPanel(v.refNumber);
   }
 
   function formatVendorAddress(a) {
@@ -23483,6 +23885,127 @@ function goBack() {
     const printBtn = document.getElementById('vendorPrintBtn');
     if (printBtn) {
       printBtn.addEventListener('click', () => openVendorRecord(currentVendor.refNumber));
+    }
+
+    const inviteBtn = document.getElementById('vendorInviteBtn');
+    if (inviteBtn) {
+      inviteBtn.addEventListener('click', () => inviteVendorContact());
+    }
+  }
+
+  async function loadVendorAccessPanel(ref) {
+    const el = document.getElementById('vendorContactsList');
+    if (!el || !ref) return;
+    try {
+      const res = await mgmtFetch(proxyUrl(`/vendors/${ref}/contacts`));
+      if (!res.ok) {
+        el.textContent = 'Vendor access unavailable (requires Postgres identity tables).';
+        return;
+      }
+      const data = await res.json();
+      const list = data.contacts || [];
+      if (!list.length) {
+        el.textContent = 'No external contacts yet. Use Invite vendor to create one.';
+        return;
+      }
+      el.innerHTML = list.map((c) => {
+        const status = escapeHtml(c.status || '');
+        const email = escapeHtml(c.email || '');
+        const name = escapeHtml(c.name || '');
+        const last = c.lastAuthenticatedAt
+          ? ` · last auth ${escapeHtml(String(c.lastAuthenticatedAt).slice(0, 10))}`
+          : '';
+        return `<div style="padding:4px 0;border-bottom:1px solid var(--line,rgba(0,0,0,.08));">
+          <strong>${name || email}</strong> &lt;${email}&gt;
+          <span style="color:var(--ink-mute);"> · ${status}${last}</span>
+          <button type="button" class="btn-add-row-inline vendor-resend-invite" data-contact-id="${escapeHtml(c.id)}" style="margin-left:8px;">Resend invite</button>
+          <button type="button" class="btn-add-row-inline vendor-revoke-access" data-contact-id="${escapeHtml(c.id)}" style="margin-left:4px;">Revoke access</button>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('.vendor-resend-invite').forEach((btn) => {
+        btn.addEventListener('click', () => resendVendorInvite(ref, btn.dataset.contactId));
+      });
+      el.querySelectorAll('.vendor-revoke-access').forEach((btn) => {
+        btn.addEventListener('click', () => revokeVendorAccess(ref, btn.dataset.contactId));
+      });
+    } catch (err) {
+      el.textContent = 'Could not load vendor contacts.';
+    }
+  }
+
+  async function inviteVendorContact() {
+    if (!currentVendor) return;
+    const defaultEmail = currentVendor.contactEmail || '';
+    const defaultName = currentVendor.contactName || '';
+    const email = window.prompt('Vendor contact email', defaultEmail);
+    if (!email) return;
+    const name = window.prompt('Vendor contact name', defaultName) || '';
+    const resultEl = document.getElementById('vendorInviteResult');
+    try {
+      const res = await mgmtFetch(proxyUrl(`/vendors/${currentVendor.refNumber}/contacts`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name, invite: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (resultEl) resultEl.textContent = data.error || 'Invite failed';
+        return;
+      }
+      const url = data.invitation && data.invitation.inviteUrl;
+      if (resultEl) {
+        resultEl.innerHTML = url
+          ? `<span style="color:var(--teal, #0f766e);">Invite created.</span> Copy link (email delivery is live-only):<br><code>${escapeHtml(url)}</code>`
+          : 'Contact saved.';
+      }
+      await loadVendorAccessPanel(currentVendor.refNumber);
+    } catch (err) {
+      if (resultEl) resultEl.textContent = 'Invite failed.';
+    }
+  }
+
+  async function resendVendorInvite(ref, contactId) {
+    const resultEl = document.getElementById('vendorInviteResult');
+    try {
+      const res = await mgmtFetch(proxyUrl(`/vendors/${ref}/invitations`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (resultEl) resultEl.textContent = data.error || 'Resend failed';
+        return;
+      }
+      const url = data.invitation && data.invitation.inviteUrl;
+      if (resultEl) {
+        resultEl.innerHTML = url
+          ? `<span style="color:var(--teal, #0f766e);">Invite resent.</span><br><code>${escapeHtml(url)}</code>`
+          : 'Invite resent.';
+      }
+    } catch (err) {
+      if (resultEl) resultEl.textContent = 'Resend failed.';
+    }
+  }
+
+  async function revokeVendorAccess(ref, contactId) {
+    if (!confirm('Revoke this contact’s vendor workspace access and active sessions?')) return;
+    const resultEl = document.getElementById('vendorInviteResult');
+    try {
+      const res = await mgmtFetch(proxyUrl(`/vendors/${ref}/invitations/revoke-access`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId, disable: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (resultEl) resultEl.textContent = data.error || 'Revoke failed';
+        return;
+      }
+      if (resultEl) resultEl.textContent = 'Access revoked.';
+      await loadVendorAccessPanel(ref);
+    } catch (err) {
+      if (resultEl) resultEl.textContent = 'Revoke failed.';
     }
   }
 
@@ -24674,12 +25197,18 @@ function goBack() {
   async function loadPermissionsView() {
     const ssoBanner = document.getElementById('permsSsoBanner');
     if (ssoBanner) {
-      // WOS-89 — do not claim "SSO not yet enabled" on live staging sessions.
-      // Only show a local-dev notice when portal no-auth / role-preview mode is active.
-      const noAuth = window._portalNoAuth || (window.RbacClient && window.RbacClient.isPortalNoAuthMode());
-      if (noAuth) {
+      // Only show local-dev notice when explicitly unsigned / no-auth preview —
+      // not merely because the hostname is localhost while an Entra session exists.
+      const signedIn = !!(window._hubUserEmail || window._portalUserEmail);
+      const explicitNoAuth =
+        window._portalNoAuth === true ||
+        (/(\?|&)_noauth=1(&|$)/.test(window.location?.search || '') &&
+          window.RbacClient &&
+          window.RbacClient.isLocalOrDevPortal &&
+          window.RbacClient.isLocalOrDevPortal());
+      if (explicitNoAuth && !signedIn) {
         ssoBanner.innerHTML =
-          '<strong>Local development mode.</strong> Permission edits are saved, but this session is not using Microsoft Entra / staging test login.';
+          '<strong>Preview mode.</strong> Sign in with Streamline SSO to manage production identities.';
         ssoBanner.style.display = '';
       } else {
         ssoBanner.style.display = 'none';
@@ -24927,8 +25456,8 @@ function goBack() {
     if (!users || users.length === 0) {
       listEl.innerHTML = `
         <div class="archive-empty">
-          No users yet. Click "+ Add User" to grant permissions to a Streamline employee.<br>
-          <span style="color:var(--ink-mute);">Bootstrap admins from the BOOTSTRAP_ADMIN_EMAILS env var will appear here automatically.</span>
+          No users yet. People appear here after they sign in with Streamline SSO, or when an administrator adds them.<br>
+          <span style="color:var(--ink-mute);">Use search after users sign in, or Add User with their work email.</span>
         </div>`;
       return;
     }
@@ -25215,14 +25744,33 @@ function goBack() {
       const idx = permsUserListCache.findIndex(u => u.email === email);
       if (idx >= 0) permsUserListCache[idx] = updated;
       renderPermsUserList(permsUserListCache);
-      statusEl.textContent = `✓ Saved as ${role.name}`;
+      statusEl.textContent = `Saved as ${role.name}`;
       btn.textContent = 'Save Changes';
       btn.disabled = false;
-      // Reload audit
       loadPermsAuditLog();
+      // Soft-refresh signed-in nav/permissions from /me (session cookie unchanged).
+      // Self-elevation is blocked server-side; this keeps the shell current after admin edits.
+      try {
+        if (typeof window.HubUI?.loadPermissionsFromMe === 'function') {
+          await window.HubUI.loadPermissionsFromMe();
+          if (typeof window.HubUI.applyHubNavPermissions === 'function') {
+            window.HubUI.applyHubNavPermissions();
+          }
+        } else if (typeof window.proxyFetch === 'function') {
+          const meRes = await window.proxyFetch('/me');
+          if (meRes.ok) {
+            const me = await meRes.json().catch(() => ({}));
+            if (me && Array.isArray(me.permissions) && window.RbacClient?.syncPermissions) {
+              window.RbacClient.syncPermissions(me.permissions);
+            }
+          }
+        }
+      } catch {
+        /* non-fatal UI refresh */
+      }
       setTimeout(() => { statusEl.textContent = ''; }, 2500);
     } catch (err) {
-      statusEl.textContent = '⚠️ ' + err.message;
+      statusEl.textContent = err.message || 'Could not save permissions';
       btn.textContent = 'Save Changes';
       btn.disabled = false;
     }
@@ -25336,7 +25884,13 @@ function goBack() {
       renderPermsUserList(permsUserListCache);
       return;
     }
-    renderPermsUserList(permsUserListCache.filter(u => u.email.toLowerCase().includes(q)));
+    renderPermsUserList(
+      permsUserListCache.filter((u) => {
+        const email = String(u.email || '').toLowerCase();
+        const name = String(u.displayName || u.name || '').toLowerCase();
+        return email.includes(q) || name.includes(q);
+      })
+    );
   });
 
   // ----- New Vendor Request form -----
@@ -26349,7 +26903,7 @@ function goBack() {
     if (tab === 'hub-archive') {
       const filter = optsOrSeg && typeof optsOrSeg === 'object' ? optsOrSeg.archiveFilter || 'all' : 'all';
       const segs = segments || [];
-      if (global.HubUnifiedArchive) return global.HubUnifiedArchive.buildArchiveHash(filter, segs);
+      if (window.HubUnifiedArchive) return window.HubUnifiedArchive.buildArchiveHash(filter, segs);
       return '#/archives';
     }
     if (tab === 'hub-users') {
@@ -26420,14 +26974,14 @@ function goBack() {
         target = 'hub-dashboard';
       }
 
-      global._hubArchiveRoute = {
+      window._hubArchiveRoute = {
         filter: parsed.archiveFilter || 'all',
         segments: segments || [],
       };
 
       switchTab(target, routeOpts);
 
-      global._hubWorkflowRoute = { segments: segments || [], query: parsed.query || {} };
+      window._hubWorkflowRoute = { segments: segments || [], query: parsed.query || {} };
       const templateSpace =
         parsed.space ||
         (target === 'hub-forms' && segments[0] === 'approval-routes'
@@ -26440,20 +26994,20 @@ function goBack() {
                 ? 'workflows'
                 : null);
       if (templateSpace) {
-        global._hubTemplateRoute = {
+        window._hubTemplateRoute = {
           space: templateSpace,
           segments: segments || [],
           query: parsed.query || {},
         };
       }
       if (target === 'hub-spaces') {
-        global._hubSpaceRoute = { spaceKey: segments[0] || 'workflows' };
+        window._hubSpaceRoute = { spaceKey: segments[0] || 'workflows' };
       }
       if (target === 'hub-launch') {
-        global._hubLaunchRoute = { entryId: segments[0] };
+        window._hubLaunchRoute = { entryId: segments[0] };
       }
       if (target === 'hub-submission') {
-        global._hubSubmissionRoute = { submissionId: segments[0] };
+        window._hubSubmissionRoute = { submissionId: segments[0] };
       }
 
       if (['hub-forms', 'hub-documents', 'hub-workflows'].includes(target) && window.TemplateRegistryUI) {
@@ -26787,6 +27341,7 @@ function goBack() {
     }
   })();
 </script>
+<script src="hub-identity.js"></script>
 <script src="hub-request-form-shell.js"></script>
 <script src="hub-form-renderer.js"></script>
 <script src="hub-workflow-builder.js"></script>

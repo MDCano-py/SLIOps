@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Streamline · Vendor Workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="hub.css" />
+  <link rel="stylesheet" href="hub-themes.css" />
+  <style>
+    :root {
+      --vw-teal: #0f766e;
+      --vw-ink: #122023;
+      --vw-mute: #5b6b6e;
+      --vw-line: rgba(18, 32, 35, 0.12);
+      --vw-surface: rgba(255, 255, 255, 0.72);
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      color: var(--vw-ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(15, 118, 110, 0.18), transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, rgba(15, 118, 110, 0.08), transparent 50%),
+        linear-gradient(180deg, #eef4f4 0%, #f7fafb 40%, #eef3f4 100%);
+    }
+    .shell { max-width: 880px; margin: 0 auto; padding: 28px 20px 64px; }
+    .brand {
+      font-weight: 700;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+      color: var(--vw-teal);
+      margin: 0 0 0.35rem;
+    }
+    .sub { color: var(--vw-mute); margin: 0 0 1.5rem; font-size: 0.95rem; }
+    .panel {
+      background: var(--vw-surface);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--vw-line);
+      border-radius: 14px;
+      padding: 1.15rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .panel h2 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.4rem 0; border-bottom: 1px solid var(--vw-line); font-size: 0.92rem; }
+    .row:last-child { border-bottom: 0; }
+    .muted { color: var(--vw-mute); }
+    .pill {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--vw-teal);
+    }
+    .actions { list-style: none; margin: 0; padding: 0; }
+    .actions li {
+      padding: 0.65rem 0;
+      border-bottom: 1px solid var(--vw-line);
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: center;
+    }
+    .actions li:last-child { border-bottom: 0; }
+    .err { color: #9a3412; }
+    .ok { color: var(--vw-teal); }
+    .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+    button {
+      font: inherit;
+      border: 1px solid var(--vw-line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 0.45rem 0.8rem;
+      cursor: pointer;
+      color: var(--vw-ink);
+    }
+    button.primary { background: var(--vw-teal); color: #fff; border-color: transparent; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div>
+        <h1 class="brand">Streamline</h1>
+        <p class="sub">Vendor Workspace</p>
+      </div>
+      <button type="button" id="logoutBtn" hidden>Sign out</button>
+    </div>
+    <div id="status" class="panel">Loading…</div>
+    <div id="main" hidden></div>
+  </div>
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const inviteToken = params.get('token') || '';
+      const statusEl = document.getElementById('status');
+      const main = document.getElementById('main');
+      const logoutBtn = document.getElementById('logoutBtn');
+
+      function apiPath(p) {
+        const base = (document.querySelector('base') && document.querySelector('base').href) || '';
+        // Same pattern as cfg-action / hub: maintainx proxy
+        const root = location.pathname.replace(/\/[^/]*$/, '') || '';
+        return (root || '') + '/api/maintainx?path=' + encodeURIComponent(p);
+      }
+
+      async function api(path, opts) {
+        const res = await fetch(apiPath(path), Object.assign({
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+        }, opts || {}));
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          const err = new Error(data.error || ('HTTP ' + res.status));
+          err.code = data.code;
+          throw err;
+        }
+        return data;
+      }
+
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function renderWorkspace(payload) {
+        const v = payload.vendor || {};
+        const contact = v.sessionContact || {};
+        const outstanding = v.outstandingActions || [];
+        const completed = v.completedActions || [];
+        statusEl.hidden = true;
+        main.hidden = false;
+        logoutBtn.hidden = false;
+        main.innerHTML =
+          '<div class="panel">' +
+            '<h2>' + esc(v.companyName || 'Vendor') + ' <span class="pill">' + esc(v.overallStatus || '') + '</span></h2>' +
+            '<div class="row"><span class="muted">Reference</span><span>' + esc(v.refNumber || '') + '</span></div>' +
+            '<div class="row"><span class="muted">Signed in as</span><span>' + esc(contact.name || contact.email || '') + '</span></div>' +
+            '<div class="row"><span class="muted">Onboarding</span><span>' +
+              esc(String((v.onboardingProgress && v.onboardingProgress.completedCount) || 0)) +
+              ' completed · ' +
+              esc(String((v.onboardingProgress && v.onboardingProgress.outstandingCount) || 0)) +
+              ' outstanding</span></div>' +
+          '</div>' +
+          '<div class="panel"><h2>Needs your attention</h2>' +
+            (outstanding.length
+              ? '<ul class="actions">' + outstanding.map(function (a) {
+                  return '<li><span>' + esc(a.label) + '</span><span class="muted">' + esc(a.status) + '</span></li>';
+                }).join('') + '</ul>'
+              : '<p class="ok">No outstanding actions right now.</p>') +
+          '</div>' +
+          '<div class="panel"><h2>Completed</h2>' +
+            (completed.length
+              ? '<ul class="actions">' + completed.map(function (a) {
+                  return '<li><span>' + esc(a.label) + '</span><span class="muted">' + esc(a.status) + '</span></li>';
+                }).join('') + '</ul>'
+              : '<p class="muted">Nothing completed yet.</p>') +
+          '</div>' +
+          '<div class="panel"><h2>Company profile</h2>' +
+            '<div class="row"><span class="muted">Contact</span><span>' + esc(v.contactName || '—') + '</span></div>' +
+            '<div class="row"><span class="muted">Email</span><span>' + esc(v.contactEmail || '—') + '</span></div>' +
+            '<div class="row"><span class="muted">Phone</span><span>' + esc(v.contactPhone || '—') + '</span></div>' +
+            '<div class="row"><span class="muted">Scope</span><span>' + esc(v.serviceDescription || '—') + '</span></div>' +
+          '</div>';
+      }
+
+      async function loadWorkspace() {
+        const data = await api('/vendor/workspace');
+        renderWorkspace(data);
+      }
+
+      logoutBtn.addEventListener('click', async function () {
+        try {
+          await api('/vendor/auth/logout', { method: 'POST', body: '{}' });
+        } catch (_) { /* ignore */ }
+        statusEl.hidden = false;
+        main.hidden = true;
+        logoutBtn.hidden = true;
+        statusEl.innerHTML = '<p class="ok">Signed out.</p>';
+      });
+
+      async function boot() {
+        try {
+          if (inviteToken) {
+            statusEl.textContent = 'Verifying invitation…';
+            await api('/vendor/auth/consume?token=' + encodeURIComponent(inviteToken), {
+              method: 'POST',
+              body: JSON.stringify({ token: inviteToken }),
+            });
+            // Drop token from URL so refresh does not re-consume
+            if (history.replaceState) {
+              const u = new URL(location.href);
+              u.searchParams.delete('token');
+              history.replaceState({}, '', u.pathname + u.search + u.hash);
+            }
+          }
+          await loadWorkspace();
+        } catch (err) {
+          statusEl.innerHTML = '<p class="err">' + esc(err.message || 'Unable to open vendor workspace') + '</p>';
+        }
+      }
+
+      boot();
+    })();
+  </script>
+</body>
+</html>

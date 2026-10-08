@@ -70,7 +70,13 @@ async function main() {
   const sso = read('api/lib/sso-routes.js');
 
   assert('PERMISSION_CATALOG includes manage_sso', mx.includes("id: 'manage_sso'"));
-  assert('management built-in role includes manage_sso', /id: 'management'[\s\S]*'manage_sso'/.test(mx));
+  {
+    const mgmtBlock = (mx.match(/id:\s*'management',[\s\S]*?isProtected:\s*true/) || [])[0] || '';
+    assert(
+      'management built-in role does not include manage_sso (SSO trust is separate)',
+      mgmtBlock.length > 0 && !mgmtBlock.includes("'manage_sso'")
+    );
+  }
   assert(
     'seedBuiltInRoles merges missing built-in permissions',
     mx.includes('system:built-in-perm-merge') && mx.includes('built-in-perm-merge')

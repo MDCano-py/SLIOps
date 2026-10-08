@@ -88,9 +88,77 @@ function buildHandoverPayload({ logs = [], board = [], tasks = [] }) {
   };
 }
 
+/** Inclusive list of YYYY-MM-DD dates between from and to (UTC calendar dates). */
+function eachDateInclusive(fromYmd, toYmd) {
+  const out = [];
+  if (!fromYmd || !toYmd) return out;
+  const start = new Date(`${fromYmd}T00:00:00.000Z`);
+  const end = new Date(`${toYmd}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return out;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/**
+ * Human-readable local range, e.g. "Mon, Oct 5 · 7:00 PM – Tue, Oct 6 · 7:00 AM".
+ * Uses IANA timezone when provided; otherwise runtime/local default.
+ * Never returns raw ISO for ordinary display.
+ */
+function formatDateTimeRange(startsAt, endsAt, timeZone) {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '—';
+  const optsDate = { weekday: 'short', month: 'short', day: 'numeric', timeZone };
+  const optsTime = { hour: 'numeric', minute: '2-digit', timeZone };
+  try {
+    const dStart = new Intl.DateTimeFormat('en-US', optsDate).format(start);
+    const tStart = new Intl.DateTimeFormat('en-US', optsTime).format(start);
+    const dEnd = new Intl.DateTimeFormat('en-US', optsDate).format(end);
+    const tEnd = new Intl.DateTimeFormat('en-US', optsTime).format(end);
+    const sameDay =
+      new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(
+        start
+      ) ===
+      new Intl.DateTimeFormat('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(end);
+    if (sameDay) return `${dStart} · ${tStart} – ${tEnd}`;
+    return `${dStart} · ${tStart} – ${dEnd} · ${tEnd}`;
+  } catch {
+    return `${start.toLocaleString()} – ${end.toLocaleString()}`;
+  }
+}
+
+function buildGapsByDate(assignments, stationId, fromYmd, toYmd) {
+  const gapsByDate = {};
+  for (const day of eachDateInclusive(fromYmd, toYmd)) {
+    const dayRows = (assignments || []).filter((a) => a.work_date === day || overlapsCalendarDay(a, day));
+    gapsByDate[day] = detectCoverageGaps(
+      dayRows,
+      `${day}T00:00:00.000Z`,
+      `${day}T23:59:59.999Z`,
+      stationId
+    );
+  }
+  return gapsByDate;
+}
+
+function overlapsCalendarDay(assignment, ymd) {
+  if (!assignment?.starts_at || !assignment?.ends_at) return false;
+  const dayStart = new Date(`${ymd}T00:00:00.000Z`).getTime();
+  const dayEnd = new Date(`${ymd}T23:59:59.999Z`).getTime();
+  const aStart = new Date(assignment.starts_at).getTime();
+  const aEnd = new Date(assignment.ends_at).getTime();
+  return aStart < dayEnd && aEnd > dayStart;
+}
+
 module.exports = {
   isTaskOverdue,
   detectScheduleOverlaps,
   detectCoverageGaps,
   buildHandoverPayload,
+  eachDateInclusive,
+  formatDateTimeRange,
+  buildGapsByDate,
+  overlapsCalendarDay,
 };
