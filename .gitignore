@@ -64,7 +64,22 @@ tmp/
 temp/
 *.tmp
 *.bak
+*.orig
 .cache/
+playwright-report/
+blob-report/
+
+# Agent / Cursor planning prompts (never commit)
+/design.md
+/design*.md
+/desgin*.md
+/prompt*.md
+/*Cursor_Scaffold.md
+/*_Cursor_Scaffold.md
+
+# Local one-off debug helpers
+scripts/db/_check-local-pg.js
+scripts/security/_release-suite-results.json
 
 # WOS-95 — third-party reference copies (never commit)
 reference/
@@ -73,9 +88,11 @@ n8n/
 n8n-reference/
 vendor/n8n/
 
-# Local screenshots / artifacts (unless intentionally under docs/)
+# Local screenshots / generated UI capture outputs (regenerable)
 screenshots/
 *.png.bak
+docs/ui-glass-validation/
+tmp/ui-glass-validation/
 
 # Optional: keep tracked logos/assets at repo root — do not blanket-ignore *.png
 

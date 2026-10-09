@@ -7,7 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 
-const OUT = path.join(__dirname, '..', '..', 'docs', 'ui-glass-validation');
+// Gitignored output — do not commit screenshots (see .gitignore).
+const OUT = path.join(__dirname, '..', '..', 'tmp', 'ui-glass-validation');
 fs.mkdirSync(OUT, { recursive: true });
 
 const VIEWPORTS = [

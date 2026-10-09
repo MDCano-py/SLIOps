@@ -1,7 +1,0 @@
-{
-  "ok": true,
-  "bg": "radial-gradient(at 15% 10%, rgba(41, 135, 113, 0.18), rgba(0, 0, 0, 0) 42%), radial-gradient(at 85% 85%, rgba(130, 183, ",
-  "pad": "16px",
-  "topbarBg": "blur(24px) saturate(1.55)",
-  "panelBg": "blur(20px) saturate(1.45)"
-}
