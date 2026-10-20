@@ -6,7 +6,7 @@
 **Prior commit on this branch:** `69d79263b768148ddbaef25e9a913d1725eab4e7` (Nginx API-prefix deny, vendor consume rate limit, root pentest notes)  
 **Code through vendor OTP:** `5db548a230280c2c85da2faf75c15787d4963a34`  
 **SHA stamp of that work:** `4177f8e6e2e0488d99865a2746b4baf880e4c767`  
-**Continuation:** the tip of this branch after the New Request fixture fix, JWT tamper fixture fix, and the read-only deploy scripts. See the commit section.  
+**Continuation SHA:** `d66f237d1cf3c9cb1e557c00040ea3b18063e9cf`  
 **Decision:** NO-GO. Live verification did not pass.  
 **Deployed:** no  
 **Production:** unchanged  
@@ -58,4 +58,4 @@ Automated results in this package are local. They are not a penetration test and
 
 `IMPLEMENTATION_SHA: 5db548a230280c2c85da2faf75c15787d4963a34`
 
-There is no deployed SHA. The branch tip after this continuation is the candidate to deploy only after the approvals below.
+There is no deployed SHA. Candidate code is `d66f237d1cf3c9cb1e557c00040ea3b18063e9cf`. A later commit may only record that SHA.
