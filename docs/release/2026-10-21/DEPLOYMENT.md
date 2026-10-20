@@ -1,7 +1,62 @@
 # Deployment — 2026-10-21 release candidate
 
-**Deployment status:** not deployed.  
-Production was not modified. Staging was not modified. No live HTTPS smoke test was run.
+**Decision:** NO-GO.  
+**Deployment status:** not deployed. Production was not modified. Staging infrastructure was not modified. Migration `018` was not applied to RDS.
+
+## What this session could see
+
+| Check | Result |
+| --- | --- |
+| AWS CLI | Authenticated as `rbit-dev-admin` in account `941612827888`, region `us-east-2` |
+| EC2 | No instances in us-east-1, us-east-2, us-west-1, us-west-2, ca-central-1, or eu-west-1 |
+| Lightsail / Route53 | No instances and no hosted zones returned |
+| SSH | `ssh` is installed. `%USERPROFILE%\.ssh\config` is absent. No EC2 host to open. |
+| RDS | `rbit-dev-writer` Aurora PostgreSQL 15.18, `available`, **not publicly accessible**, endpoint `rbit-dev-writer.cvukqokuy1yw.us-east-2.rds.amazonaws.com:5432`. Schema was not queried. This account's only database is not proven to be the SLIOps staging database. |
+| Local Postgres | `127.0.0.1` has migrations `001` through `018` (`node scripts/deploy/list-applied-migrations.js`). That is the developer database, not RDS. |
+| HTTPS staging | 20s timeout, curl exit 28, status 000, on the portal root, `/.env`, `/.git/HEAD`, `/package.json`, and `/api/maintainx` |
+| Vendor email | No `.env.staging` in this workspace. Local `.env.local.postgres` has `RESEND_API_KEY` unset and `EMAIL_NOTIFICATIONS_ENABLED` unset. OTP email delivery is not configured here. |
+| AuthBridge exemptions | Present only as comments in `deploy/nginx/ops-hub-staging.conf`. Live Nginx was not read. |
+
+## Read-only command for the real host
+
+On the machine that actually serves staging (this workspace cannot reach it):
+
+```bash
+bash scripts/deploy/staging-readonly-preflight.sh
+```
+
+That script prints the git SHA, PM2 status, matching Nginx lines, and whether `RESEND_API_KEY` is set. It does not migrate or restart.
+
+## Deploy command — do not run until you approve it
+
+```bash
+cd /var/www/ops-hub-staging
+STAGING_DEPLOY_AUTHORIZED=yes TARGET_SHA=<release-tip> bash scripts/deploy/staging-deploy.sh
+```
+
+`scripts/deploy/staging-deploy.sh` exits 2 unless `STAGING_DEPLOY_AUTHORIZED=yes`. It records the previous SHA under `/var/log/ops-hub-staging/`, checks out `TARGET_SHA`, runs `npm ci --omit=dev` and `npm run db:migrate`, and restarts `ops-hub-staging` and `ops-hub-staging-worker`. It does not reload Nginx unless `NGINX_RELOAD_AUTHORIZED=yes`. It refuses an app path that contains `production`.
+
+Rollback after that deploy:
+
+```bash
+cd /var/www/ops-hub-staging
+git checkout <previous_sha>
+npm ci --omit=dev
+pm2 restart ops-hub-staging ops-hub-staging-worker
+```
+
+Leave `vendor_login_codes` in place. Drop it only if no release build is still running:
+
+```sql
+DROP TABLE IF EXISTS vendor_login_codes;
+DELETE FROM schema_migrations WHERE id = '018_vendor_login_codes.sql';
+```
+
+RDS listing from a host that can reach the private endpoint, still read-only:
+
+```bash
+ALLOW_REMOTE_MIGRATION_LIST=1 node scripts/deploy/list-applied-migrations.js
+```
 
 ## Current staging version
 

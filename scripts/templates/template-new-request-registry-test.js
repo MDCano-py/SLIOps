@@ -102,6 +102,22 @@ async function main() {
   );
   assert('mergeNewRequestTypes combines legacy + published', merged.length === 2);
 
+  assert(
+    'production filter still hides NR Published Form',
+    nrModule.isLikelyTestRecord({ label: 'NR Published Form', key: 'nr_published_form' })
+  );
+  const filteredCards = nrModule.publishedFormsFromRegistry({
+    spaces: [{
+      key: 'forms',
+      entries: [
+        { id: 'le_junk', template_key: 'nr_published_form', label: 'NR Published Form', template_id: 't_junk' },
+        { id: 'le_real', template_key: 'daily_safety_walkthrough', label: 'Daily Safety Walkthrough', template_id: 't_real' },
+      ],
+    }],
+  });
+  assert('operational published form stays on New Request', filteredCards.some((c) => c.launch_entry_id === 'le_real'));
+  assert('NR Published Form is not a New Request card', !filteredCards.some((c) => c.label === 'NR Published Form'));
+
   const grouped = nrModule.groupNewRequestTypes(merged);
   assert('groupNewRequestTypes splits legacy/published', grouped.legacy.length === 1 && grouped.published.length === 1);
 
@@ -189,7 +205,7 @@ async function main() {
     draftTplId = draftTpl.id;
 
     const { template: pubTpl, draftVersion: pubDraft } = await templates.createTemplate({
-      ...basicInternalApprovalFixture({ key: pubKey, name: 'NR Published Form', template_kind: 'form' }),
+      ...basicInternalApprovalFixture({ key: pubKey, name: 'Daily Safety Walkthrough', template_kind: 'form' }),
       createdBy: 'nr-registry-test@streamlinecorp.com',
     });
     pubTplId = pubTpl.id;
@@ -198,7 +214,7 @@ async function main() {
       {
         enabled: true,
         space_key: 'forms',
-        label: 'NR Published Form',
+        label: 'Daily Safety Walkthrough',
         visible_to_roles: ['requester', 'manager', 'admin'],
         route_type: 'template_runtime_placeholder',
       },
@@ -222,7 +238,7 @@ async function main() {
     assert('runtime bundle has fields', fields.length > 0);
     const sb = require('../../template-section-builder.js');
     const runtimeHtml = sb.renderRuntimeFormHtml({
-      title: 'NR Published Form',
+      title: 'Daily Safety Walkthrough',
       sections: bundle.version.compiled_workflow_json.sections,
       templateKind: 'form',
       spaceKey: 'forms',

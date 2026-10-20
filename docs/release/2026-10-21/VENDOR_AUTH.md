@@ -1,7 +1,7 @@
 # Vendor authentication — 2026-10-21 release candidate
 
 **Local Postgres verification:** passed inside `npm run security:release-2026-10-21-test` (78 passed, 0 failed).  
-**Live email and live HTTPS:** not verified. Local delivery logged `[vendor-otp] email delivery skipped (provider not configured)`.
+**Live email and live HTTPS:** not verified. Local `.env.local.postgres` does not set `RESEND_API_KEY` or `EMAIL_NOTIFICATIONS_ENABLED`. No `.env.staging` is in this workspace. The release test logged `[vendor-otp] email delivery skipped (provider not configured)`. Staging HTTPS timed out, so AuthBridge exemptions were not observed on the live edge.
 
 ## Principals
 

@@ -187,7 +187,10 @@ async function main() {
     .update(data)
     .digest('base64url');
   const good = `${data}.${sig}`;
-  const bad = `${data}.${sig.replace(/./, 'A')}`;
+  // Flip one signature character. replace(/./, 'A') is a no-op when the signature already starts with A.
+  const flipped = sig[0] === 'A' ? 'B' : 'A';
+  const bad = `${data}.${flipped}${sig.slice(1)}`;
+  if (bad === good) throw new Error('tamper fixture did not change the signature');
   assert(
     'valid HMAC JWT entitled',
     !!abJwt.identityFromBearerToken({ headers: { authorization: `Bearer ${good}` } })

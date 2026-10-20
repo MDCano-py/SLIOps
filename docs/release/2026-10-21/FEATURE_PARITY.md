@@ -31,7 +31,7 @@
 
 Module navigation for Dashboard, Request Queue, New Request, My Work, Work Orders, Parts and Equipment, Documents, Vendor Management, Control Room, Insights, and Administration was not clicked through in a browser. No browser tool was available in this session.
 
-`templates:new-request-registry-test` finished **58 passed, 1 failed**. The failure is `published form appears as New Request card`. `publishedFormsFromRegistry` drops labels matching `/^nr\s*published\s*form$/i`, and that test publishes a form named `NR Published Form`. That filter was already in `hub-new-request-registry.js` before this release. The test's earlier merge and grouping assertions passed. This is an outstanding product-test mismatch, not a Work Order regression.
+`templates:new-request-registry-test` finished **62 passed, 0 failed** after `npm ci`. The production filter still drops `NR Published Form`. The database fixture that must appear on New Request is named `Daily Safety Walkthrough`.
 
 MaintainX synchronization, document Fill/Review/Sign, NDA/MSA signature completion, notification delivery, and S3 upload/download were not executed against external services in this session.
 

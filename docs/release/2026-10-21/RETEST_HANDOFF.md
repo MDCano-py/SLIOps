@@ -4,11 +4,14 @@
 **Candidate branch:** `release/sliops-2026-10-21-retest`  
 **Base commit:** `fb9a743` (`feature/sliops-ui-refinement`)  
 **Prior commit on this branch:** `69d79263b768148ddbaef25e9a913d1725eab4e7` (Nginx API-prefix deny, vendor consume rate limit, root pentest notes)  
-**Implementation commit:** the tip SHA below, which contains vendor code login, session isolation, and these documents.  
+**Code through vendor OTP:** `5db548a230280c2c85da2faf75c15787d4963a34`  
+**SHA stamp of that work:** `4177f8e6e2e0488d99865a2746b4baf880e4c767`  
+**Continuation:** the tip of this branch after the New Request fixture fix, JWT tamper fixture fix, and the read-only deploy scripts. See the commit section.  
+**Decision:** NO-GO. Live verification did not pass.  
 **Deployed:** no  
 **Production:** unchanged  
 
-A same-day HTTPS read of `https://automation.streamlinescada.com/ops-hub-staging` recorded in `PENTEST_EMERGENCY_STATUS.md` timed out. This session did not repeat that probe and did not read the EC2 checkout.  
+On 2026-10-20 this session repeated the HTTPS probe with a 20s timeout. `https://automation.streamlinescada.com/ops-hub-staging/` and four sensitive or API paths all returned curl exit 28 and HTTP status 000. The configured AWS account has no EC2 instances in the six regions checked and no SSH config, so the staging SHA, Nginx, and PM2 were not read. Aurora `rbit-dev-writer` is private and was not queried. Local Postgres `127.0.0.1` has migrations `001`–`018`. That is not evidence about RDS.  
 
 Automated results in this package are local. They are not a penetration test and they are not evidence that `https://automation.streamlinescada.com/ops-hub-staging/` is running this branch.
 
@@ -17,12 +20,12 @@ Automated results in this package are local. They are not a penetration test and
 | Workstream | Status | Why |
 | --- | --- | --- |
 | A Architecture consolidation | **INCOMPLETE** | Operational Work Order stays the launch card when a configurable twin exists. Shared facades exist and are not wired through every route. Legacy engines and tables were not replaced. |
-| B Security remediation | **IMPLEMENTED, AWAITING LIVE VALIDATION** | Session isolation, vendor scope, OTP abuse controls, SSO write gate, cleanup fail-closed, and local sensitive-path probe passed. Live Nginx, AuthBridge, and the missing BW/STR report IDs are not closed. |
-| C Vendor authentication | **IMPLEMENTED, AWAITING LIVE VALIDATION** | Code login, magic link, isolation, and deactivation passed on local Postgres. Real email and the edge exemption were not exercised. |
-| D Performance | **INCOMPLETE** | Vendor workspace no longer loads the full registry. Other hotspots were not changed or benchmarked. |
-| E UX consistency | **INCOMPLETE** | Repair NDA wiring is off the normal Configuration overview unless `?diagnostics=1`. Primary modules were not browser-tested. |
-| F Integration and regression | **IMPLEMENTED, AWAITING LIVE VALIDATION** | Local suites in `TEST_RESULTS.md` passed except one pre-existing New Request fixture failure (58 passed, 1 failed). Clean `npm ci`, Entra login, and cross-persona browser runs were not done. |
-| G Release engineering | **BLOCKED** | Branch exists. Deploy is blocked until an explicit authorization. Staging SHA was not captured from the host. |
+| B Security remediation | **BLOCKED** for live closure | Local controls still pass. Critical/High items with no live reproduction and no original report text are not FIXED. See `SECURITY_FINDINGS.md`. |
+| C Vendor authentication | **BLOCKED** for live closure | Code login passed on local Postgres. Resend is unset. AuthBridge exemptions were not read from the edge. Staging did not answer HTTPS. |
+| D Performance | **INCOMPLETE** | Vendor workspace no longer loads the full registry. Other hotspots were not changed. |
+| E UX consistency | **INCOMPLETE** | Repair NDA wiring stays behind `?diagnostics=1`. Modules were not browser-tested. New Request registry test is 62/0. |
+| F Integration and regression | **COMPLETE** locally, **BLOCKED** live | `npm ci` plus 61 local scripts: 60 passed, 1 test-fixture failure then fixed (identity JWT tamper). Live personas were not run. |
+| G Release engineering | **BLOCKED** | No deploy. No staging SHA. `scripts/deploy/staging-deploy.sh` refuses to run without `STAGING_DEPLOY_AUTHORIZED=yes`. |
 
 ## What a retest can attack on a host that is actually running this commit
 
@@ -40,7 +43,7 @@ Automated results in this package are local. They are not a penetration test and
 - Any `STR-*` finding. The package is not in this repo.
 - Moderate `uuid` via `@azure/msal-node` (GHSA-w5hq-g745-h8pq). Deferred.
 - S3 and MaintainX behavior. Not configured or called in this session.
-- The New Request card test failure for a form titled `NR Published Form`.
+- New Request: `NR Published Form` remains filtered. The passing fixture is `Daily Safety Walkthrough` (62/0).
 
 ## Outstanding before an authorized deploy
 
@@ -53,8 +56,6 @@ Automated results in this package are local. They are not a penetration test and
 
 ## Commit
 
-Code, tests, and these documents are on `release/sliops-2026-10-21-retest`.
-
 `IMPLEMENTATION_SHA: 5db548a230280c2c85da2faf75c15787d4963a34`
 
-That commit's parent is `69d79263b768148ddbaef25e9a913d1725eab4e7`. Use `git rev-parse HEAD` on this branch for the tip if a later commit only records this SHA.
+There is no deployed SHA. The branch tip after this continuation is the candidate to deploy only after the approvals below.

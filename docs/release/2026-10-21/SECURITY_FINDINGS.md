@@ -1,6 +1,6 @@
 # Security findings — 2026-10-21 release candidate
 
-**Disposition rule:** `FIXED` requires code and a live host check. This session did not deploy. Local passes are `MITIGATED` in code, awaiting live validation.
+**Disposition rule:** `FIXED` requires code, the required infrastructure, and a live reproduction. This session did not deploy. No finding below is `FIXED`. Missing original report text stays `BLOCKED`.
 
 The full BW Cyber 46+4 register and internal `STR-*` identifiers are still not in this repository. `docs/security/2026-pentest-remediation-matrix.md` records that gap. Findings below are only those reconciled from that matrix, the cyber handoff, and code verified in this session. Unknown report IDs were not invented.
 
@@ -15,7 +15,7 @@ The full BW Cyber 46+4 register and internal `STR-*` identifiers are still not i
 | ENG-AUTH-001 | `x-vercel-*` identity fallback | Still absent from `getActorEmail`. | Gate 2 identity test 16/0 | Not deployed | `MITIGATED` locally, live unverified |
 | ENG-SSO-001 | `view_management` could write SAML trust | Writes require `manage_sso` or admin. | Gate 2 SSO test 16/0 | Role seed on the host not re-checked | `MITIGATED` locally |
 | ENG-DEST-001 | Cleanup routes with optional secret | Fail closed 503 without a long `CLEANUP_SECRET`. | Gate 2 cleanup test 15/0 | Host env not inspected | `CONFIGURATION_CHANGE_REQUIRED` if secret unset on host |
-| ENG-STATIC-001 / SCR-W06 | Sensitive files from the app root | Node denylist. Local probe 32/0. | `security:sensitive-path-probe`. Remote skipped. | Not probed | `INFRASTRUCTURE_CHANGE_REQUIRED` |
+| ENG-STATIC-001 / SCR-W06 | Sensitive files from the app root | Node denylist. Local probe 32/0. | `security:sensitive-path-probe`. | 2026-10-20 HTTPS probe timed out (status 000) on `/.env`, `/.git/HEAD`, and `/package.json`. | `BLOCKED` live. Not `FIXED`. |
 | SCR-S05 | Shared vendor passcode | Legacy `/vendor-auth` 404 when `NODE_ENV` is production or staging. | SCR-S05 test | Not deployed | `MITIGATED` locally |
 | ENG-PROXY-001 | Client `X-Forwarded-For` | Vendor limiter uses the socket address unless `TRUST_FORWARDED_CLIENT_IP` is on. Nginx template overwrites `X-Forwarded-For` with `$remote_addr`. | Release test and emergency closure test | Edge config not inspected | `MITIGATED` locally |
 | SCR-D01 / uuid | `@azure/msal-node` → `uuid` moderate advisory GHSA-w5hq-g745-h8pq | Not upgraded. `npm audit` fix is a semver-major MSAL bump. High and critical: 0. Moderate: 2. | `npm audit` on 2026-10-20 | n/a | `DEFERRED_WITH_RISK_ACCEPTANCE` |
