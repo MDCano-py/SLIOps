@@ -41,12 +41,22 @@ assert(
 );
 assert(
   'vendor section hash preserves sub-view',
-  /Preserve vendor sub-view in the hash/.test(indexHtml) ||
+  /function mgmtVendorSubHash[\s\S]{0,600}mgmtSection:\s*'vendor'[\s\S]{0,120}segments:/.test(indexHtml) ||
+    /Preserve vendor sub-view in the hash/.test(indexHtml) ||
     /buildHash\('management', 'vendors', sub\)/.test(indexHtml)
 );
 assert(
+  'buildHash object form keeps opts.segments',
+  /fromOpts = Array\.isArray\(optsOrSeg\.segments\)/.test(indexHtml)
+);
+assert(
+  'unlocked management skips re-auth bounce',
+  /!mgmtContentVisible\(\)[\s\S]{0,120}mgmtCheckSession/.test(indexHtml) &&
+    /else if \(!wasVisible\)/.test(indexHtml)
+);
+assert(
   'mgmtSwitchView null-safe for missing panels',
-  /function mgmtSwitchView[\s\S]{0,400}if \(!vendorsView \|\| !newView/.test(indexHtml)
+  /function mgmtSwitchView[\s\S]{0,800}if \(!vendorsView \|\| !newView/.test(indexHtml)
 );
 assert(
   'mgmtSwitchView supports skipLoad',

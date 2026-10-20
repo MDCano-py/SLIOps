@@ -23202,7 +23202,13 @@ function goBack() {
     const form = gate?.querySelector('.mgmt-gate-form');
     if (form) form.style.display = 'none';
   }
+  function mgmtContentVisible() {
+    const content = document.getElementById('mgmtContent');
+    return !!(content && content.style.display !== 'none');
+  }
+
   function mgmtShowContent() {
+    const wasVisible = mgmtContentVisible();
     document.getElementById('mgmtGateCard').style.display = 'none';
     document.getElementById('mgmtContent').style.display = '';
     const actions = document.getElementById('mgmtGateActions');
@@ -23211,16 +23217,23 @@ function goBack() {
     // If a deep-link to a specific management view was requested before unlock,
     // replay it now. Otherwise honor the pending section choice (set by clicking
     // a Management dropdown item) or fall back to Vendor Management.
+    //
+    // Critical: when content is already visible and there is no pending deep-link
+    // (common after a subtab click → setHash → applyRoute → switchTab), do NOT
+    // reset to the default All Vendors view — that bounced New/Dashboard away.
     if (_pendingMgmtRoute && _pendingMgmtRoute.length) {
       const segments = _pendingMgmtRoute;
       _pendingMgmtRoute = null;
       _pendingMgmtSection = null;
       routeWithinManagement(segments);
-    } else {
-      const section = _pendingMgmtSection || 'vendor';
+    } else if (_pendingMgmtSection) {
+      const section = _pendingMgmtSection;
       _pendingMgmtSection = null;
-      mgmtSwitchSection(section);
+      mgmtSwitchSection(section, { skipUrlUpdate: true });
+    } else if (!wasVisible) {
+      mgmtSwitchSection('vendor', { view: 'vendors', skipUrlUpdate: true });
     }
+    // else: already showing management content; leave current sub-view alone
   }
 
   function portalPerms() {
@@ -23375,23 +23388,16 @@ function goBack() {
 
     if (!opts.skipUrlUpdate && window.streamlineRouter) {
       if (section === 'vendor') {
-        // Preserve vendor sub-view in the hash (vendors / new / dashboard).
-        const v = opts.view || 'vendors';
-        const map = { vendors: '', new: 'new', dashboard: 'dashboard' };
-        const sub = map[v] !== undefined ? map[v] : '';
-        window.streamlineRouter.setHash(
-          sub
-            ? window.streamlineRouter.buildHash('management', 'vendors', sub)
-            : window.streamlineRouter.buildHash('management', 'vendors')
-        );
+        window.streamlineRouter.setHash(mgmtVendorSubHash(opts.view || mgmtCurrentView || 'vendors'));
       } else {
-        const seg = section === 'user' ? 'users'
-                  : section === 'role' ? 'roles'
-                  : section === 'pssr' ? 'pssr'
-                  : section === 'sso' ? 'sso'
-                  : section === 'integrations' ? 'integrations'
-                  : 'vendors';
-        window.streamlineRouter.setHash(window.streamlineRouter.buildHash('management', seg));
+        const mgmt =
+          section === 'user' ? 'user'
+          : section === 'role' ? 'role'
+          : section === 'pssr' ? 'pssr'
+          : section === 'sso' ? 'sso'
+          : section === 'integrations' ? 'integrations'
+          : 'vendor';
+        window.streamlineRouter.setHash(window.streamlineRouter.buildHash('management', { mgmtSection: mgmt }));
       }
     }
   }
@@ -23399,14 +23405,28 @@ function goBack() {
   // Switch a sub-view WITHIN Vendor Management (vendors list / new / dashboard / detail).
   // Always assumes we're in the vendor section; the dropdown handles section switching.
   // Tab DOM updates must succeed even when vendor list fetch fails.
+  let mgmtCurrentView = 'vendors';
+  function mgmtVendorSubHash(view) {
+    const map = { vendors: '', new: 'new', dashboard: 'dashboard' };
+    const sub = map[view] !== undefined ? map[view] : '';
+    // Always pass mgmtSection so HubUI.buildRouteHash builds /management/vendors[/sub]
+    // instead of falling through to a generic #/management/... path.
+    return window.streamlineRouter.buildHash('management', {
+      mgmtSection: 'vendor',
+      segments: sub ? [sub] : [],
+    });
+  }
   function mgmtSwitchView(view, opts = {}) {
+    const allowed = new Set(['vendors', 'new', 'dashboard', 'detail']);
+    if (!allowed.has(view)) view = 'vendors';
     const vendorsView = document.getElementById('mgmtVendorsView');
     const newView = document.getElementById('mgmtNewView');
     const dashView = document.getElementById('mgmtDashboardView');
     const detailView = document.getElementById('mgmtDetailView');
     if (!vendorsView || !newView || !dashView || !detailView) return;
 
-    document.querySelectorAll('.mgmt-subtab').forEach(t => {
+    mgmtCurrentView = view;
+    document.querySelectorAll('#mgmtVendorSubtabs .mgmt-subtab').forEach(t => {
       t.classList.toggle('active', t.dataset.mgmtView === view);
     });
     vendorsView.style.display = (view === 'vendors') ? '' : 'none';
@@ -23436,17 +23456,25 @@ function goBack() {
     // Update URL: detail uses the vendor ref (set separately by openVendorDetail);
     // other subtabs map under /management/vendors/...
     if (!opts.skipUrlUpdate && window.streamlineRouter && view !== 'detail') {
-      const map = { vendors: '', new: 'new', dashboard: 'dashboard' };
-      const seg = map[view] !== undefined ? map[view] : view;
-      window.streamlineRouter.setHash(
-        seg ? window.streamlineRouter.buildHash('management', 'vendors', seg)
-            : window.streamlineRouter.buildHash('management', 'vendors')
-      );
+      window.streamlineRouter.setHash(mgmtVendorSubHash(view));
     }
   }
-  document.querySelectorAll('.mgmt-subtab').forEach(t => {
-    t.addEventListener('click', () => mgmtSwitchView(t.dataset.mgmtView));
-  });
+  // Event delegation — survives RBAC re-renders / class toggles on the buttons.
+  const mgmtVendorSubtabs = document.getElementById('mgmtVendorSubtabs');
+  if (mgmtVendorSubtabs && !mgmtVendorSubtabs._wired) {
+    mgmtVendorSubtabs._wired = true;
+    mgmtVendorSubtabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mgmt-subtab');
+      if (!btn || !mgmtVendorSubtabs.contains(btn)) return;
+      if (btn.classList.contains('rbac-hidden')) return;
+      e.preventDefault();
+      const view = btn.dataset.mgmtView;
+      if (view) mgmtSwitchView(view);
+    });
+  }
+  // Expose for regression harness
+  window.__mgmtSwitchView = mgmtSwitchView;
+  window.__mgmtCurrentView = () => mgmtCurrentView;
 
   // ----- Vendor list (deduped — one in-flight GET; short TTL cache) -----
   let vendorListCache = [];
@@ -26670,8 +26698,15 @@ function goBack() {
     if (tabName === 'management') {
       // Stash the requested section so mgmtShowContent picks it up after the
       // session check resolves. Defaults to 'vendor' if not specified.
-      _pendingMgmtSection = opts.mgmtSection || _pendingMgmtSection || 'vendor';
-      mgmtCheckSession();
+      // When management content is already unlocked, skip re-auth + showContent
+      // reset — subtab navigation only needs applyManagementSubRoute (hash path).
+      if (!mgmtContentVisible()) {
+        _pendingMgmtSection = opts.mgmtSection || _pendingMgmtSection || 'vendor';
+        mgmtCheckSession();
+      } else if (opts.mgmtSection && opts.mgmtSection !== mgmtCurrentSection) {
+        _pendingMgmtSection = opts.mgmtSection;
+        mgmtSwitchSection(opts.mgmtSection, { skipUrlUpdate: true });
+      }
     }
     if (window.HubUI && typeof window.HubUI.onTabActivated === 'function') {
       window.HubUI.onTabActivated(tabName, opts);
@@ -26921,7 +26956,10 @@ function goBack() {
       spaceKey = optsOrSeg.spaceKey || null;
       entryId = optsOrSeg.entryId || null;
       submissionId = optsOrSeg.submissionId || null;
-      segments = moreSegs;
+      // Honor opts.segments (vendor subtabs pass { mgmtSection:'vendor', segments:['new'] }).
+      // Falling back to moreSegs alone dropped the sub-view and rewrote /vendors/new → /vendors.
+      const fromOpts = Array.isArray(optsOrSeg.segments) ? optsOrSeg.segments : [];
+      segments = [...fromOpts, ...moreSegs].filter((s) => s != null && s !== '');
     } else if (optsOrSeg != null) {
       segments = [optsOrSeg, ...moreSegs].filter((s) => s != null && s !== '');
     }
