@@ -7,6 +7,7 @@
 const contacts = require('./contacts');
 const invitations = require('./invitations');
 const sessions = require('./sessions');
+const vendorAuthRate = require('./rate-limit');
 const { writeAudit } = require('./audit');
 const { isPostgresConfigured } = require('./db');
 const { toExternalVendorView, assertNoInternalLeak } = require('./external-view');
@@ -65,6 +66,9 @@ async function handleVendorIdentityRoute(path, req, res, deps) {
     const token = String(
       (req.query && req.query.token) || body.token || ''
     ).trim();
+    if (vendorAuthRate.isLimited(req)) {
+      return jsonError(res, 429, 'RATE_LIMITED', 'Too many invitation attempts. Try again later.');
+    }
     try {
       const { invitation, contact } = await invitations.consumeInvitation(token);
       const { session } = await sessions.createSession({
@@ -90,6 +94,7 @@ async function handleVendorIdentityRoute(path, req, res, deps) {
         contact_not_active: [403, 'Vendor contact is not active'],
       };
       const [status, msg] = map[code] || [400, 'Unable to consume invitation'];
+      if (status === 401 || code === 'invalid_token') vendorAuthRate.recordFailure(req);
       return jsonError(res, status, code, msg);
     }
   }
