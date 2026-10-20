@@ -1,6 +1,7 @@
 # Architecture — 2026-10-21 release candidate
 
 **Branch:** `release/sliops-2026-10-21-retest`  
+**Implementation commit:** `5db548a230280c2c85da2faf75c15787d4963a34`  
 **Base:** `feature/sliops-ui-refinement` at `fb9a743`  
 **Status:** Partial. Existing engines remain the system of record.
 

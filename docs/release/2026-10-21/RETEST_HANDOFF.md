@@ -53,6 +53,8 @@ Automated results in this package are local. They are not a penetration test and
 
 ## Commit
 
-Implementation and these documents are committed on `release/sliops-2026-10-21-retest`. The tip SHA is filled in below after `git rev-parse HEAD`.
+Code, tests, and these documents are on `release/sliops-2026-10-21-retest`.
 
-`TIP_SHA:`
+`IMPLEMENTATION_SHA: 5db548a230280c2c85da2faf75c15787d4963a34`
+
+That commit's parent is `69d79263b768148ddbaef25e9a913d1725eab4e7`. Use `git rev-parse HEAD` on this branch for the tip if a later commit only records this SHA.
