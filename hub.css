@@ -2296,13 +2296,26 @@ html[data-theme="dark"] .hub-archive-content .hub-empty {
 .hub-legacy-content input[type="search"],
 .hub-legacy-content input[type="password"],
 .hub-legacy-content select,
-.hub-legacy-content textarea {
+.hub-legacy-content textarea,
+.hub-legacy-content .combo-input {
   font-family: var(--hub-font);
   font-size: 0.8rem;
   color: var(--hub-text);
   background: var(--hub-surface);
   border: 1px solid var(--hub-border);
   border-radius: 6px;
+}
+
+.hub-legacy-content .combo-list,
+.hub-legacy-content .combo-option,
+.hub-legacy-content .combo-empty {
+  font-family: var(--hub-font);
+  color: var(--hub-text);
+}
+
+.hub-legacy-content .combo-list {
+  max-height: 180px;
+  z-index: 40;
 }
 
 .hub-legacy-content .input:focus,

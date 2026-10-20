@@ -54,13 +54,39 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
     return false;
   }
 
+  const method = (req.method || 'GET').toUpperCase();
+  const { actorEmail, permissions, isAdmin } = ctx;
+
+  // Status is always reachable so the UI can report the gate deterministically.
+  // All other configuration routes stay hard-disabled when the flag is off.
+  if (path === '/hub/configuration/status' && method === 'GET') {
+    if (!perms.canViewConfiguration(permissions, isAdmin)) {
+      json(res, 403, { error: 'Forbidden' });
+      return true;
+    }
+    const enabled = isConfigurablePlatformEnabled();
+    json(res, 200, {
+      enabled,
+      postgres: enabled ? store.isPostgresMode() : null,
+      gate: 'CONFIGURABLE_PLATFORM_ENABLED',
+      ...(enabled
+        ? {
+            permissions: {
+              view: perms.canViewConfiguration(permissions, isAdmin),
+              edit: perms.canEditConfiguration(permissions, isAdmin),
+              publish: perms.canPublishConfiguration(permissions, isAdmin),
+            },
+          }
+        : disabledPayload()),
+    });
+    return true;
+  }
+
   if (!isConfigurablePlatformEnabled()) {
     json(res, 503, disabledPayload());
     return true;
   }
 
-  const method = (req.method || 'GET').toUpperCase();
-  const { actorEmail, permissions, isAdmin } = ctx;
   let roleKeys = Array.isArray(ctx.roleKeys) ? ctx.roleKeys.slice() : [];
   let actorUserId = ctx.actorUserId || null;
   if ((!roleKeys.length || !actorUserId) && actorEmail) {
@@ -72,24 +98,6 @@ async function handleConfigurationRoutes(path, req, res, ctx) {
     } catch {
       /* keep empty */
     }
-  }
-
-  // ----- meta / catalogs (view) -----
-  if (path === '/hub/configuration/status' && method === 'GET') {
-    if (!perms.canViewConfiguration(permissions, isAdmin)) {
-      json(res, 403, { error: 'Forbidden' });
-      return true;
-    }
-    json(res, 200, {
-      enabled: true,
-      postgres: store.isPostgresMode(),
-      permissions: {
-        view: perms.canViewConfiguration(permissions, isAdmin),
-        edit: perms.canEditConfiguration(permissions, isAdmin),
-        publish: perms.canPublishConfiguration(permissions, isAdmin),
-      },
-    });
-    return true;
   }
 
   if (path === '/hub/configuration/catalogs' && method === 'GET') {

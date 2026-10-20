@@ -40,5 +40,12 @@ assert('classic beveled panels', css.includes('border-color: #fff #404040 #40404
 assert('classic modals not glass', css.includes('classic-99"] .sl-modal') && css.includes('backdrop-filter: none'));
 assert('nav scroll not removed', fs.readFileSync(path.join(ROOT, 'hub.css'), 'utf8').includes('overflow-y: auto'));
 
+const hubCss = fs.readFileSync(path.join(ROOT, 'hub.css'), 'utf8');
+const indexHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+assert('hub font token defined', hubCss.includes('--hub-font:'));
+assert('legacy combo inputs inherit hub font', hubCss.includes('.hub-legacy-content .combo-input') && hubCss.includes('font-family: var(--hub-font)'));
+assert('combo-option uses inherit/hub font', /font-family:\s*inherit/.test(indexHtml) && hubCss.includes('.hub-legacy-content .combo-option'));
+assert('combo list capped height', /max-height:\s*180px/.test(indexHtml) || hubCss.includes('max-height: 180px'));
+
 console.log(`\nSummary: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -174,6 +174,30 @@ async function main() {
   });
   assert('empty stations → log create 409 CR_NEEDS_BOOTSTRAP', empty.status === 409 && empty.body.code === 'CR_NEEDS_BOOTSTRAP');
 
+  empty = await call('POST', '/hub/control-room/schedule', {
+    actorEmail: 'sup@sliops.test',
+    permissions: SUPERVISOR,
+    body: {
+      operator_email: 'op@sliops.test',
+      work_date: '2026-10-19',
+      starts_at: '2026-10-19T08:00:00.000Z',
+      ends_at: '2026-10-19T16:00:00.000Z',
+    },
+  });
+  assert(
+    'empty stations → schedule create 409 CR_NEEDS_BOOTSTRAP',
+    empty.status === 409 && empty.body.code === 'CR_NEEDS_BOOTSTRAP'
+  );
+
+  empty = await call('GET', '/hub/control-room/supervisor', {
+    actorEmail: 'sup@sliops.test',
+    permissions: SUPERVISOR,
+  });
+  assert(
+    'empty stations → supervisor overview needs_bootstrap (no crash)',
+    empty.status === 200 && empty.body.needs_bootstrap === true && !empty.body.current?.station
+  );
+
   // Bootstrap API without seed
   delete process.env.CONTROL_ROOM_MEMORY_SEED;
   resetControlRoomStoreForTests(createMemoryStore());

@@ -2268,7 +2268,13 @@
     await loadPermissionsFromMe();
     applyHubNavPermissions();
     const root = document.getElementById('hubSubmissionRoot');
-    const submissionId = opts?.submissionId || global._hubSubmissionRoute?.submissionId;
+    const fromOpts = opts && typeof opts === 'object' ? opts : {};
+    const fromGlobal = global._hubSubmissionRoute || {};
+    const submissionId =
+      fromOpts.submissionId ||
+      fromGlobal.submissionId ||
+      (Array.isArray(fromOpts.segments) && fromOpts.segments[0]) ||
+      null;
     if (!root || !submissionId) {
       if (root) root.innerHTML = '<div class="hub-empty">Submission not specified.</div>';
       return;
@@ -2351,7 +2357,7 @@
       if (!enabled) {
         root.innerHTML = `<div class="hub-panel"><div class="hub-panel-body pad">
           <h2 style="margin-top:0">Configuration Center</h2>
-          <p class="hub-sub">This admin workspace is not enabled for this environment. Direct links still work for authorized operators once the platform flag is turned on after migrations are ready.</p>
+          <p class="hub-sub">This admin workspace is not enabled for this environment. Set <code>CONFIGURABLE_PLATFORM_ENABLED=1</code> in the staging/production env after migrations are applied, then restart the app.</p>
           <p class="hub-sub">Ordinary users should use New Request, Forms, and Documents instead.</p>
         </div></div>`;
         return;
@@ -3514,9 +3520,11 @@
       global._hubArchiveInitPromise = initPromise;
     }
     else if (tabName === 'hub-users') initHubUsers();
-    else if (tabName === 'hub-spaces') initHubSpaces(global._hubSpaceRoute || {});
-    else if (tabName === 'hub-launch') initHubLaunch(global._hubLaunchRoute || {});
-    else if (tabName === 'hub-submission') initHubSubmission(global._hubSubmissionRoute || {});
+    else if (tabName === 'hub-spaces') initHubSpaces(Object.assign({}, global._hubSpaceRoute || {}, opts || {}));
+    else if (tabName === 'hub-launch') initHubLaunch(Object.assign({}, global._hubLaunchRoute || {}, opts || {}));
+    else if (tabName === 'hub-submission') {
+      initHubSubmission(Object.assign({}, global._hubSubmissionRoute || {}, opts || {}));
+    }
     else if (tabName === 'hub-requests') initRequestsList();
     else if (tabName === 'hub-my-tasks') initMyTasks();
     else if (tabName === 'hub-new-request') initNewRequestHub();

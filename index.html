@@ -6666,7 +6666,7 @@
     background: var(--paper);
     border: 1px solid var(--line);
     padding: 11px 36px 11px 14px;
-    font-family: 'DM Sans', sans-serif;
+    font-family: inherit;
     font-size: 14px;
     color: var(--ink);
     border-radius: var(--radius-sm);
@@ -6750,14 +6750,16 @@
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow);
-    max-height: 240px;
+    max-height: 180px;
     overflow-y: auto;
-    z-index: 5;
+    z-index: 40;
+    font-family: inherit;
   }
   .combo.open .combo-list { display: block; }
 
   .combo-option {
     padding: 10px 14px;
+    font-family: inherit;
     font-size: 14px;
     color: var(--ink);
     cursor: pointer;
@@ -23321,8 +23323,9 @@ function goBack() {
       headingEl.textContent = 'Vendor Management';
       crumbEl.textContent = 'Operations / Management / Vendors';
       if (subheadEl) subheadEl.innerHTML = 'Centralized vendor onboarding, status tracking, and document management.' + signOutLink;
-      // Default to the All Vendors view unless caller specified a sub-view
-      mgmtSwitchView(opts.view || 'vendors', { skipUrlUpdate: true });
+      // Default to the All Vendors view unless caller specified a sub-view.
+      // Always skip URL here — section-level hash update below (or caller) owns the route.
+      mgmtSwitchView(opts.view || 'vendors', { skipUrlUpdate: true, skipLoad: !!opts.skipLoad });
     } else if (section === 'user') {
       subtabsEl.style.display = 'none';
       headingEl.textContent = 'User Management';
@@ -23371,29 +23374,49 @@ function goBack() {
     }
 
     if (!opts.skipUrlUpdate && window.streamlineRouter) {
-      const seg = section === 'user' ? 'users'
-                : section === 'role' ? 'roles'
-                : section === 'pssr' ? 'pssr'
-                : section === 'sso' ? 'sso'
-                : section === 'integrations' ? 'integrations'
-                : 'vendors';
-      window.streamlineRouter.setHash(window.streamlineRouter.buildHash('management', seg));
+      if (section === 'vendor') {
+        // Preserve vendor sub-view in the hash (vendors / new / dashboard).
+        const v = opts.view || 'vendors';
+        const map = { vendors: '', new: 'new', dashboard: 'dashboard' };
+        const sub = map[v] !== undefined ? map[v] : '';
+        window.streamlineRouter.setHash(
+          sub
+            ? window.streamlineRouter.buildHash('management', 'vendors', sub)
+            : window.streamlineRouter.buildHash('management', 'vendors')
+        );
+      } else {
+        const seg = section === 'user' ? 'users'
+                  : section === 'role' ? 'roles'
+                  : section === 'pssr' ? 'pssr'
+                  : section === 'sso' ? 'sso'
+                  : section === 'integrations' ? 'integrations'
+                  : 'vendors';
+        window.streamlineRouter.setHash(window.streamlineRouter.buildHash('management', seg));
+      }
     }
   }
 
   // Switch a sub-view WITHIN Vendor Management (vendors list / new / dashboard / detail).
   // Always assumes we're in the vendor section; the dropdown handles section switching.
+  // Tab DOM updates must succeed even when vendor list fetch fails.
   function mgmtSwitchView(view, opts = {}) {
+    const vendorsView = document.getElementById('mgmtVendorsView');
+    const newView = document.getElementById('mgmtNewView');
+    const dashView = document.getElementById('mgmtDashboardView');
+    const detailView = document.getElementById('mgmtDetailView');
+    if (!vendorsView || !newView || !dashView || !detailView) return;
+
     document.querySelectorAll('.mgmt-subtab').forEach(t => {
       t.classList.toggle('active', t.dataset.mgmtView === view);
     });
-    document.getElementById('mgmtVendorsView').style.display      = (view === 'vendors')     ? '' : 'none';
-    document.getElementById('mgmtNewView').style.display          = (view === 'new')         ? '' : 'none';
-    document.getElementById('mgmtDashboardView').style.display    = (view === 'dashboard')   ? '' : 'none';
-    document.getElementById('mgmtDetailView').style.display       = (view === 'detail')      ? '' : 'none';
+    vendorsView.style.display = (view === 'vendors') ? '' : 'none';
+    newView.style.display = (view === 'new') ? '' : 'none';
+    dashView.style.display = (view === 'dashboard') ? '' : 'none';
+    detailView.style.display = (view === 'detail') ? '' : 'none';
     // User Management, Role Management, and PSSR Management live outside the
     // subtab system — keep them hidden when in vendor section
-    document.getElementById('mgmtPermissionsView').style.display  = 'none';
+    const permsView = document.getElementById('mgmtPermissionsView');
+    if (permsView) permsView.style.display = 'none';
     const rolesEl = document.getElementById('mgmtRolesView');
     if (rolesEl) rolesEl.style.display = 'none';
     const pssrEl = document.getElementById('mgmtPssrView');
@@ -23405,8 +23428,10 @@ function goBack() {
     const successEl = document.getElementById('mgmtNewSuccess');
     if (successEl) successEl.style.display = 'none';
 
-    if (view === 'vendors') loadVendors();
-    if (view === 'dashboard') loadDashboard();
+    if (!opts.skipLoad) {
+      if (view === 'vendors') loadVendors();
+      if (view === 'dashboard') loadDashboard();
+    }
 
     // Update URL: detail uses the vendor ref (set separately by openVendorDetail);
     // other subtabs map under /management/vendors/...
@@ -23423,21 +23448,72 @@ function goBack() {
     t.addEventListener('click', () => mgmtSwitchView(t.dataset.mgmtView));
   });
 
-  // ----- Vendor list -----
+  // ----- Vendor list (deduped — one in-flight GET; short TTL cache) -----
   let vendorListCache = [];
+  let vendorListCacheOk = false;
+  let vendorListFetchedAt = 0;
+  let vendorListInflight = null;
+  const VENDOR_LIST_TTL_MS = 4000;
+  // Expose for regression tests (static analysis + optional runtime hooks)
+  window.__vendorListFetchStats = { starts: 0, network: 0, cacheHits: 0, coalesced: 0 };
 
-  async function loadVendors() {
+  async function fetchVendorListShared(opts = {}) {
+    const force = !!opts.force;
+    const now = Date.now();
+    const stats = window.__vendorListFetchStats;
+    stats.starts += 1;
+    if (!force && vendorListInflight) {
+      stats.coalesced += 1;
+      return vendorListInflight;
+    }
+    if (
+      !force &&
+      vendorListCacheOk &&
+      (now - vendorListFetchedAt) < VENDOR_LIST_TTL_MS
+    ) {
+      stats.cacheHits += 1;
+      return { ok: true, records: vendorListCache, fromCache: true };
+    }
+    stats.network += 1;
+    vendorListInflight = (async () => {
+      try {
+        const res = await mgmtFetch(proxyUrl('/vendors'));
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          const detail = errBody.error || errBody.detail || errBody.code || '';
+          const err = new Error(detail ? `List failed: ${res.status} — ${detail}` : `List failed: ${res.status}`);
+          err.status = res.status;
+          err.retryAfter = res.headers && (res.headers.get('Retry-After') || res.headers.get('retry-after'));
+          throw err;
+        }
+        const data = await res.json();
+        vendorListCache = data.records || [];
+        vendorListCacheOk = true;
+        vendorListFetchedAt = Date.now();
+        return { ok: true, records: vendorListCache, fromCache: false };
+      } catch (err) {
+        vendorListCacheOk = false;
+        throw err;
+      } finally {
+        vendorListInflight = null;
+      }
+    })();
+    return vendorListInflight;
+  }
+
+  async function loadVendors(opts = {}) {
     const listEl = document.getElementById('mgmtVendorList');
+    if (!listEl) return;
     listEl.innerHTML = '<div class="archive-empty">Loading vendors…</div>';
     try {
-      const res = await mgmtFetch(proxyUrl('/vendors'));
-      if (!res.ok) throw new Error(`List failed: ${res.status}`);
-      const data = await res.json();
-      vendorListCache = data.records || [];
+      const result = await fetchVendorListShared(opts);
       renderVendorList();
+      return result;
     } catch (err) {
       console.error('Failed to load vendors:', err);
-      listEl.innerHTML = `<div class="archive-empty">⚠️ Could not load vendors — ${escapeHtml(err.message)}</div>`;
+      const retryHint = err && err.retryAfter ? ` Retry after ${escapeHtml(String(err.retryAfter))}s.` : '';
+      listEl.innerHTML = `<div class="archive-empty">⚠️ Could not load vendors — ${escapeHtml(err.message || 'Unknown error')}.${retryHint}</div>`;
+      // Do not rethrow — tab navigation must remain usable.
     }
   }
 
@@ -24635,39 +24711,26 @@ function goBack() {
         refreshBtn.addEventListener('click', async () => {
           refreshBtn.classList.add('is-loading');
           refreshBtn.disabled = true;
-          vendorListCache = [];
-          await loadDashboard();
+          vendorListCacheOk = false;
+          vendorListFetchedAt = 0;
+          await fetchVendorListShared({ force: true }).then((r) => {
+            renderDashboard(r.records || []);
+          }).catch((err) => {
+            summaryEl.innerHTML = `<div class="dash-summary-loading">⚠️ Could not load — ${escapeHtml(err.message || 'Unknown error')}</div>`;
+          });
           refreshBtn.classList.remove('is-loading');
           refreshBtn.disabled = false;
         });
       }
     }
 
-    let records = vendorListCache;
-    if (!records || records.length === 0) {
-      try {
-        const res = await mgmtFetch(proxyUrl('/vendors'));
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({}));
-          const detail = errBody.error || errBody.detail || errBody.code || '';
-          const isLocal =
-            (location.hostname === 'localhost' || location.hostname === '127.0.0.1') ||
-            (window.__WOS_ENV__ && window.__WOS_ENV__.dev);
-          const msg = isLocal && detail
-            ? `Load failed: ${res.status} — ${detail}`
-            : `Load failed: ${res.status}`;
-          throw new Error(msg);
-        }
-        const data = await res.json();
-        records = data.records || [];
-        vendorListCache = records;
-      } catch (err) {
-        summaryEl.innerHTML = `<div class="dash-summary-loading">⚠️ Could not load — ${escapeHtml(err.message)}</div>`;
-        return;
-      }
+    try {
+      // Reuse shared list fetch (coalesce + TTL) — never fan out a second /vendors GET.
+      const result = await fetchVendorListShared();
+      renderDashboard(result.records || []);
+    } catch (err) {
+      summaryEl.innerHTML = `<div class="dash-summary-loading">⚠️ Could not load — ${escapeHtml(err.message || 'Unknown error')}</div>`;
     }
-
-    renderDashboard(records);
   }
 
   function renderDashboard(records) {
@@ -26953,6 +27016,7 @@ function goBack() {
       if (parsed.archiveFilter) routeOpts.archiveFilter = parsed.archiveFilter;
       if (segments && segments.length) routeOpts.segments = segments;
       if (parsed.query && Object.keys(parsed.query).length) routeOpts.query = parsed.query;
+      // submissionId is set below before switchTab when target is hub-submission
 
       if (window.RbacClient && ['hub-reports','hub-settings','hub-start-center','hub-configuration','hub-forms','hub-documents','hub-workflows','hub-users'].includes(target)) {
         if (!window.RbacClient.isPortalNoAuthMode() && !window.RbacClient.canAccessHubTab(portalPerms(), target)) {
@@ -26979,8 +27043,7 @@ function goBack() {
         segments: segments || [],
       };
 
-      switchTab(target, routeOpts);
-
+      // Populate hub route bags BEFORE switchTab so onTabActivated can read them.
       window._hubWorkflowRoute = { segments: segments || [], query: parsed.query || {} };
       const templateSpace =
         parsed.space ||
@@ -27007,8 +27070,12 @@ function goBack() {
         window._hubLaunchRoute = { entryId: segments[0] };
       }
       if (target === 'hub-submission') {
-        window._hubSubmissionRoute = { submissionId: segments[0] };
+        window._hubSubmissionRoute = { submissionId: segments[0] || null };
+        routeOpts.submissionId = segments[0] || null;
+        routeOpts.segments = segments || [];
       }
+
+      switchTab(target, routeOpts);
 
       if (['hub-forms', 'hub-documents', 'hub-workflows'].includes(target) && window.TemplateRegistryUI) {
         window.TemplateRegistryUI.applyRoute(segments || [], parsed.query || {}, templateSpace);
@@ -27146,7 +27213,7 @@ function goBack() {
 
     // No segments → default to Vendor Management
     if (!first) {
-      mgmtSwitchSection('vendor');
+      mgmtSwitchSection('vendor', { view: 'vendors', skipUrlUpdate: true });
       return;
     }
 
@@ -27183,22 +27250,24 @@ function goBack() {
     }
 
     // New explicit /management/vendors[/...]
+    // skipUrlUpdate: applyRoute already owns the hash — avoid setHash → applyRoute loops.
+    const fromRoute = { skipUrlUpdate: true };
     if (first === 'vendors') {
       const sub = segments[1];
-      if (!sub)               { mgmtSwitchSection('vendor', { view: 'vendors' });   return; }
-      if (sub === 'new')      { mgmtSwitchSection('vendor', { view: 'new' });       return; }
-      if (sub === 'dashboard'){ mgmtSwitchSection('vendor', { view: 'dashboard' }); return; }
+      if (!sub)               { mgmtSwitchSection('vendor', { view: 'vendors', ...fromRoute });   return; }
+      if (sub === 'new')      { mgmtSwitchSection('vendor', { view: 'new', ...fromRoute });       return; }
+      if (sub === 'dashboard'){ mgmtSwitchSection('vendor', { view: 'dashboard', ...fromRoute }); return; }
       // Vendor ref number under /management/vendors/VEN-XXX
-      mgmtSwitchSection('vendor', { view: 'vendors' });
+      mgmtSwitchSection('vendor', { view: 'vendors', ...fromRoute, skipLoad: true });
       openVendorDetail(sub);
       return;
     }
 
     // Legacy flat: /management/new, /management/dashboard, /management/VEN-XXX
-    if (first === 'new')       { mgmtSwitchSection('vendor', { view: 'new' });       return; }
-    if (first === 'dashboard') { mgmtSwitchSection('vendor', { view: 'dashboard' }); return; }
+    if (first === 'new')       { mgmtSwitchSection('vendor', { view: 'new', ...fromRoute });       return; }
+    if (first === 'dashboard') { mgmtSwitchSection('vendor', { view: 'dashboard', ...fromRoute }); return; }
     // Anything else is treated as a vendor reference number (VEN-...)
-    mgmtSwitchSection('vendor', { view: 'vendors' });
+    mgmtSwitchSection('vendor', { view: 'vendors', ...fromRoute, skipLoad: true });
     openVendorDetail(first);
   }
 

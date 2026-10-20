@@ -500,6 +500,11 @@ function createPostgresStore() {
   }
 
   async function createSchedule(input) {
+    if (!input?.station_id) {
+      const err = new Error('Control Room stations not bootstrapped');
+      err.code = 'CR_NEEDS_BOOTSTRAP';
+      throw err;
+    }
     const r = await pool.query(
       `INSERT INTO cr_schedule_assignments
         (station_id, operator_email, work_date, starts_at, ends_at, role_context, created_by)
@@ -599,18 +604,36 @@ function createPostgresStore() {
 
   async function getSupervisorOverview(stationId) {
     const ctx = await getCurrentShiftContext(stationId);
-    const logs = await listLogs({ station_id: ctx.station.id });
+    if (ctx.needs_bootstrap || !ctx.station?.id) {
+      return {
+        needs_bootstrap: true,
+        bootstrap_message: ctx.bootstrap_message || 'Control Room stations not bootstrapped',
+        active_operators: [],
+        coverage_gaps: [],
+        overlaps: [],
+        unacknowledged_attention_urgent: [],
+        open_board_items: [],
+        overdue_tasks: [],
+        pending_handover: null,
+        units_with_issues: [],
+        recent_important: [],
+        current: ctx,
+      };
+    }
+    const sid = ctx.station.id;
+    const logs = await listLogs({ station_id: sid });
     const unackedImportant = logs.filter(
       (l) => (l.priority === 'Attention' || l.priority === 'Urgent') && !(l.acknowledgements || []).length
     );
-    const openBoard = await listBoard({ station_id: ctx.station.id, open_only: true });
-    const tasks = await listTasks({ station_id: ctx.station.id, open_only: true });
+    const openBoard = await listBoard({ station_id: sid, open_only: true });
+    const tasks = await listTasks({ station_id: sid, open_only: true });
     const overdue = tasks.filter((t) => t.overdue);
-    const handovers = await listHandovers(ctx.station.id);
+    const handovers = await listHandovers(sid);
     const pendingHandover = handovers.find((h) => !h.incoming_ack_at) || null;
     const today = nowIso().slice(0, 10);
-    const schedule = await listSchedule({ station_id: ctx.station.id, work_date: today });
+    const schedule = await listSchedule({ station_id: sid, work_date: today });
     return {
+      needs_bootstrap: false,
       active_operators: (ctx.assignments || []).map((a) => a.operator_email),
       coverage_gaps: schedule.gaps,
       overlaps: schedule.overlaps,

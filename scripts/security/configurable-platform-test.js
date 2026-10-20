@@ -217,6 +217,20 @@ assert('migration creates cfg_definitions', /CREATE TABLE IF NOT EXISTS cfg_defi
 assert('migration creates cfg_workflow_instances', /cfg_workflow_instances/.test(migration));
 assert('.env.example documents flag', /CONFIGURABLE_PLATFORM_ENABLED/.test(envEx));
 assert('.env.staging.example documents flag', /CONFIGURABLE_PLATFORM_ENABLED/.test(envSt));
+assert(
+  'staging example enables Configuration Center after migrations',
+  /CONFIGURABLE_PLATFORM_ENABLED=1/.test(envSt)
+);
+const cfgRoutes = fs.readFileSync(path.join(root, 'api/lib/configuration/routes.js'), 'utf8');
+assert(
+  'status endpoint reports gate before hard disable',
+  /configuration\/status[\s\S]{0,600}gate:\s*'CONFIGURABLE_PLATFORM_ENABLED'/.test(cfgRoutes) ||
+    /path === '\/hub\/configuration\/status'[\s\S]{0,800}isConfigurablePlatformEnabled/.test(cfgRoutes)
+);
+assert(
+  'UI names CONFIGURABLE_PLATFORM_ENABLED when disabled',
+  /CONFIGURABLE_PLATFORM_ENABLED=1/.test(hubJs)
+);
 assert('no eval in configuration lib', !fs.readFileSync(path.join(root, 'api/lib/configuration/conditions.js'), 'utf8').includes('eval('));
 assert(
   'no new Function in resolver',

@@ -469,7 +469,20 @@ async function handleControlRoomRoutes(rawPath, req, res, ctx) {
     let stationId = body.station_id;
     if (!stationId) {
       const cur = await store.ensureActiveShift({ actorEmail });
+      if (cur.needs_bootstrap) {
+        return json(res, 409, {
+          error: 'Control Room stations not bootstrapped',
+          code: 'CR_NEEDS_BOOTSTRAP',
+          message: cur.bootstrap_message,
+        });
+      }
       stationId = cur.station?.id;
+    }
+    if (!stationId) {
+      return json(res, 409, {
+        error: 'Control Room stations not bootstrapped',
+        code: 'CR_NEEDS_BOOTSTRAP',
+      });
     }
     const operatorEmail = String(body.operator_email).trim().toLowerCase();
     const operatorUserId = body.operator_user_id
