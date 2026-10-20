@@ -43,6 +43,18 @@ async function getContact(contactId) {
   return mapContact(rows[0] || null);
 }
 
+async function listActiveContactsByEmail(email) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return [];
+  const { rows } = await getPool().query(
+    `SELECT * FROM vendor_contacts
+     WHERE lower(email) = $1 AND status = 'active'
+     ORDER BY created_at ASC`,
+    [normalized]
+  );
+  return rows.map(mapContact);
+}
+
 async function findActiveContactByEmail(vendorId, email) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
@@ -121,6 +133,7 @@ module.exports = {
   normalizeEmail,
   listContacts,
   getContact,
+  listActiveContactsByEmail,
   findActiveContactByEmail,
   upsertContact,
   setContactStatus,

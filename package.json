@@ -84,6 +84,8 @@
     "security:local-swp-workflow-e2e": "node scripts/security/local-swp-workflow-e2e.js",
     "security:template-external-action-test": "node scripts/security/template-external-action-test.js",
     "security:vendor-identity-scr-s05-test": "node scripts/security/vendor-identity-scr-s05-test.js",
+    "security:release-2026-10-21-test": "node scripts/security/release-2026-10-21-test.js",
+    "perf:vendor-scope-bench": "node scripts/perf/vendor-scope-bench.js",
     "security:pentest-emergency-closure-test": "node scripts/security/pentest-emergency-closure-test.js",
     "security:vendor-mgmt-live-smoke-test": "node scripts/security/vendor-mgmt-live-smoke-test.js",
     "security:vendor-mgmt-subtab-nav-test": "node scripts/security/vendor-mgmt-subtab-nav-test.js",

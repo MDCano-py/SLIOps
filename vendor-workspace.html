@@ -79,6 +79,16 @@
       color: var(--vw-ink);
     }
     button.primary { background: var(--vw-teal); color: #fff; border-color: transparent; }
+    label { display: block; font-size: 0.85rem; margin: 0.75rem 0 0.3rem; }
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      font: inherit;
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid var(--vw-line);
+    }
+    form button { margin-top: 0.9rem; }
   </style>
 </head>
 <body>
@@ -91,6 +101,19 @@
       <button type="button" id="logoutBtn" hidden>Sign out</button>
     </div>
     <div id="status" class="panel">Loading…</div>
+    <form id="otpForm" class="panel" hidden>
+      <h2>Vendor sign-in</h2>
+      <p class="muted">Use the email on your vendor account. We will send a 6-digit code that expires in 5 minutes.</p>
+      <label for="otpEmail">Email</label>
+      <input id="otpEmail" name="email" type="email" autocomplete="username" required />
+      <button type="submit" class="primary" id="otpRequest">Email me a code</button>
+      <div id="otpCodeRow" hidden>
+        <label for="otpCode">Verification code</label>
+        <input id="otpCode" name="code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" autocomplete="one-time-code" />
+        <button type="button" class="primary" id="otpVerify">Sign in</button>
+      </div>
+      <p id="otpMsg" class="muted"></p>
+    </form>
     <div id="main" hidden></div>
   </div>
   <script>
@@ -100,6 +123,9 @@
       const statusEl = document.getElementById('status');
       const main = document.getElementById('main');
       const logoutBtn = document.getElementById('logoutBtn');
+      const otpForm = document.getElementById('otpForm');
+      const otpCodeRow = document.getElementById('otpCodeRow');
+      const otpMsg = document.getElementById('otpMsg');
 
       function apiPath(p) {
         const base = (document.querySelector('base') && document.querySelector('base').href) || '';
@@ -186,6 +212,46 @@
         statusEl.innerHTML = '<p class="ok">Signed out.</p>';
       });
 
+      function showSignIn(message) {
+        statusEl.hidden = true;
+        main.hidden = true;
+        logoutBtn.hidden = true;
+        otpForm.hidden = false;
+        if (message) otpMsg.textContent = message;
+      }
+
+      otpForm.addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        const email = document.getElementById('otpEmail').value.trim();
+        otpMsg.textContent = 'Sending…';
+        try {
+          const data = await api('/vendor/auth/code/request', {
+            method: 'POST',
+            body: JSON.stringify({ email: email }),
+          });
+          otpCodeRow.hidden = false;
+          otpMsg.textContent = data.message || 'If an active vendor account matches that email, a verification code has been sent.';
+        } catch (err) {
+          otpMsg.textContent = err.message || 'Unable to send a code';
+        }
+      });
+
+      document.getElementById('otpVerify').addEventListener('click', async function () {
+        const email = document.getElementById('otpEmail').value.trim();
+        const code = document.getElementById('otpCode').value.trim();
+        otpMsg.textContent = 'Checking code…';
+        try {
+          await api('/vendor/auth/code/verify', {
+            method: 'POST',
+            body: JSON.stringify({ email: email, code: code }),
+          });
+          otpForm.hidden = true;
+          await loadWorkspace();
+        } catch (err) {
+          otpMsg.textContent = err.message || 'Invalid or expired verification code';
+        }
+      });
+
       async function boot() {
         try {
           if (inviteToken) {
@@ -203,7 +269,11 @@
           }
           await loadWorkspace();
         } catch (err) {
-          statusEl.innerHTML = '<p class="err">' + esc(err.message || 'Unable to open vendor workspace') + '</p>';
+          if (!inviteToken || err.code === 'VENDOR_AUTH_REQUIRED') {
+            showSignIn('Sign in with your vendor email, or open the invitation link you were sent.');
+            return;
+          }
+          showSignIn(err.message || 'Unable to open vendor workspace');
         }
       }
 

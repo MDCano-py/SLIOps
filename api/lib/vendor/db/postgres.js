@@ -91,6 +91,13 @@ async function getAllVendorRecords() {
   return r.rows.map(rowToRecord);
 }
 
+async function getVendorRecordById(id) {
+  if (!id) return null;
+  const r = await pool.query('SELECT * FROM vendor_master WHERE id = $1 LIMIT 1', [id]);
+  if (!r.rows.length) return null;
+  return rowToRecord(r.rows[0]);
+}
+
 async function deleteVendorRecordForTest(ref) {
   await pool.query('DELETE FROM vendor_master WHERE ref_number = $1', [ref]);
 }
@@ -116,6 +123,7 @@ module.exports = {
   readVendorRecord,
   writeVendorRecord,
   getAllVendorRecords,
+  getVendorRecordById,
   deleteVendorRecordForTest,
   getVendorIdByRef,
   healthCheck,

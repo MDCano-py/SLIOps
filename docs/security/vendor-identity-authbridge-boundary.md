@@ -2,7 +2,7 @@
 
 ## Goal
 
-External vendor contacts authenticate via magic link + `sliops_vendor_session`.
+External vendor contacts authenticate via email verification code or magic link + `sliops_vendor_session`.
 Employees continue via Entra / AuthBridge + `sliops_session`.
 
 Do **not** globally disable AuthBridge.
@@ -16,6 +16,8 @@ unauthenticated browser reachability only for:
 |------|-----|
 | `/vendor-workspace.html` | External Vendor Workspace UI |
 | `/api/maintainx?path=/vendor/auth/consume` | Magic-link consumption |
+| `/api/maintainx?path=/vendor/auth/code/request` | Email verification-code request |
+| `/api/maintainx?path=/vendor/auth/code/verify` | Email verification-code sign-in |
 | `/api/maintainx?path=/vendor/auth/me` | Vendor session probe |
 | `/api/maintainx?path=/vendor/auth/logout` | Vendor logout |
 | `/api/maintainx?path=/vendor/workspace` | Vendor-scoped workspace API |
@@ -36,6 +38,7 @@ Node SSO gate treats only `isVendorIdentityPublicPath()` routes as public.
 Those handlers still require:
 
 - a valid one-time invite token during consume, or
+- a valid single-use verification code during `/vendor/auth/code/verify`, or
 - a valid `sliops_vendor_session` afterward
 
 Vendor sessions never satisfy employee RBAC.

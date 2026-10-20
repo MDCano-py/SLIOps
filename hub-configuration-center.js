@@ -19,6 +19,16 @@
     { id: 'history', label: 'Version History' },
   ];
 
+  function showDiagnosticsRecovery() {
+    try {
+      const search = String(window.location.search || '');
+      const hash = String(window.location.hash || '');
+      return /(?:^|[?&])diagnostics=1(?:&|$)/.test(search) || /(?:^|[?&#])diagnostics=1(?:&|$)/.test(hash);
+    } catch (_) {
+      return false;
+    }
+  }
+
   const HUMAN_NODE_TYPES = new Set([
     'human.fill',
     'human.review',
@@ -373,7 +383,7 @@
         },
       })
     );
-    actions.appendChild(
+    if (showDiagnosticsRecovery()) actions.appendChild(
       el('button', {
         type: 'button',
         className: 'hub-btn',

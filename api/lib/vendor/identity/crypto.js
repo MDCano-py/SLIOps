@@ -12,4 +12,16 @@ function mintOpaqueToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString('hex');
 }
 
-module.exports = { hashToken, mintOpaqueToken };
+/** Six-digit code from a CSPRNG. Inclusive range 000000–999999. */
+function mintVerificationCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+function hashesEqual(a, b) {
+  const left = Buffer.from(String(a || ''), 'utf8');
+  const right = Buffer.from(String(b || ''), 'utf8');
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+module.exports = { hashToken, mintOpaqueToken, mintVerificationCode, hashesEqual };

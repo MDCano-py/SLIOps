@@ -27,6 +27,13 @@ async function getAllVendorRecords() {
   return backend().getAllVendorRecords();
 }
 
+async function getVendorRecordById(id) {
+  const b = backend();
+  if (typeof b.getVendorRecordById === 'function') return b.getVendorRecordById(id);
+  const all = await b.getAllVendorRecords();
+  return all.find((row) => String(row.id) === String(id)) || null;
+}
+
 async function getVendorIdByRef(ref) {
   if (!isVendorPostgresMode()) return null;
   return pg.getVendorIdByRef(ref);
@@ -37,6 +44,7 @@ module.exports = {
   readVendorRecord,
   writeVendorRecord,
   getAllVendorRecords,
+  getVendorRecordById,
   getVendorIdByRef,
   deleteVendorRecordForTest: pg.deleteVendorRecordForTest,
   vendorPostgresHealthCheck: pg.healthCheck,

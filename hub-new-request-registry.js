@@ -5,6 +5,9 @@
 (function (root) {
   'use strict';
 
+  // Operational Work Order stays the launch target until configurable parity is proven.
+  const OPERATIONAL_AUTHORITATIVE_KEYS = ['work_order'];
+
   const LEGACY_REQUEST_TYPE_KEYS = [
     'work_order',
     'parts_request',
@@ -92,10 +95,27 @@
       .filter((t) => !isLikelyTestRecord(t));
 
     if (types.length) {
-      return [...types, ...legacy];
+      const legacyKeys = new Set(legacy.map((t) => t.key));
+      const cfg = types.filter((t) => {
+        if (!OPERATIONAL_AUTHORITATIVE_KEYS.includes(t.key)) return true;
+        return !legacyKeys.has(t.key);
+      });
+      return [...cfg, ...legacy];
     }
     // Fallback until request types are configured: keep published forms (filtered)
     return [...legacy, ...(publishedForms || []).filter((t) => !isLikelyTestRecord(t))];
+  }
+
+  function groupNewRequestTypes(items) {
+    const legacy = [];
+    const published = [];
+    const requestTypes = [];
+    (items || []).forEach((item) => {
+      if (item.category === PUBLISHED_FORMS_CATEGORY || item.render_mode === 'published_form') published.push(item);
+      else if (item.category === REQUEST_TYPES_CATEGORY || item.render_mode === 'cfg_request_type') requestTypes.push(item);
+      else legacy.push(item);
+    });
+    return { legacy, published, requestTypes };
   }
 
   function isPublishedFormCard(item) {
@@ -122,12 +142,14 @@
   }
 
   const api = {
+    OPERATIONAL_AUTHORITATIVE_KEYS,
     LEGACY_REQUEST_TYPE_KEYS,
     PUBLISHED_FORMS_CATEGORY,
     REQUEST_TYPES_CATEGORY,
     publishedFormsFromRegistry,
     requestTypesFromConfiguration,
     mergeNewRequestTypes,
+    groupNewRequestTypes,
     isPublishedFormCard,
     isCfgRequestTypeCard,
     isLikelyTestRecord,

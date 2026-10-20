@@ -161,7 +161,7 @@ function issueSession(res, email, opts = {}) {
   const remember = !!opts.remember;
   const ttl = remember ? REMEMBER_TTL_SECONDS : SESSION_TTL_SECONDS;
   const cookieName = remember ? REMEMBER_COOKIE_NAME : SESSION_COOKIE_NAME;
-  const token = signJwt({ email, remember }, ttl);
+  const token = signJwt({ typ: 'employee_session', email, remember }, ttl);
   const cookie = buildSetCookie(cookieName, token, ttl);
 
   // If we're issuing a "remember me" cookie, also clear the short-session
@@ -242,6 +242,19 @@ function appendSetCookie(res, cookies) {
 // Read the current session from the request, or null if no valid session.
 // Tries the persistent cookie first (longer TTL = preferred), falls back
 // to the short session cookie. Returns { email, remember, exp } on success.
+/**
+ * Employee cookies must not accept a vendor-session JWT pasted into
+ * sliops_session / sliops_remember. Vendor tokens carry typ=vendor_session
+ * plus sid/sk/vid/cid. Legacy employee tokens omit typ and remain valid.
+ */
+function isEmployeeSessionPayload(payload) {
+  if (!payload || typeof payload.email !== 'string' || !payload.email) return false;
+  if (payload.typ === 'vendor_session') return false;
+  if (payload.sk || payload.sid || payload.vid || payload.cid) return false;
+  if (payload.typ && payload.typ !== 'employee_session') return false;
+  return true;
+}
+
 function getSession(req) {
   const cookies = parseCookies(req);
   // Prefer remember-me if both are somehow set
@@ -250,7 +263,7 @@ function getSession(req) {
   for (const t of [rememberToken, sessionToken]) {
     if (!t) continue;
     const payload = verifyJwt(t);
-    if (payload && payload.email) return payload;
+    if (isEmployeeSessionPayload(payload)) return payload;
   }
   return null;
 }
@@ -307,6 +320,7 @@ module.exports = {
   SIGNED_OUT_TTL_SECONDS,
   signJwt,
   verifyJwt,
+  isEmployeeSessionPayload,
   parseCookies,
   buildSetCookie,
   appendSetCookie,

@@ -7,11 +7,23 @@
 const contacts = require('./contacts');
 const invitations = require('./invitations');
 const sessions = require('./sessions');
+const loginCodes = require('./login-codes');
 const vendorAuthRate = require('./rate-limit');
+const { deliverVerificationCode } = require('./deliver-code');
 const { writeAudit } = require('./audit');
 const { isPostgresConfigured } = require('./db');
 const { toExternalVendorView, assertNoInternalLeak } = require('./external-view');
+const { assertVendorCompanyScope } = require('../../platform/authorization');
 const { publicPath, getAppBasePath } = require('../../app-paths');
+
+const CODE_REQUEST_BODY = {
+  ok: true,
+  message: 'If an active vendor account matches that email, a verification code has been sent.',
+};
+const CODE_REJECT_BODY = {
+  error: 'Invalid or expired verification code',
+  code: 'invalid_code',
+};
 
 function inviteUrl(token) {
   const base = (process.env.PORTAL_BASE_URL || process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
@@ -33,6 +45,13 @@ async function resolveVendorUuidByRef(vendorStore, ref) {
 
 function jsonError(res, status, code, message) {
   return res.status(status).json({ error: message || code, code });
+}
+
+function readJsonBody(req) {
+  if (typeof req.body === 'string') {
+    try { return JSON.parse(req.body); } catch { return {}; }
+  }
+  return req.body || {};
 }
 
 /**
@@ -121,17 +140,122 @@ async function handleVendorIdentityRoute(path, req, res, deps) {
     return res.status(200).json({ ok: true });
   }
 
+  // ---------- External: email verification code (no account enumeration) ----------
+  if (path === '/vendor/auth/code/request') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const body = readJsonBody(req);
+    const email = contacts.normalizeEmail(body.email);
+    if (!email) return jsonError(res, 400, 'email_required', 'Email is required');
+    if (vendorAuthRate.isCodeRequestLimited(req, email)) {
+      return jsonError(res, 429, 'RATE_LIMITED', 'Too many attempts. Try again later.');
+    }
+    vendorAuthRate.recordCodeRequest(req, email);
+    try {
+      const matches = email.length > 320 ? [] : await contacts.listActiveContactsByEmail(email);
+      if (matches.length === 1) {
+        const issued = await loginCodes.issueLoginCode(matches[0]);
+        const delivery = await deliverVerificationCode({ to: matches[0].email, code: issued.code });
+        await writeAudit({
+          eventType: 'vendor_login_code_delivery',
+          vendorId: matches[0].vendorId,
+          contactId: matches[0].id,
+          actorKind: 'vendor_contact',
+          actorId: matches[0].email,
+          detail: 'Verification code delivery attempted',
+          meta: { delivery: delivery.ok ? 'sent' : (delivery.reason || 'skipped') },
+        });
+      } else if (matches.length > 1) {
+        await writeAudit({
+          eventType: 'vendor_login_ambiguous_email',
+          actorKind: 'vendor_contact',
+          actorId: '',
+          detail: 'Verification code suppressed because the email matches more than one vendor',
+          meta: { matchCount: matches.length },
+        });
+      }
+    } catch (err) {
+      console.error('[vendor-otp] code request failed');
+      await writeAudit({
+        eventType: 'vendor_login_code_error',
+        actorKind: 'system',
+        actorId: '',
+        detail: 'Verification code request failed',
+        meta: { reason: 'internal' },
+      });
+    }
+    return res.status(200).json(CODE_REQUEST_BODY);
+  }
+
+  if (path === '/vendor/auth/code/verify') {
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+    const body = readJsonBody(req);
+    const email = contacts.normalizeEmail(body.email);
+    const code = String(body.code || '').trim();
+    if (!email || !code) return jsonError(res, 400, 'code_required', 'Email and code are required');
+    if (vendorAuthRate.isVerifyLimited(req, email) || vendorAuthRate.isLimited(req)) {
+      return jsonError(res, 429, 'RATE_LIMITED', 'Too many attempts. Try again later.');
+    }
+    try {
+      const matches = await contacts.listActiveContactsByEmail(email);
+      if (matches.length !== 1) {
+        vendorAuthRate.recordVerifyFailure(req, email);
+        return res.status(401).json(CODE_REJECT_BODY);
+      }
+      await loginCodes.verifyAndConsume({ contactId: matches[0].id, code });
+      const { session } = await sessions.createSession({
+        vendorId: matches[0].vendorId,
+        contact: matches[0],
+        res,
+      });
+      await writeAudit({
+        eventType: 'vendor_login_code_verified',
+        vendorId: matches[0].vendorId,
+        contactId: matches[0].id,
+        actorKind: 'vendor_contact',
+        actorId: matches[0].email,
+        detail: 'Verification code accepted',
+      });
+      return res.status(200).json({
+        ok: true,
+        vendorIdBound: true,
+        contactEmail: matches[0].email,
+        sessionExpiresAt: session.expiresAt,
+        redirect: publicPath('/vendor-workspace.html', getAppBasePath()),
+      });
+    } catch (err) {
+      if (!err || err.code !== 'invalid_code') {
+        console.error('[vendor-otp] verify failed');
+        return jsonError(res, 503, 'VENDOR_AUTH_UNAVAILABLE', 'Vendor sign-in is temporarily unavailable');
+      }
+      vendorAuthRate.recordVerifyFailure(req, email);
+      await writeAudit({
+        eventType: 'vendor_login_code_rejected',
+        actorKind: 'vendor_contact',
+        actorId: '',
+        detail: 'Verification code rejected',
+        meta: { reason: 'invalid_code' },
+      });
+      return res.status(401).json(CODE_REJECT_BODY);
+    }
+  }
+
   // ---------- External: workspace snapshot ----------
   if (path === '/vendor/workspace' || path === '/vendor/workspace/') {
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     const resolved = await sessions.resolveVendorSession(req);
     if (!resolved) return jsonError(res, 401, 'VENDOR_AUTH_REQUIRED', 'Vendor session required');
 
-    // Scope: only the bound vendor — ignore any client-supplied vendor id/ref.
+    // Scope: only the bound vendor — parameterized lookup, ignore client vendor id.
     const clientRef = String((req.query && req.query.ref) || '').trim();
-    const all = await vendorStore.getAllVendorRecords();
-    const mine = all.find((r) => r.id === resolved.vendorId);
+    const mine = typeof vendorStore.getVendorRecordById === 'function'
+      ? await vendorStore.getVendorRecordById(resolved.vendorId)
+      : null;
     if (!mine) return jsonError(res, 404, 'VENDOR_NOT_FOUND', 'Vendor record not found');
+    try {
+      assertVendorCompanyScope(resolved.vendorId, mine.id);
+    } catch (err) {
+      return jsonError(res, 403, err.code || 'VENDOR_SCOPE_DENIED', 'Not authorized for that vendor');
+    }
     if (clientRef && clientRef !== mine.refNumber) {
       await writeAudit({
         eventType: 'vendor_scope_escape_blocked',
@@ -320,6 +444,8 @@ function isVendorIdentityPublicPath(pathOnly) {
   if (!pathOnly || typeof pathOnly !== 'string') return false;
   return (
     pathOnly === '/vendor/auth/consume' ||
+    pathOnly === '/vendor/auth/code/request' ||
+    pathOnly === '/vendor/auth/code/verify' ||
     pathOnly === '/vendor/auth/me' ||
     pathOnly === '/vendor/auth/logout' ||
     pathOnly === '/vendor/workspace' ||
