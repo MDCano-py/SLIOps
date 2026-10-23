@@ -40,7 +40,7 @@ Assumptions:
 
 - Ubuntu 22.04+ (or similar)
 - nginx already terminates TLS for `automation.streamlinescada.com`
-- Node.js **20.x** installed (`node -v`)
+- Node.js **24.22.1** or a later 24.x security release (`node -v`). The October 21, 2026 Node.js advisory does not publish a patched Node 20 build. `package.json` `engines` and `.nvmrc` record this requirement.
 - Git access to the repository
 
 ```bash

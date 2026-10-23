@@ -11,7 +11,7 @@ For step-by-step staging setup, see [DEPLOYMENT_STAGING.md](./DEPLOYMENT_STAGING
 
 | Layer | Technology |
 |---|---|
-| App | Node.js 20.x (`scripts/production-server.js` via PM2 or systemd) |
+| App | Node.js 24.22.1 or later 24.x (`scripts/production-server.js` via PM2 or systemd) |
 | Reverse proxy | Nginx (TLS termination, path prefix e.g. `/ops-hub-staging/`) |
 | Database | AWS RDS PostgreSQL (`DATABASE_URL`, migrations in `/migrations`) |
 | Worker | `scripts/hub-worker.js` (outbox / email / integration delivery) |

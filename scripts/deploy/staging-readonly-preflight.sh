@@ -13,10 +13,29 @@ if [ -d "$APP_ROOT/.git" ]; then
 else
   echo "APP_ROOT_MISSING $APP_ROOT"
 fi
+echo "shell_node=$(command -v node || true)"
+echo "shell_node_version=$(node -v 2>/dev/null || true)"
 if command -v pm2 >/dev/null 2>&1; then
-  pm2 jlist | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const apps=JSON.parse(s);for (const a of apps){const e=a.pm2_env||{};console.log([a.name,e.status,e.pm_cwd,e.version,a.pid].join('\t'));}})"
+  pm2 jlist | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const apps=JSON.parse(s||'[]');for (const a of apps){const e=a.pm2_env||{};console.log(['pm2',a.name,e.status,a.pid,e.exec_interpreter||'',e.node_version||'',e.pm_cwd||'',e.pm_exec_path||e.script||''].join('\t'));}})"
+  pm2 jlist | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const apps=JSON.parse(s||'[]');for (const a of apps){if(a.pid) console.log(a.pid)}})" | while read -r pid; do
+    if [ -e "/proc/$pid/exe" ]; then
+      echo "proc_exe pid=$pid exe=$(readlink -f "/proc/$pid/exe")"
+      printf 'proc_cmdline pid=%s ' "$pid"
+      tr '\0' ' ' < "/proc/$pid/cmdline"
+      echo
+    else
+      echo "proc_exe pid=$pid unavailable"
+    fi
+  done
 else
   echo "PM2_NOT_INSTALLED"
+fi
+if command -v systemctl >/dev/null 2>&1 && systemctl show ops-hub-staging.service >/dev/null 2>&1; then
+  systemctl show ops-hub-staging.service -p Id -p ActiveState -p MainPID -p FragmentPath --no-page
+  unit_pid="$(systemctl show -p MainPID --value ops-hub-staging.service 2>/dev/null || true)"
+  if [ -n "$unit_pid" ] && [ "$unit_pid" != "0" ] && [ -e "/proc/$unit_pid/exe" ]; then
+    echo "systemd_proc_exe pid=$unit_pid exe=$(readlink -f "/proc/$unit_pid/exe")"
+  fi
 fi
 if command -v nginx >/dev/null 2>&1; then
   sudo nginx -T 2>/dev/null | awk '

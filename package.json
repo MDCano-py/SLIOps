@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "engines": {
-    "node": "20.x"
+    "node": ">=24.22.1 <25"
   },
   "scripts": {
     "dev": "node scripts/dev-server.js",
@@ -73,6 +73,7 @@
     "security:identity-prefill-test": "node scripts/security/identity-prefill-test.js",
     "security:secret-scan": "node scripts/security/secret-scan.js",
     "security:audit": "node scripts/security/dep-audit.js",
+    "security:node-october-2026-runtime-test": "node scripts/security/node-october-2026-runtime-test.js",
     "security:staging-hardening-test": "node scripts/security/staging-hardening-test.js",
     "security:postgres-only-staging-health-test": "node scripts/security/postgres-only-staging-health-test.js",
     "security:staging-test-login-test": "node scripts/security/staging-test-login-test.js",

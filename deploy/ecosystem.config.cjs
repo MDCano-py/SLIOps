@@ -18,6 +18,12 @@
 
  * Both processes read `.env.staging` via application code (production-server / hub-worker loadDbEnv).
 
+ * Runtime: Node.js 24.22.1 or a later 24.x security release. PM2 uses the node
+
+ * binary on PATH unless a saved process still points at an older interpreter.
+
+ * Confirm each running process with readlink -f /proc/<pid>/exe.
+
  */
 
 module.exports = {

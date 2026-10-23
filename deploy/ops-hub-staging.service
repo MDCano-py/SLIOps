@@ -12,6 +12,7 @@ Group=www-data
 WorkingDirectory=/var/www/ops-hub-staging
 Environment=NODE_ENV=staging
 EnvironmentFile=/var/www/ops-hub-staging/.env.staging
+# /usr/bin/node must be Node.js 24.22.1 or a later 24.x security release.
 ExecStart=/usr/bin/node scripts/production-server.js
 Restart=on-failure
 RestartSec=5

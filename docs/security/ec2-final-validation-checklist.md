@@ -14,9 +14,9 @@
 cd /var/www/ops-hub-staging && pwd && node -v && npm -v && whoami
 ```
 ### EXPECTED RESULT
-Directory exists; Node **20.x**; shell user can read deploy tree.
+Directory exists; Node.js **24.22.1** or a later 24.x release; shell user can read deploy tree. `node -v` in the shell is not sufficient — compare it with `/proc/<pid>/exe` for each PM2 process.
 ### IF IT FAILS
-Fix path/ownership (`chown`) or install Node 20 before continuing.
+Fix path/ownership (`chown`) or install Node.js 24.22.1 or a later 24.x security release before continuing.
 
 ---
 

@@ -6,6 +6,7 @@
  *   npm run hub-worker          # continuous (default)
  *   npm run hub-worker:once     # single tick then exit
  */
+require('./assert-node-runtime').assertNodeRuntime();
 const { loadDbEnv } = require('./db/env');
 
 loadDbEnv();

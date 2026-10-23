@@ -3,6 +3,7 @@
  * Usage: npm run dev
  */
 const path = require('path');
+require('./assert-node-runtime').assertNodeRuntime();
 const { createServer } = require('./server-core');
 
 const ROOT = path.join(__dirname, '..');
