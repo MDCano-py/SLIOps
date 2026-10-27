@@ -2060,6 +2060,7 @@ async function handleAuth(path, req, res) {
       } catch { /* ignore — defaults stand */ }
 
       // Issue the session cookie and redirect home (or to the next URL).
+      await sessionRevocation.primeIssuer(identity.email);
       auth.issueSession(res, identity.email, { remember });
 
       // Trigger first-login auto-provisioning by hitting our own user
@@ -2519,6 +2520,7 @@ module.exports = async function handler(req, res) {
     try {
       const sess = auth.getSession(req);
       if (sess?.email) {
+        await sessionRevocation.primeIssuer(cookieEmail);
         auth.issueSession(res, cookieEmail, { remember: !!sess.remember });
       }
     } catch (slideErr) {

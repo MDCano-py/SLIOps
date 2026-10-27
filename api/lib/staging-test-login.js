@@ -367,6 +367,8 @@ async function handleStagingTestLogin(req, res, { portalBase = '/', syncUserReco
   }
 
   // Issue normal signed session cookie (HttpOnly, Secure, SameSite=Lax).
+  const sessionRevocation = require('./session-revocation');
+  await sessionRevocation.primeIssuer(user.email);
   auth.issueSession(res, user.email, { remember: false });
 
   if (typeof syncUserRecord === 'function') {

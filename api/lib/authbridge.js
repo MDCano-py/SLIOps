@@ -20,6 +20,7 @@ const crypto = require('crypto');
 const https = require('https');
 const http = require('http');
 const auth = require('./auth');
+const sessionRevocation = require('./session-revocation');
 const { resolvePostAuthRedirect, getAppBasePath, toAppRelativePath, getPortalMountPath } = require('./app-paths');
 
 const OAUTH_STATE_COOKIE = 'sliops_oauth_state';
@@ -529,6 +530,7 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
     if (typeof ensureUserProvisioned === 'function') {
       await ensureUserProvisioned(identity);
     }
+    await sessionRevocation.primeIssuer(identity.email);
     auth.issueSession(res, identity.email, { remember: !!oauthState.r });
     const target = buildRedirectTarget(portalBase, oauthState.next);
     console.log('[auth]', JSON.stringify({

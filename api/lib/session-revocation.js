@@ -110,6 +110,12 @@ async function load(email) {
   return null;
 }
 
+async function primeIssuer(email) {
+  const stored = await load(email);
+  if (stored) remember(email, stored);
+  return cutoffFor(email);
+}
+
 async function revokeClaims(payload) {
   if (!payload?.email || typeof payload.iat !== 'number') return null;
   const cutoff = remember(payload.email, payload.iat);
@@ -135,6 +141,7 @@ module.exports = {
   isRevokedSync,
   freshIssuedAt,
   revokeClaims,
+  primeIssuer,
   hydrate,
   resetSessionRevocationForTests,
 };

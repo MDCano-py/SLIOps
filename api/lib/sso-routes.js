@@ -167,6 +167,8 @@ function createSsoHandlers(redis) {
           next = typeof parsed.n === 'string' ? parsed.n : '';
         } catch { /* defaults */ }
 
+        const sessionRevocation = require('./session-revocation');
+        await sessionRevocation.primeIssuer(identity.email);
         auth.issueSession(res, identity.email, { remember });
 
         if (typeof ensureUserProvisioned === 'function') {

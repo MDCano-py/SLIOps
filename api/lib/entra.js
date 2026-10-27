@@ -264,6 +264,8 @@ async function handleCallback(req, res, { renderError, portalBase, ensureUserPro
       );
     }
 
+    const sessionRevocation = require('./session-revocation');
+    await sessionRevocation.primeIssuer(identity.email);
     auth.issueSession(res, identity.email, { remember: oauthState.r === 1 });
     const idToken =
       tokenResponse.idToken ||
@@ -351,6 +353,8 @@ async function handleDevLogin(req, res, { renderError, portalBase, ensureUserPro
     return renderError(403, 'Email not allowed', `Allowed domains: ${allowedDomains().join(', ')}`);
   }
 
+  const sessionRevocation = require('./session-revocation');
+  await sessionRevocation.primeIssuer(email);
   auth.issueSession(res, email, { remember: false });
   try {
     await ensureUserProvisioned({

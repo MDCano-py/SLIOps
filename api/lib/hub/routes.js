@@ -135,15 +135,16 @@ async function buildTimeline(requestId) {
     });
   }
   const audit = await store.listAuditEvents(requestId);
-  audit.forEach((a) =>
+  audit.forEach((a) => {
+    const label = a.event_type || a.action || 'audit';
     events.push({
       type: 'audit',
       at: a.created_at,
-      title: a.event_type.replace(/_/g, ' '),
-      detail: a.detail,
+      title: String(label).replace(/_/g, ' '),
+      detail: a.detail || null,
       by: a.actor_email,
-    })
-  );
+    });
+  });
   events.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0));
   return events;
 }

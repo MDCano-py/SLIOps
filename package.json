@@ -99,6 +99,7 @@
     "security:submission-idor-test": "node scripts/security/submission-idor-test.js",
     "security:workflow-step-authz-test": "node scripts/security/workflow-step-authz-test.js",
     "security:october-2026-remediation-test": "node scripts/security/october-2026-remediation-test.js",
+    "security:october-2026-integration-test": "node scripts/security/october-2026-integration-test.js",
     "security:object-storage-test": "node scripts/security/object-storage-test.js",
     "security:staging-launch-readiness-test": "node scripts/security/staging-launch-readiness-test.js",
     "security:configurable-platform-test": "node scripts/security/configurable-platform-test.js",
