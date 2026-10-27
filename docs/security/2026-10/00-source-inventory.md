@@ -8,7 +8,7 @@
 
 | Repository | Path | Git root | Branch | HEAD | Remote (token-free) | Role |
 | --- | --- | --- | --- | --- | --- | --- |
-| SLIOps | `C:\Users\MDCan\Desktop\sliops_master` | that directory | `security/2026-10-remediation` | `9b459e5b1cd480fcce99a4163b0968e9f31fac0b` | `git@github-streamline:Michael-Cano_strmln/SLIOps.git` | Operations SPA, hub API, archive/forms, employee session |
+| SLIOps | `C:\Users\MDCan\Desktop\sliops_master` | that directory | `security/2026-10-remediation` | `4d098ff8e24d5c37c3bc00179de0825ba5648833` (docs) on top of code `9b459e5b1cd480fcce99a4163b0968e9f31fac0b` | `git@github-streamline:Michael-Cano_strmln/SLIOps.git` | Operations SPA, hub API, archive/forms, employee session |
 | SLI AuthBridge + SLI Auth | `C:\Users\MDCan\Desktop\SSO` | `C:\Users\MDCan\Desktop\SSO` | `security/2026-10-remediation` | `e05b2fcc4f3a061ce99d1856ef636054bd817a09` | `https://github.com/MDCano-py/slisso.git` | AuthBridge is the gateway. `sli-auth` is the downstream adapter package in the same repo |
 
 Parent commits before this work: SLIOps `c8607fc131bd11516afd02372bf5a131e760fb91` (already required Node.js `>=24.22.1 <25`). SSO `0bd4d2f02e7d47619b5c0e2b15e11b1f11ad12a5`.
