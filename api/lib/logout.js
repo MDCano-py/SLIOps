@@ -62,6 +62,13 @@ async function performLogout(
   { portalBase, useEntra = false, entraLogoutUrl = null, clearAuthBridgeCookies = false } = {}
 ) {
   setNoStore(res);
+  try {
+    const sessionRevocation = require('./session-revocation');
+    const claims = auth.readSessionClaims(req);
+    if (claims) await sessionRevocation.revokeClaims(claims);
+  } catch (err) {
+    console.warn('[auth] session revocation on logout failed', err.message);
+  }
   auth.clearSession(res);
   auth.issueSignedOutMarker(res);
 

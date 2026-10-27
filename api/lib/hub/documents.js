@@ -47,7 +47,7 @@ function expandTemplateStep(step, index, body) {
     assigned_to_email: email,
     assigned_to_name: step.assigned_to_name || email,
     assigned_type: step.assigned_type || (email && !String(email).includes('@streamline') ? 'client' : 'employee'),
-    status: step.status || (index === 0 ? 'waiting' : 'not_started'),
+    status: index === 0 ? 'waiting' : 'not_started',
     required: step.required !== false,
     visible_to_client: !!step.visible_to_client,
     requires_signature: actionType === 'sign' || !!step.requires_signature,

@@ -19,6 +19,9 @@ const { handleSpaceRoutes } = require('../spaces/routes');
 const { handleRbacRoutes } = require('../rbac/routes');
 const { handleConfigurationRoutes } = require('../configuration/routes');
 const authErrors = require('../auth-errors');
+const hubAuthz = require('./authorization');
+const { sanitizeRenderedHtml } = require('../html-sanitize');
+const { recordSecurityAudit } = require('../security-audit');
 
 function parseBody(req) {
   if (!req.body) return {};
@@ -47,14 +50,7 @@ function hasHubPerm(permissions, permId) {
 }
 
 function canAccessRequest(request, actorEmail, isAdmin) {
-  if (!request) return false;
-  if (isAdmin) return true;
-  const email = (actorEmail || '').toLowerCase();
-  if (!email) return false;
-  return (
-    (request.requester_email || '').toLowerCase() === email ||
-    (request.assigned_to || '').toLowerCase() === email
-  );
+  return hubAuthz.canAccessRequest(request, actorEmail, isAdmin);
 }
 
 function filterRequestForRole(request, { isAdmin, clientView }) {
@@ -277,12 +273,15 @@ async function handleHubRoute(path, req, res, ctx) {
     if (!isAdmin && actorEmail) listOpts.my_email = actorEmail;
     const requests = await store.listRequests(listOpts);
     const enriched = await aging.enrichRequestsWithAging(requests);
-    const items = enriched.filter((r) => {
-      if (['stale', 'aging', 'attention'].includes(r.aging?.bucket)) return true;
-      if (actorEmail && r.assigned_to === actorEmail) return true;
-      return false;
-    });
-    return json(res, 200, { items: items.slice(0, 50) });
+    const items = enriched
+      .filter((r) => {
+        if (['stale', 'aging', 'attention'].includes(r.aging?.bucket)) return true;
+        if (actorEmail && r.assigned_to === actorEmail) return true;
+        return false;
+      })
+      .slice(0, 50)
+      .map((row) => hubAuthz.projectQueueRecord(row, actorEmail, isAdmin));
+    return json(res, 200, { items });
   }
 
   if (path === '/hub/my-tasks' && method === 'GET') {
@@ -307,8 +306,13 @@ async function handleHubRoute(path, req, res, ctx) {
 
   const notifRead = path.match(/^\/hub\/notifications\/([^/]+)\/read$/);
   if (notifRead && method === 'POST') {
+    if (!actorEmail) return json(res, 401, authErrors.wosAuthRequiredBody('Unauthorized access'));
     const n = await store.markNotificationRead(notifRead[1], actorEmail);
     if (!n) return json(res, 404, { error: 'Notification not found' });
+    const recipient = String(n.recipient_email || '').toLowerCase();
+    if (recipient && recipient !== String(actorEmail).toLowerCase()) {
+      return json(res, 404, { error: 'Notification not found' });
+    }
     return json(res, 200, n);
   }
 
@@ -595,6 +599,7 @@ async function handleHubRoute(path, req, res, ctx) {
     if (q.waiting_on_me === 'true' && actorEmail) opts.assigned_to = actorEmail;
     let requests = await store.listRequests(opts);
     requests = await aging.enrichRequestsWithAging(requests);
+    requests = requests.map((row) => hubAuthz.projectQueueRecord(row, actorEmail, isAdmin));
     if (q.aging_bucket) {
       requests = requests.filter((r) => r.aging?.bucket === q.aging_bucket);
     }
@@ -621,15 +626,13 @@ async function handleHubRoute(path, req, res, ctx) {
     }
     if (!body.title) return json(res, 400, { error: 'Missing required field: title' });
 
-    const rec = await store.createRequest(
-      {
-        ...body,
-        form_payload: body.form_payload || body.content_json || null,
-        requester_email: body.requester_email || actorEmail,
-        requester_name: body.requester_name || actorEmail,
-      },
-      actorEmail
-    );
+    const trusted = hubAuthz.trustedCreateInput(body, actorEmail, {
+      isAdmin,
+      permissions,
+      actorName: actorEmail,
+    });
+    trusted.form_payload = body.form_payload || body.content_json || null;
+    const rec = await store.createRequest(trusted, actorEmail);
 
     await store.addStatusHistory({
       request_id: rec.id,
@@ -696,7 +699,9 @@ async function handleHubRoute(path, req, res, ctx) {
       if (!canEdit) return json(res, 403, { error: 'Not authorized to edit this document' });
       const patch = {};
       if (body.content_json !== undefined) patch.content_json = body.content_json;
-      if (body.rendered_html !== undefined) patch.rendered_html = body.rendered_html;
+      if (body.rendered_html !== undefined) {
+        patch.rendered_html = sanitizeRenderedHtml(String(body.rendered_html || ''));
+      }
       if (body.title !== undefined) patch.title = body.title;
       patch.version = (webDoc.version || 1) + 1;
       const updated = await store.patchWebDocument(webDoc.id, patch);
@@ -864,12 +869,18 @@ async function handleHubRoute(path, req, res, ctx) {
     const stepForAuth = await store.getWorkflowStep(stepId);
     if (!stepForAuth) return json(res, 404, { error: 'Workflow step not found' });
     const reqForStep = await store.getRequest(stepForAuth.request_id);
-    const stepAssignee = (stepForAuth.assigned_to_email || '').toLowerCase();
-    const canActOnStep =
-      isAdmin ||
-      stepAssignee === (actorEmail || '').toLowerCase() ||
-      canAccessRequest(reqForStep, actorEmail, isAdmin);
-    if (!canActOnStep) return json(res, 403, { error: 'Unauthorized access' });
+    const decision = hubAuthz.canCompleteOrRejectStep(stepForAuth, reqForStep, actorEmail, {
+      isAdmin,
+      permissions,
+    });
+    if (!decision.ok) return json(res, 403, { error: 'Unauthorized access' });
+    if (decision.via === 'override') {
+      recordSecurityAudit('workflow.step_override', {
+        stepId,
+        actor: actorEmail,
+        action: action || 'patch',
+      });
+    }
 
     if (action === '/complete' && method === 'POST') {
       const result = await workflow.completeWorkflowStep(stepId, actorEmail, body);
@@ -891,10 +902,13 @@ async function handleHubRoute(path, req, res, ctx) {
       return json(res, 200, result);
     }
     if (!action && method === 'PATCH') {
-      if (!body) return json(res, 400, { error: 'Invalid JSON body' });
+      const patchDecision = hubAuthz.workflowStepPatch(body);
+      if (patchDecision.error) {
+        return json(res, patchDecision.status || 400, { error: patchDecision.error });
+      }
       const previousAssignee = stepForAuth.assigned_to_email;
       const previousStatus = stepForAuth.status;
-      const updated = await store.saveWorkflowStep({ ...stepForAuth, ...body });
+      const updated = await store.saveWorkflowStep({ ...stepForAuth, ...patchDecision.patch });
       await assignmentNotifications.notifyWorkflowStepAssignment({
         request: reqForStep,
         step: updated,

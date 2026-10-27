@@ -82,6 +82,14 @@ async function withClient(fn) {
   const client = await pool.connect();
   try {
     return await fn(client);
+  } catch (err) {
+    if (err && err.code === '22P02') {
+      const safe = new Error('Not found');
+      safe.code = 'invalid_id';
+      safe.status = 404;
+      throw safe;
+    }
+    throw err;
   } finally {
     client.release();
   }
@@ -334,8 +342,14 @@ async function saveRequest(request) {
   });
 }
 
+function isUuid(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(id || '')
+  );
+}
+
 async function getRequest(id) {
-  if (!id) return null;
+  if (!id || !isUuid(id)) return null;
   return withClient(async (c) => {
     const { isDemoDataVisible } = require('../demo-visibility');
     const r = await c.query('SELECT * FROM requests WHERE id=$1', [id]);
@@ -906,9 +920,15 @@ async function countUnreadNotifications(email) {
 }
 
 async function markNotificationRead(id, email) {
+  if (!isUuid(id)) return null;
   return withClient(async (c) => {
-    await c.query('UPDATE notifications SET read_at=now() WHERE id=$1 AND recipient_email=$2', [id, email]);
-    const r = await c.query('SELECT * FROM notifications WHERE id=$1', [id]);
+    const r = await c.query(
+      `UPDATE notifications
+         SET read_at = COALESCE(read_at, now())
+       WHERE id=$1 AND lower(recipient_email)=lower($2)
+       RETURNING *`,
+      [id, email]
+    );
     return r.rows[0] || null;
   });
 }
@@ -1643,6 +1663,7 @@ module.exports = {
   generateId: uuid,
   hashToken,
   healthCheck,
+  isUuid,
   // Postgres-only helpers
   tx,
   pool,

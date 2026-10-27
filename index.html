@@ -13310,7 +13310,7 @@ function goBack() {
         if (!ok) return;
       }
     }
-    window.location.href = appPath('/api/auth/logout');
+    window.beginPortalLogout();
   };
 
   // ---------------------------------------------------------------------
@@ -14101,6 +14101,29 @@ function goBack() {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
   function escapeAttr(s) { return escapeHtml(s); }
+
+  function beginPortalLogout() {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = appPath('/api/auth/logout');
+    document.body.appendChild(form);
+    form.submit();
+  }
+  window.beginPortalLogout = beginPortalLogout;
+
+  function renderSandboxedSnapshot(el, html, fallback) {
+    if (!el) return;
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', '');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.title = 'Archived document snapshot';
+    frame.style.width = '100%';
+    frame.style.minHeight = '480px';
+    frame.style.border = '0';
+    frame.style.background = 'transparent';
+    frame.srcdoc = html || fallback || '<p>No rendered document available.</p>';
+    el.replaceChildren(frame);
+  }
 
   // ---------------------------------------------------------------------
   // streamlineModal — in-portal replacement for native prompt/confirm/alert.
@@ -19214,7 +19237,7 @@ function goBack() {
         document.getElementById('swp-preview-card').style.display = 'none';
 
         const docEl = document.getElementById('swp-closed-doc');
-        if (docEl) docEl.innerHTML = record.data.renderedHtml || '<p class="hint">No rendered document available for this permit.</p>';
+        if (docEl) renderSandboxedSnapshot(docEl, record.data.renderedHtml, '<p class="hint">No rendered document available for this permit.</p>');
 
         // Stamp metadata into the toolbar (permit #, closed by, when)
         const metaEl = document.getElementById('swpClosedDetailMeta');
@@ -21794,7 +21817,7 @@ function goBack() {
     }
 
     if (d.renderedHtml) {
-      docEl.innerHTML = d.renderedHtml;
+      renderSandboxedSnapshot(docEl, d.renderedHtml);
       return;
     }
     // Fallback rebuild
@@ -21866,7 +21889,7 @@ function goBack() {
     const d = record.data || {};
     const docEl = document.getElementById('bolArchiveDoc');
     if (d.renderedHtml) {
-      docEl.innerHTML = d.renderedHtml;
+      renderSandboxedSnapshot(docEl, d.renderedHtml);
     } else {
       // Fallback for any records saved before we started capturing renderedHtml.
       // Show what we can and explain why it's incomplete.
@@ -22142,7 +22165,7 @@ function goBack() {
         e.stopPropagation();
         closeMenu();
         if (typeof window.portalSignOut === 'function') window.portalSignOut();
-        else window.location.href = appPath('/api/auth/logout');
+        else window.beginPortalLogout();
       });
       document.addEventListener('click', (e) => {
         if (!dropdown.hidden && !menu.contains(e.target)) closeMenu();
@@ -23382,7 +23405,7 @@ function goBack() {
       newSignOut.addEventListener('click', (e) => {
         e.preventDefault();
         if (typeof window.portalSignOut === 'function') window.portalSignOut();
-        else window.location.href = appPath('/api/auth/logout');
+        else window.beginPortalLogout();
       });
     }
 

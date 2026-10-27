@@ -1132,7 +1132,8 @@
       else {
         const base = (window.APP_BASE_PATH || '').replace(/\/$/, '');
         const go = () => {
-          window.location.href = `${base}/api/auth/logout`;
+          if (typeof window.beginPortalLogout === 'function') window.beginPortalLogout();
+          else window.location.href = `${base}/api/auth/logout`;
         };
         const modal = global.streamlineModal || window.streamlineModal;
         if (modal && typeof modal.confirm === 'function') {

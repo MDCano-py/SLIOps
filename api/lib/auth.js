@@ -17,6 +17,7 @@
 
 const crypto = require('crypto');
 const { getCookiePath } = require('./app-paths');
+const sessionRevocation = require('./session-revocation');
 
 const SESSION_COOKIE_NAME  = 'sliops_session';
 const REMEMBER_COOKIE_NAME = 'sliops_remember';
@@ -60,8 +61,13 @@ function b64urlDecode(str) {
 // ---------- JWT-like encode/decode ----------
 // Returns: header.payload.signature (all base64url)
 function signJwt(payload, ttlSeconds) {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = { ...payload, iat: now, exp: now + ttlSeconds };
+  const now = sessionRevocation.freshIssuedAt(payload && payload.email);
+  const claims = {
+    ...payload,
+    iat: now,
+    exp: now + ttlSeconds,
+    jti: payload.jti || crypto.randomUUID(),
+  };
   const header = { alg: 'HS256', typ: 'JWT' };
   const encHeader  = b64urlEncode(JSON.stringify(header));
   const encPayload = b64urlEncode(JSON.stringify(claims));
@@ -74,7 +80,7 @@ function signJwt(payload, ttlSeconds) {
 // Returns null otherwise — never throws on invalid input (so callers can
 // treat any failure as "no session"). Uses constant-time comparison for
 // the signature to avoid timing-attack leaks.
-function verifyJwt(token) {
+function verifyJwt(token, opts = {}) {
   if (typeof token !== 'string') return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
@@ -103,6 +109,7 @@ function verifyJwt(token) {
   }
   const now = Math.floor(Date.now() / 1000);
   if (typeof payload.exp !== 'number' || payload.exp < now) return null;
+  if (!opts.ignoreRevocation && sessionRevocation.isRevokedSync(payload)) return null;
   return payload;
 }
 
@@ -255,6 +262,18 @@ function isEmployeeSessionPayload(payload) {
   return true;
 }
 
+function readSessionClaims(req) {
+  const cookies = parseCookies(req);
+  const rememberToken = cookies[REMEMBER_COOKIE_NAME];
+  const sessionToken = cookies[SESSION_COOKIE_NAME];
+  for (const t of [rememberToken, sessionToken]) {
+    if (!t) continue;
+    const payload = verifyJwt(t, { ignoreRevocation: true });
+    if (isEmployeeSessionPayload(payload)) return payload;
+  }
+  return null;
+}
+
 function getSession(req) {
   const cookies = parseCookies(req);
   // Prefer remember-me if both are somehow set
@@ -320,6 +339,7 @@ module.exports = {
   SIGNED_OUT_TTL_SECONDS,
   signJwt,
   verifyJwt,
+  readSessionClaims,
   isEmployeeSessionPayload,
   parseCookies,
   buildSetCookie,

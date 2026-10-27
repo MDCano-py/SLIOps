@@ -175,6 +175,14 @@ function createMemoryRedisStub() {
     async zcard(key) {
       return ensureZ(key).size;
     },
+    async zrem(key, ...members) {
+      const z = ensureZ(key);
+      let removed = 0;
+      for (const member of members.flat()) {
+        if (z.delete(String(member))) removed += 1;
+      }
+      return removed;
+    },
     async lpush(key, ...values) {
       const list = ensureList(key);
       for (const v of values.flat().reverse()) list.unshift(v);
@@ -213,6 +221,10 @@ function createMemoryRedisStub() {
         },
         zadd(...a) {
           ops.push(() => client.zadd(...a));
+          return api;
+        },
+        zrem(...a) {
+          ops.push(() => client.zrem(...a));
           return api;
         },
         lpush(...a) {

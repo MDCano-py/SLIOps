@@ -74,6 +74,10 @@ function loadSsoHandlers() {
   return _ssoHandlers;
 }
 
+const { readRawBody, assertUploadAllowed } = require('./lib/maintainx-upload');
+const { sanitizeSnapshotFields } = require('./lib/html-sanitize');
+const { withArchiveIdempotency } = require('./lib/archive-idempotency');
+const sessionRevocation = require('./lib/session-revocation');
 const MAINTAINX_BASE = 'https://api.getmaintainx.com/v1';
 const PHOTO_RETENTION_DAYS = 90;
 
@@ -1136,6 +1140,11 @@ async function readBlobArchiveRecord(kind, id) {
   return typeof raw === 'string' ? JSON.parse(raw) : raw;
 }
 
+function presentArchiveRecord(rec) {
+  if (!rec) return rec;
+  return sanitizeSnapshotFields(rec);
+}
+
 // Write a record to Redis. Updates whichever sorted-set indexes apply
 // (main idx always; live/closed for SWP). Pipelined so the write +
 // index updates happen in one round trip.
@@ -1288,27 +1297,36 @@ function generateRequestArchiveId() {
 // (location, parts list, etc). Returns the saved record.
 async function saveRequestArchive(kind, payload, actorEmail) {
   const { recordPrefix, indexKey } = archiveKindKeys(kind);
-  const id = generateRequestArchiveId();
-  const now = new Date().toISOString();
-  const nowMs = Date.now();
-  const record = {
-    id,
-    kind,
-    createdAt: now,
-    submittedBy: actorEmail || payload.submittedBy || payload.contactEmail || 'unknown',
-    ...payload,
-  };
-  const p = redis.pipeline();
-  p.set(`${recordPrefix}:${id}`, JSON.stringify(record));
-  p.zadd(indexKey, { score: nowMs, member: id });
-  await p.exec();
+  const actor = String(actorEmail || '').toLowerCase();
+  const safePayload = payload && typeof payload === 'object' ? { ...payload } : {};
+  delete safePayload.submittedBy;
+  delete safePayload.requester_email;
+  delete safePayload.requester_name;
+  const { record, replayed } = await withArchiveIdempotency(kind, actor, safePayload, async () => {
+    const id = generateRequestArchiveId();
+    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const stored = {
+      ...safePayload,
+      id,
+      kind,
+      createdAt: now,
+      submittedBy: actor || 'unknown',
+    };
+    const p = redis.pipeline();
+    p.set(`${recordPrefix}:${id}`, JSON.stringify(stored));
+    p.zadd(indexKey, { score: nowMs, member: id });
+    await p.exec();
+    return stored;
+  });
+  if (replayed) return record;
   // Mirror into central Operations Workflow Hub (non-blocking for legacy callers).
   try {
-    const hubRec = await mirrorArchiveToHub(kind, record, actorEmail);
+    const hubRec = await mirrorArchiveToHub(kind, record, actor);
     if (hubRec?.id) {
       record.hubRequestId = hubRec.id;
       record.hubRequestNumber = hubRec.request_number;
-      await redis.set(`${recordPrefix}:${id}`, JSON.stringify(record));
+      await redis.set(`${recordPrefix}:${record.id}`, JSON.stringify(record));
     }
   } catch (hubErr) {
     console.warn('Hub mirror failed (archive still saved):', hubErr.message);
@@ -1813,15 +1831,8 @@ function summaryForList(kind, rec) {
   return {};
 }
 
-// Read the raw request body as a Buffer (for binary uploads)
-function readRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
+// Binary upload bodies are normalized in api/lib/maintainx-upload.js.
+// The server core has already buffered req.body before the handler runs.
 
 // ---------- Auth handler (Entra OIDC primary, SAML legacy fallback) ----------
 //
@@ -2084,6 +2095,11 @@ async function handleAuth(path, req, res) {
       if (req.method !== 'GET' && req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
+      const { evaluateLogoutRequest } = require('./lib/logout-csrf');
+      const decision = evaluateLogoutRequest(req);
+      if (!decision.allow) {
+        return res.status(403).json({ error: 'Logout must be confirmed from this site' });
+      }
       const { performLogout, setNoStore: noStore } = require('./lib/logout');
       noStore(res);
 
@@ -2252,6 +2268,11 @@ p.ltrim('users:audit', 0, 499);
   await p.exec();
 }
 module.exports = async function handler(req, res) {
+  try {
+    await sessionRevocation.hydrate(req, auth.readSessionClaims);
+  } catch (err) {
+    console.warn('[auth] session revocation hydrate failed', err.message);
+  }
   const rawPath = typeof req.query.path === 'string' ? req.query.path : '';
   const pathOnly = rawPath.split('?')[0];
 
@@ -2837,7 +2858,8 @@ module.exports = async function handler(req, res) {
     try {
       // ----- POST: create new record -----
       if (req.method === 'POST' && !id) {
-        const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+        const rawBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+        const body = sanitizeSnapshotFields(rawBody);
         if (!body || typeof body !== 'object') {
           return res.status(400).json({ error: 'Invalid body — JSON object required' });
         }
@@ -2907,7 +2929,7 @@ module.exports = async function handler(req, res) {
 
       // ----- GET (single): return the full record -----
       if (req.method === 'GET' && id) {
-        const rec = await readBlobArchiveRecord(kind, id);
+        const rec = presentArchiveRecord(await readBlobArchiveRecord(kind, id));
         if (!rec) return res.status(404).json({ error: 'Record not found' });
         return res.status(200).json(rec);
       }
@@ -2919,7 +2941,8 @@ module.exports = async function handler(req, res) {
         if (rec.status === 'closed') {
           return res.status(409).json({ error: 'Cannot edit a closed permit' });
         }
-        const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+        const rawBody = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+        const body = sanitizeSnapshotFields(rawBody);
         if (!body || typeof body !== 'object') {
           return res.status(400).json({ error: 'Invalid body — JSON object required' });
         }
@@ -3012,13 +3035,19 @@ module.exports = async function handler(req, res) {
           }
         }
         await deleteBlobArchiveRecord(kind, id);
+        recordSecurityAudit('archive.delete', {
+          kind,
+          id,
+          actor: authActor.actorEmail,
+          privileged: !!privileged,
+        });
         return res.status(200).json({ deleted: true, id });
       }
 
       return res.status(405).json({ error: 'Method not allowed for archive path' });
     } catch (err) {
       console.error('Archive error:', err);
-      return res.status(500).json({ error: 'Archive operation failed', detail: err.message });
+      return res.status(500).json({ error: 'Archive operation failed' });
     }
   }
 
@@ -4253,7 +4282,7 @@ module.exports = async function handler(req, res) {
       return res.status(405).json({ error: 'Method not allowed for forms' });
     } catch (err) {
       console.error('Forms endpoint error:', err);
-      return res.status(500).json({ error: 'Form operation failed', detail: err.message });
+      return res.status(500).json({ error: 'Form operation failed' });
     }
   }
 
@@ -4330,7 +4359,10 @@ module.exports = async function handler(req, res) {
       return res.status(404).json({ error: 'Hub route not found', path: hubPath });
     } catch (err) {
       console.error('Hub route error:', err);
-      return res.status(500).json({ error: 'Hub operation failed', detail: err.message });
+      if (err && (err.code === '22P02' || err.code === 'invalid_id')) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+      return res.status(500).json({ error: 'Hub operation failed' });
     }
   }
 
@@ -4369,9 +4401,12 @@ module.exports = async function handler(req, res) {
     fetchOpts.body =
       typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
   } else if (req.method === 'PUT') {
-    // PUT is used for binary file uploads (work order attachments)
-    fetchOpts.headers['Content-Type'] = req.headers['content-type'] || 'application/octet-stream';
     const buf = await readRawBody(req);
+    const upload = assertUploadAllowed(req.headers['content-type'], buf.length);
+    if (!upload.ok) {
+      return res.status(upload.status).json({ error: upload.error });
+    }
+    fetchOpts.headers['Content-Type'] = upload.contentType;
     fetchOpts.body = buf;
   }
 

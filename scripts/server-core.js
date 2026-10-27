@@ -63,8 +63,8 @@ const MIME = {
 };
 
 // WOS-79 — baseline browser-protection headers applied to every response.
-// These are intentionally conservative (no Content-Security-Policy, which is
-// left to the Nginx/ALB layer to avoid breaking the app's inline scripts).
+// CSP here is intentionally partial (no script-src) so inline portal scripts
+// keep working. Stored HTML is sanitized and rendered in a script-less iframe.
 // HSTS is only emitted for deployed (staging/production) environments where
 // TLS terminates at the reverse proxy; it is a no-op / undesirable over plain
 // http local dev. See PENTEST_READINESS_PACKAGE.md for the full header list.
@@ -76,6 +76,12 @@ function applyBaseSecurityHeaders(nodeRes) {
     nodeRes.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     // Legacy XSS auditor is deprecated; explicitly disable to avoid its bugs.
     nodeRes.setHeader('X-XSS-Protection', '0');
+    // Compatible CSP: blocks plugin and base-tag injection without forbidding
+    // the portal's existing inline scripts. Script nonces are a follow-up.
+    nodeRes.setHeader(
+      'Content-Security-Policy',
+      "base-uri 'self'; object-src 'none'; frame-ancestors 'self'"
+    );
     const env = String(process.env.NODE_ENV || '').toLowerCase();
     if (env === 'staging' || env === 'production') {
       nodeRes.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
